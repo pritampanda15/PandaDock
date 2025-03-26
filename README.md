@@ -1,5 +1,4 @@
-# PandaDock
-PandaDock: Python-based molecular docking software for bioinformatics and drug design
+# PandaDock: Python-based molecular docking software for bioinformatics and drug design with Physics-Based approach
 
 PandaDock is a Python-based molecular docking package designed for bioinformatics and drug design applications. It provides a command-line interface for molecular docking simulations, with support for multiple scoring functions and search algorithms.
 
