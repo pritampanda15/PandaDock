@@ -8,9 +8,13 @@ setup(
     version="0.1.0",
     author="Dr. Pritam Kumar Panda",
     author_email="pritam@stanford.edu",
-    description="A Python-based molecular docking tool for computational drug discovery",
+    description="A GPU-accelerated molecular docking tool for computational drug discovery",
     long_description=long_description,
     long_description_content_type="text/markdown",
+    project_urls={
+        "Bug Tracker": "https://github.com/pritampanda15/pandadock/issues",
+        "Documentation": "https://github.com/pritampanda15/pandadock/wiki",
+    },
     url="https://github.com/pritampanda15/pandadock",
     packages=find_packages(),
     classifiers=[
@@ -36,6 +40,7 @@ setup(
     ],
 },
     extras_require={
+        "gpu": ["torch>=1.9.0"],
         "dev": [
             "pytest>=6.0.0",
             "pytest-cov>=2.10.0",
