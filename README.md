@@ -57,7 +57,15 @@ For better molecular handling, it's recommended to install RDKit:
 ```bash
 conda install -c conda-forge rdkit
 ```
+### Install via pip
 
+```bash
+# First install RDKit with conda
+conda install -c conda-forge rdkit
+
+# Then install PandaDock
+pip install pandadock
+```
 ### Install Open Babel (Optional)
 
 For advanced molecule preparation:
