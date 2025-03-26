@@ -85,7 +85,14 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 # OR CuPy
 pip install cupy-cuda11x
 ```
+### Option 2: Use extras_require
 
+```python
+extras_require={
+    "gpu": ["torch>=1.9.0"],
+    "full": ["torch>=1.9.0"],  # Users can install with: pip install pandadock[full]
+},
+```
 ## Usage
 
 ### Command Line Interface
