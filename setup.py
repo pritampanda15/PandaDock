@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="pandadock",
-    version="0.1.0",
+    version="0.2.0",
     author="Dr. Pritam Kumar Panda",
     author_email="pritam@stanford.edu",
     description="A GPU-accelerated molecular docking tool for computational drug discovery",
