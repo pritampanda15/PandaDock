@@ -17,6 +17,7 @@ PandaDock is a Python-based molecular docking package designed for bioinformatic
   - Genetic algorithm with local optimization
   - Monte Carlo sampling with simulated annealing
 - 🔄 Molecule preparation with hydrogen addition and energy minimization
+- Flexible residues docking
 - 📏 Validation against reference structures with RMSD calculations
 - 📈 Comprehensive results visualization and analysis
 - ⚡ Hardware acceleration:
@@ -101,6 +102,11 @@ extras_require={
 # Basic usage
 pandadock -p protein.pdb -l ligand.mol -o results
 
+#Flexible residues
+pandadock -p protein.pdb -l ligand.sdf -s 110.133 135.572 141.959 -r 3.0 \
+  --flex-residues A_265 A_231 B_277 --max-flex-bonds 2 \
+  --physics-based --use-gpu
+
 # Use genetic algorithm with 2000 iterations
 pandadock -p protein.pdb -l ligand.mol -a genetic -i 2000 -o results
 
@@ -125,6 +131,7 @@ PandaDock offers flexible running modes to balance between speed and accuracy:
   - `--local-opt` - Fine-tune top poses for better results
   - `--exhaustiveness 5` - Run multiple independent searches
   - `--prepare-molecules` - Optimize molecule geometry before docking
+  - `--flex-residues` - Use flexible residues
 
 ### Physics-Based Docking
 
@@ -218,6 +225,9 @@ save_docking_results(optimized_results, "docking_results")
 | `-s, --site` | Active site center coordinates (x y z) |
 | `-r, --radius` | Active site radius in Angstroms (default: 10.0) |
 | `--detect-pockets` | Automatically detect binding pockets |
+| `--flex-residues` | Specify flexible residue IDs (e.g., A_42 B_57) |
+| `--max-flex-bonds` | Maximum rotatable bonds per residue (default: 3) |
+
 
 ### Enhancement Options
 | Argument | Description |
@@ -254,12 +264,16 @@ save_docking_results(optimized_results, "docking_results")
 
 ## Examples
 
-### Example 1: Basic Docking
+### Example 1: Basic Docking and Flexible Docking
 
 ```bash
 pandadock -p tests/receptor.pdb -l tests/ligand.sdf -o results_receptor
 ```
 
+```bash
+pandadock -p protein.pdb -l ligand.sdf -s 110.133 135.572 141.959 -r 3.0 \
+  --flex-residues A_42 A_85 A_132 --max-flex-bonds 2 
+```
 ### Example 2: Enhanced Docking with Local Optimization
 
 ```bash
@@ -373,5 +387,5 @@ Pritam Kumar Panda. (2025). PandaDock: Python Molecular Docking. GitHub reposito
 
 ## Acknowledgments
 
-- Thanks to everyone who contributed to this project
+- Thanks to me who crafted this after dealing with commercial software. 
 - Inspiration from established docking software like AutoDock, Vina, etc.
