@@ -354,11 +354,11 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             l_charges.append(self.atom_charges.get(symbol, 0.0))
         
         # Convert to PyTorch tensors
-        p_coords = torch.tensor(p_coords, device=self.device)
-        p_charges = torch.tensor(p_charges, device=self.device)
+        p_coords = torch.tensor(np.array(p_coords), device=self.device)
+        p_charges = torch.tensor(np.array(p_charges), device=self.device)
         
-        l_coords = torch.tensor(l_coords, device=self.device)
-        l_charges = torch.tensor(l_charges, device=self.device)
+        l_coords = torch.tensor(np.array(l_coords), device=self.device)
+        l_charges = torch.tensor(np.array(l_charges), device=self.device)
         
         # Calculate all distances at once
         distances = torch.cdist(p_coords, l_coords)
@@ -477,11 +477,11 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             l_solvation.append(self.atom_solvation.get(symbol, 0.0))
         
         # Convert to PyTorch tensors
-        p_coords = torch.tensor(p_coords, device=self.device)
-        p_solvation = torch.tensor(p_solvation, device=self.device).view(-1, 1)
+        p_coords = torch.tensor(np.array(p_coords), device=self.device)
+        p_solvation = torch.tensor(np.array(p_solvation), device=self.device).view(-1, 1)
         
-        l_coords = torch.tensor(l_coords, device=self.device)
-        l_solvation = torch.tensor(l_solvation, device=self.device).view(1, -1)
+        l_coords = torch.tensor(np.array(l_coords), device=self.device)
+        l_solvation = torch.tensor(np.array(l_solvation), device=self.device).view(1, -1)
         
         # Calculate all distances at once
         distances = torch.cdist(p_coords, l_coords)
@@ -589,8 +589,8 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
         l_coords = [atom['coords'] for atom in l_hydrophobic]
         
         # Convert to PyTorch tensors
-        p_coords = torch.tensor(p_coords, device=self.device)
-        l_coords = torch.tensor(l_coords, device=self.device)
+        p_coords = torch.tensor(np.array(p_coords), device=self.device)
+        l_coords = torch.tensor(np.array(l_coords), device=self.device)
         
         # Calculate all distances at once
         distances = torch.cdist(p_coords, l_coords)
