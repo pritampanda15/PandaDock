@@ -379,3 +379,34 @@ class GeneticAlgorithm(DockingSearch):
                 pose.translate(-centroid)
                 pose.rotate(rotation_matrix)
                 pose.translate(centroid)
+
+    # Add to search.py, in the GeneticAlgorithm class
+
+    def _mutate(self, individual):
+        """
+        Mutate an individual with probability mutation_rate.
+        Now handles flexible residues too.
+        """
+        # Original mutation of ligand pose
+        super()._mutate(individual)
+    
+        # Now also mutate flexible residues if available
+        if hasattr(self.protein, 'flexible_residues') and self.protein.flexible_residues:
+            # Probability of mutating a flexible residue
+            if random.random() < self.mutation_rate:
+                # Randomly select a flexible residue
+                residue = random.choice(self.protein.flexible_residues)
+            
+                # Randomly select a rotatable bond in the residue
+                if residue.rotatable_bonds:
+                    bond_idx = random.randint(0, len(residue.rotatable_bonds) - 1)
+                
+                    # Random rotation angle between -60 and +60 degrees
+                    angle = random.uniform(-np.pi/3, np.pi/3)
+                
+                    # Apply rotation
+                    residue.rotate_bond(bond_idx, angle)
+
+
+
+                    

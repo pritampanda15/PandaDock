@@ -148,4 +148,63 @@ class Protein:
         
         return pockets
 
+    # Add to protein.py
 
+def define_flexible_residues(self, flexible_residue_ids, max_rotatable_bonds=3):
+    """
+    Define which residues are flexible.
+    
+    Parameters:
+    -----------
+    flexible_residue_ids : list
+        List of residue IDs to make flexible
+    max_rotatable_bonds : int
+        Maximum number of rotatable bonds per residue
+    """
+    from .flexible_residues import FlexibleResidue
+    
+    self.flexible_residues = []
+    
+    for res_id in flexible_residue_ids:
+        if res_id in self.residues:
+            residue_atoms = self.residues[res_id]
+            
+            # Find rotatable bonds in this residue
+            rotatable_bonds = self._find_rotatable_bonds(residue_atoms, max_rotatable_bonds)
+            
+            # Create flexible residue object
+            flex_residue = FlexibleResidue(
+                residue_id=res_id,
+                atoms=residue_atoms,
+                rotatable_bonds=rotatable_bonds
+            )
+            
+            self.flexible_residues.append(flex_residue)
+            
+    print(f"Defined {len(self.flexible_residues)} flexible residues with "
+          f"total {sum(len(r.rotatable_bonds) for r in self.flexible_residues)} rotatable bonds")
+    
+def _find_rotatable_bonds(self, residue_atoms, max_bonds):
+    """Find rotatable bonds in a residue based on chemistry rules."""
+    # This is a simplified implementation
+    # A real implementation would consider chemical properties
+    
+    rotatable_bonds = []
+    
+    # Create atom indices mapping
+    atom_indices = {atom['name']: i for i, atom in enumerate(residue_atoms)}
+    
+    # Common rotatable bonds in amino acid side chains
+    if 'CA' in atom_indices and 'CB' in atom_indices:
+        rotatable_bonds.append((atom_indices['CA'], atom_indices['CB']))
+    
+    if 'CB' in atom_indices and 'CG' in atom_indices:
+        rotatable_bonds.append((atom_indices['CB'], atom_indices['CG']))
+    
+    if 'CG' in atom_indices and 'CD' in atom_indices:
+        rotatable_bonds.append((atom_indices['CG'], atom_indices['CD']))
+    
+    # Add more specific rules for different amino acids
+    
+    # Limit to maximum number of bonds
+    return rotatable_bonds[:max_bonds]

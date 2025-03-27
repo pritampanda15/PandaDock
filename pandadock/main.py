@@ -154,6 +154,14 @@ def main():
                         help='Number of Monte Carlo steps (default: 1000)')
     parser.add_argument('--temperature', type=float, default=300.0,
                         help='Temperature for Monte Carlo simulation in Kelvin (default: 300K)')
+
+    # Add to main.py, in the argument parser
+
+    # Flexible residue options
+    parser.add_argument('--flex-residues', nargs='+', 
+                        help='Specify flexible residue IDs (e.g., A_42 B_57)')
+    parser.add_argument('--max-flex-bonds', type=int, default=3,
+                        help='Maximum rotatable bonds per residue (default: 3)')
     
     # Add hardware acceleration options
     add_hardware_options(parser)
