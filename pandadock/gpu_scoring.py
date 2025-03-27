@@ -22,32 +22,32 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
     """
     
     def __init__(self, device='cuda', precision='float32'):
-    """
-    Initialize the GPU-accelerated scoring function.
-    """
-    super().__init__()
+        """
+        Initialize the GPU-accelerated scoring function.
+        """
+        super().__init__()
     
-    # Add the van der Waals well depth parameters if not inherited
-    if not hasattr(self, 'vdw_well_depth'):
-        self.vdw_well_depth = {
-            'C': 0.1094,
-            'N': 0.0784,
-            'O': 0.2100,
-            'S': 0.2500,
-            'P': 0.2000,
-            'F': 0.0610,
-            'Cl': 0.2650,
-            'Br': 0.3200,
-            'I': 0.4000,
-            'H': 0.0157
-        }
+        # Add the van der Waals well depth parameters if not inherited
+        if not hasattr(self, 'vdw_well_depth'):
+            self.vdw_well_depth = {
+                'C': 0.1094,
+                'N': 0.0784,
+                'O': 0.2100,
+                'S': 0.2500,
+                'P': 0.2000,
+                'F': 0.0610,
+                'Cl': 0.2650,
+                'Br': 0.3200,
+                'I': 0.4000,
+                'H': 0.0157
+            }
     
-    self.device_name = device
-    self.precision = precision
-    self.device = None
-    self.torch_available = False
-    self.cupy_available = False
-    self._init_gpu()
+        self.device_name = device
+        self.precision = precision
+        self.device = None
+        self.torch_available = False
+        self.cupy_available = False
+        self._init_gpu()
         
     def _init_gpu(self):
         """Initialize GPU resources and check available hardware."""
