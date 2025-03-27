@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: pandadock
-Version: 0.6.0
+Version: 0.7.0
 Summary: A GPU-accelerated molecular docking tool for computational drug discovery
 Home-page: https://github.com/pritampanda15/pandadock
 Author: Dr. Pritam Kumar Panda
@@ -144,6 +144,8 @@ extras_require={
 
 ### Command Line Interface
 
+***Note: Remeber to change the --iteration or -i value to smaller number or else it will take hours to optimize it if you set it for blind docking <br>
+
 ```bash
 # Basic usage
 pandadock -p protein.pdb -l ligand.mol -o results
@@ -154,7 +156,7 @@ pandadock -p protein.pdb -l ligand.sdf -s 110.133 135.572 141.959 -r 3.0 \
   --physics-based --use-gpu
 
 # Use genetic algorithm with 2000 iterations
-pandadock -p protein.pdb -l ligand.mol -a genetic -i 2000 -o results
+pandadock -p protein.pdb -l ligand.mol -a genetic -i 100 -o results
 
 # Specify active site
 pandadock -p protein.pdb -l ligand.mol -s 10.0 20.0 30.0 -r 12.0 -o results
@@ -318,7 +320,7 @@ pandadock -p tests/receptor.pdb -l tests/ligand.sdf -o results_receptor
 
 ```bash
 pandadock -p protein.pdb -l ligand.sdf -s 110.133 135.572 141.959 -r 3.0 \
-  --flex-residues A_42 A_85 A_132 --max-flex-bonds 2 
+  --flex-residues A_42 A_85 A_132 --max-flex-bonds 2 -i 100
 ```
 ### Example 2: Enhanced Docking with Local Optimization
 
