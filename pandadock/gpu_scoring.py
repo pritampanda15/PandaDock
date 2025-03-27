@@ -215,7 +215,7 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             l_depths.append(self.vdw_well_depth.get(symbol, 0.1))
         
         # Convert to PyTorch tensors
-        p_coords = torch.tensor(p_coords, device=self.device)
+        p_coords = torch.tensor(np.array(p_coords), device=self.device)
         p_radii = torch.tensor(p_radii, device=self.device).view(-1, 1)
         p_depths = torch.tensor(p_depths, device=self.device).view(-1, 1)
         

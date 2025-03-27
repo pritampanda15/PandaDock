@@ -12,15 +12,27 @@ import argparse
 import time
 import json
 import datetime
+import copy
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
+from functools import partial
+import multiprocessing
 
 from pandadock.protein import Protein
 from pandadock.ligand import Ligand
 from pandadock.scoring import EnhancedScoringFunction
 from pandadock.hybrid_manager import HybridDockingManager, HardwareInfo
 from pandadock.gpu_scoring import GPUAcceleratedScoringFunction
+
+
+# Helper function for multiprocessing - must be at module level
+def _score_pose_mp(args):
+    """
+    Score a single pose (multiprocessing-compatible helper function).
+    """
+    protein, scoring_function, pose = args
+    return scoring_function.score(protein, pose)
 
 
 def parse_arguments():
@@ -66,9 +78,9 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def run_scoring_benchmark(protein, ligand, n_poses, mode, cpu_workers=None, gpu_id=0):
+def generate_random_poses(protein, ligand, n_poses):
     """
-    Run scoring function benchmark.
+    Generate random ligand poses within the active site.
     
     Parameters:
     -----------
@@ -77,32 +89,15 @@ def run_scoring_benchmark(protein, ligand, n_poses, mode, cpu_workers=None, gpu_
     ligand : Ligand
         Ligand object
     n_poses : int
-        Number of poses to generate and score
-    mode : str
-        Benchmark mode ('cpu', 'gpu', or 'hybrid')
-    cpu_workers : int
-        Number of CPU workers to use
-    gpu_id : int
-        GPU device ID to use
+        Number of poses to generate
     
     Returns:
     --------
-    dict
-        Benchmark results
+    list
+        List of random ligand poses
     """
-    import copy
-    from scipy.spatial.transform import Rotation
     import random
-    
-    print(f"Running {mode} scoring benchmark with {n_poses} poses...")
-    
-    # Check if protein has flexible residues
-    has_flexible_residues = hasattr(protein, 'flexible_residues') and protein.flexible_residues
-    if has_flexible_residues:
-        print(f"  Using {len(protein.flexible_residues)} flexible residues")
-    
-    # Generate random poses
-    poses = []
+    from scipy.spatial.transform import Rotation
     
     # Determine search space
     if protein.active_site:
@@ -114,6 +109,7 @@ def run_scoring_benchmark(protein, ligand, n_poses, mode, cpu_workers=None, gpu_
         radius = 15.0  # Arbitrary search radius
     
     # Generate poses
+    poses = []
     for _ in range(n_poses):
         # Make a deep copy of the ligand
         pose = copy.deepcopy(ligand)
@@ -145,6 +141,43 @@ def run_scoring_benchmark(protein, ligand, n_poses, mode, cpu_workers=None, gpu_
         pose.translate(centroid)
         
         poses.append(pose)
+    
+    return poses
+
+
+def run_scoring_benchmark(protein, ligand, n_poses, mode, cpu_workers=None, gpu_id=0):
+    """
+    Run scoring function benchmark.
+    
+    Parameters:
+    -----------
+    protein : Protein
+        Protein object
+    ligand : Ligand
+        Ligand object
+    n_poses : int
+        Number of poses to generate and score
+    mode : str
+        Benchmark mode ('cpu', 'gpu', or 'hybrid')
+    cpu_workers : int
+        Number of CPU workers to use
+    gpu_id : int
+        GPU device ID to use
+    
+    Returns:
+    --------
+    dict
+        Benchmark results
+    """
+    print(f"Running {mode} scoring benchmark with {n_poses} poses...")
+    
+    # Check if protein has flexible residues
+    has_flexible_residues = hasattr(protein, 'flexible_residues') and protein.flexible_residues
+    if has_flexible_residues:
+        print(f"  Using {len(protein.flexible_residues)} flexible residues")
+    
+    # Generate random poses - moved to a separate function
+    poses = generate_random_poses(protein, ligand, n_poses)
     
     # Set up scoring function based on mode
     if mode == 'cpu':
@@ -207,17 +240,15 @@ def run_scoring_benchmark(protein, ligand, n_poses, mode, cpu_workers=None, gpu_
         else:
             scoring_function = EnhancedScoringFunction()
         
-        # Create scoring tasks
-        def score_pose(pose):
-            return scoring_function.score(protein, pose)
-        
         # Time scoring using process pool
         start_time = time.time()
         
         if hybrid_manager.cpu_pool:
-            scores = hybrid_manager.cpu_pool.map(score_pose, poses)
+            # Create a list of argument tuples for the helper function
+            args_list = [(protein, scoring_function, pose) for pose in poses]
+            scores = hybrid_manager.cpu_pool.map(_score_pose_mp, args_list)
         else:
-            scores = [score_pose(pose) for pose in poses]
+            scores = [scoring_function.score(protein, pose) for pose in poses]
         
         elapsed_time = time.time() - start_time
         
@@ -252,6 +283,13 @@ def run_scoring_benchmark(protein, ligand, n_poses, mode, cpu_workers=None, gpu_
         'has_flexible_residues': has_flexible_residues,
         'flexible_residue_count': len(protein.flexible_residues) if has_flexible_residues else 0
     }
+
+
+# Module-level search function for multiprocessing
+def _search_algorithm_worker(args):
+    """Search algorithm worker function for multiprocessing."""
+    protein, ligand, algorithm = args
+    return algorithm.search(protein, ligand)
 
 
 def run_search_benchmark(protein, ligand, n_iterations, mode, cpu_workers=None, gpu_id=0):
@@ -350,6 +388,7 @@ def run_search_benchmark(protein, ligand, n_iterations, mode, cpu_workers=None, 
         else:
             scoring_function = EnhancedScoringFunction()
         
+        # Create algorithm with external process pool to avoid pickling issues
         algorithm = ParallelGeneticAlgorithm(
             scoring_function=scoring_function,
             max_iterations=n_iterations,
@@ -358,9 +397,12 @@ def run_search_benchmark(protein, ligand, n_iterations, mode, cpu_workers=None, 
             process_pool=hybrid_manager.cpu_pool
         )
         
-        # Time search
+        # Make sure we use a picklable approach for search
         start_time = time.time()
+        
+        # Using the algorithm directly, which should handle parallelization internally
         results = algorithm.search(protein, ligand)
+        
         elapsed_time = time.time() - start_time
         
         # Clean up resources
@@ -797,4 +839,6 @@ def main():
 
 
 if __name__ == "__main__":
+    # The multiprocessing with Pool might need this on some platforms
+    multiprocessing.set_start_method('spawn', force=True)
     main()
