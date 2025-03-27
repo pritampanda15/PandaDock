@@ -701,11 +701,12 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             l_radii.append(self.vdw_radii.get(symbol, 1.7))
         
         # Convert to PyTorch tensors
-        p_coords = torch.tensor(p_coords, device=self.device)
-        p_radii = torch.tensor(p_radii, device=self.device).view(-1, 1)
+        p_coords = torch.tensor(np.array(p_coords), device=self.device)
+        p_radii = torch.tensor(np.array(p_radii), device=self.device).view(-1, 1)
         
-        l_coords = torch.tensor(l_coords, device=self.device)
-        l_radii = torch.tensor(l_radii, device=self.device).view(1, -1)
+        l_coords = torch.tensor(np.array(l_coords), device=self.device)
+        l_radii = torch.tensor(np.array(l_radii), device=self.device).view(1, -1)
+
         
         # Calculate all distances at once
         distances = torch.cdist(p_coords, l_coords)
