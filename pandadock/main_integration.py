@@ -275,21 +275,27 @@ def get_algorithm_kwargs_from_args(args):
     algorithm_type = get_algorithm_type_from_args(args)
     algorithm_kwargs = {}
     
-    # Common parameters for all algorithms
-    if hasattr(args, 'iterations'):
-        algorithm_kwargs['max_iterations'] = args.iterations
-    
     # Algorithm-specific parameters
-    if algorithm_type == 'genetic':
-        if hasattr(args, 'population_size'):
-            algorithm_kwargs['population_size'] = args.population_size
+    if algorithm_type == 'genetic' or algorithm_type == 'random':
+        # Common parameters for genetic and random algorithms
+        if hasattr(args, 'iterations'):
+            algorithm_kwargs['max_iterations'] = args.iterations
         
-        if hasattr(args, 'mutation_rate'):
-            algorithm_kwargs['mutation_rate'] = getattr(args, 'mutation_rate', 0.2)
+        # Genetic-specific parameters
+        if algorithm_type == 'genetic':
+            if hasattr(args, 'population_size'):
+                algorithm_kwargs['population_size'] = args.population_size
+            
+            if hasattr(args, 'mutation_rate'):
+                algorithm_kwargs['mutation_rate'] = getattr(args, 'mutation_rate', 0.2)
             
     elif algorithm_type == 'monte-carlo':
+        # Monte Carlo specific parameters
         if hasattr(args, 'mc_steps'):
             algorithm_kwargs['n_steps'] = args.mc_steps
+        elif hasattr(args, 'iterations'):
+            # Use iterations as a fallback if mc_steps is not specified
+            algorithm_kwargs['n_steps'] = args.iterations
         
         if hasattr(args, 'temperature'):
             algorithm_kwargs['temperature'] = args.temperature

@@ -8,7 +8,7 @@ import time
 import json
 from datetime import datetime
 from pathlib import Path
-
+import numpy as np
 from .protein import Protein
 from .ligand import Ligand
 from .scoring import CompositeScoringFunction, EnhancedScoringFunction
@@ -36,6 +36,143 @@ except ImportError:
     PHYSICS_AVAILABLE = False
     print("Warning: Physics-based modules not available. Some features will be disabled.")
 
+def prepare_protein_configs(protein, args):
+    """
+    Prepare protein configurations for benchmarking.
+    
+    Parameters:
+    -----------
+    protein : Protein
+        Protein object
+    args : argparse.Namespace
+        Command-line arguments
+    
+    Returns:
+    --------
+    list
+        List of protein configurations for benchmarking
+    """
+    configs = []
+    
+    # Rigid configuration
+    rigid_protein = protein  # No need to copy as we're creating new flex_protein if needed
+    configs.append({
+        'type': 'rigid',
+        'protein': rigid_protein,
+        'flexible_residues': []
+    })
+    
+    # Flexible configuration if requested
+    if hasattr(args, 'flex_residues') and args.flex_residues or (hasattr(args, 'auto_flex') and args.auto_flex):
+        import copy
+        flex_protein = copy.deepcopy(protein)
+        flex_residues = []
+        
+        if hasattr(args, 'flex_residues') and args.flex_residues:
+            # Use user-specified flexible residues
+            flex_residues = args.flex_residues
+            print(f"Using user-specified flexible residues: {', '.join(flex_residues)}")
+        elif hasattr(args, 'auto_flex') and args.auto_flex:
+            # Auto-detect flexible residues based on binding site
+            if protein.active_site and 'residues' in protein.active_site:
+                # Get residues in the active site
+                binding_site_residues = protein.active_site['residues']
+                
+                # This function needs to be added to the appropriate class
+                flex_residues = _detect_flexible_residues(protein, binding_site_residues, 
+                                                          max_residues=args.max_flex_residues if hasattr(args, 'max_flex_residues') else 5)
+                
+                print(f"Auto-detected flexible residues: {', '.join(flex_residues)}")
+            else:
+                print("Warning: No active site defined. Cannot auto-detect flexible residues.")
+        
+        if flex_residues:
+            flex_protein.define_flexible_residues(flex_residues, 
+                                                 max_rotatable_bonds=args.max_flex_bonds if hasattr(args, 'max_flex_bonds') else 3)
+            configs.append({
+                'type': 'flexible',
+                'protein': flex_protein,
+                'flexible_residues': flex_residues
+            })
+        else:
+            print("No flexible residues defined. Using only rigid configuration.")
+    
+    return configs
+
+def _detect_flexible_residues(protein, binding_site_residues, max_residues=5):
+    """
+    Automatically detect flexible residues in the binding site.
+    
+    Parameters:
+    -----------
+    protein : Protein
+        Protein object
+    binding_site_residues : list
+        List of residue IDs in the binding site
+    max_residues : int
+        Maximum number of flexible residues to detect
+    
+    Returns:
+    --------
+    list
+        List of detected flexible residue IDs
+    """
+    # Define residues with flexible sidechains
+    flexible_aa_types = [
+        'ARG',  # Arginine - very flexible sidechain with multiple rotatable bonds
+        'LYS',  # Lysine - long flexible sidechain
+        'GLU',  # Glutamic acid - flexible sidechain with carboxyl group
+        'GLN',  # Glutamine - flexible sidechain with amide group
+        'MET',  # Methionine - flexible sidechain with sulfur
+        'PHE',  # Phenylalanine - aromatic sidechain that can rotate
+        'TYR',  # Tyrosine - aromatic sidechain with hydroxyl group
+        'TRP',  # Tryptophan - large aromatic sidechain
+        'LEU',  # Leucine - branched hydrophobic sidechain
+        'ILE',  # Isoleucine - branched hydrophobic sidechain
+        'ASP',  # Aspartic acid - shorter version of glutamic acid
+        'ASN',  # Asparagine - shorter version of glutamine
+        'HIS',  # Histidine - aromatic sidechain that can rotate
+        'SER',  # Serine - small sidechain with hydroxyl group
+        'THR',  # Threonine - small sidechain with hydroxyl group
+        'CYS',  # Cysteine - sidechain with thiol group
+        'VAL'   # Valine - smaller branched hydrophobic sidechain
+    ]
+    
+    print(f"Searching for flexible residues among {len(binding_site_residues)} binding site residues")
+    
+    candidate_residues = []
+    
+    for res_id in binding_site_residues:
+        if res_id in protein.residues:
+            residue_atoms = protein.residues[res_id]
+            
+            # Get residue type
+            if residue_atoms and 'residue_name' in residue_atoms[0]:
+                res_type = residue_atoms[0]['residue_name']
+                
+                # Check if it's a residue type with flexible sidechain
+                if res_type in flexible_aa_types:
+                    # Calculate distance from binding site center
+                    if protein.active_site and 'center' in protein.active_site:
+                        center = protein.active_site['center']
+                        
+                        # Use CA atom or any atom for distance calculation
+                        ca_atom = next((atom for atom in residue_atoms if atom.get('name', '') == 'CA'), None)
+                        
+                        if ca_atom:
+                            distance = np.linalg.norm(ca_atom['coords'] - center)
+                            candidate_residues.append((res_id, distance, res_type))
+                            print(f"  Found candidate flexible residue: {res_id} ({res_type}) - distance: {distance:.2f}Å")
+    
+    # Sort by distance to center (closest first)
+    candidate_residues.sort(key=lambda x: x[1])
+    
+    print(f"Selected {min(max_residues, len(candidate_residues))} flexible residues:")
+    for i, (res_id, distance, res_type) in enumerate(candidate_residues[:max_residues]):
+        print(f"  {i+1}. {res_id} ({res_type}) - distance: {distance:.2f}Å")
+    
+    # Return up to max_residues
+    return [res_id for res_id, _, _ in candidate_residues[:max_residues]]
 
 def write_results_to_txt(results, output_dir, elapsed_time, protein_path, ligand_path, algorithm, iterations):
     """
@@ -134,6 +271,8 @@ def main():
                         help='Prepare protein and ligand before docking (recommended)')
     parser.add_argument('--reference', 
                         help='Reference ligand structure for validation')
+    parser.add_argument('--exact-alignment', action='store_true',
+                    help='Align docked pose exactly to reference structure')
     parser.add_argument('--population-size', type=int, default=100,
                         help='Population size for genetic algorithm (default: 100)')
     parser.add_argument('--exhaustiveness', type=int, default=1,
@@ -142,6 +281,8 @@ def main():
                         help='Perform local optimization on top poses')
     parser.add_argument('--ph', type=float, default=7.4,
                         help='pH for protein preparation (default: 7.4)')
+    parser.add_argument('--no-local-optimization', action='store_true',
+                   help='Disable local optimization of poses (keep exact alignment)')
     
     # Physics-based options
     parser.add_argument('--physics-based', action='store_true',
@@ -155,13 +296,16 @@ def main():
     parser.add_argument('--temperature', type=float, default=300.0,
                         help='Temperature for Monte Carlo simulation in Kelvin (default: 300K)')
 
-    # Add to main.py, in the argument parser
-
     # Flexible residue options
     parser.add_argument('--flex-residues', nargs='+', 
                         help='Specify flexible residue IDs (e.g., A_42 B_57)')
     parser.add_argument('--max-flex-bonds', type=int, default=3,
                         help='Maximum rotatable bonds per residue (default: 3)')
+    
+    parser.add_argument('--auto-flex', action='store_true',
+                    help='Automatically detect flexible residues in the binding site')
+    parser.add_argument('--max-flex-residues', type=int, default=5,
+                    help='Maximum number of flexible residues to detect in auto mode (default: 5)')
     
     # Add hardware acceleration options
     add_hardware_options(parser)
@@ -242,9 +386,29 @@ def main():
     else:
         print("No active site specified, using whole protein")
     
+    # Check for flexible residues options
+    if hasattr(args, 'auto_flex') and args.auto_flex:
+        print("Auto-flex option detected. Will attempt to automatically find flexible residues.")
+        
+    if args.auto_flex or args.flex_residues:
+        print("\nPreparing flexible protein configurations...")
+        configs = prepare_protein_configs(protein, args)
+        
+        if len(configs) > 1:
+            print(f"Using flexible protein configuration with {len(configs[1]['protein'].flexible_residues)} flexible residues")
+            protein = configs[1]['protein']  # Use the flexible configuration
+        else:
+            print("No flexible configuration available, using rigid protein")
+    
     # Load ligand
     print(f"\nLoading ligand from {ligand_path}...")
     ligand = Ligand(ligand_path)
+    
+    # Load reference ligand if provided
+    reference_ligand = None
+    if args.reference:
+        print(f"Loading reference ligand from {args.reference}...")
+        reference_ligand = Ligand(args.reference)
     
     # Setup hardware acceleration
     hybrid_manager = setup_hardware_acceleration(hw_config)
@@ -285,11 +449,33 @@ def main():
     algorithm_type = get_algorithm_type_from_args(args)
     algorithm_kwargs = get_algorithm_kwargs_from_args(args)
     
-    # Run multiple docking cycles if exhaustiveness > 1
-    if args.exhaustiveness > 1:
+    # Create the search algorithm
+    search_algorithm = create_optimized_search_algorithm(
+        hybrid_manager,
+        algorithm_type,
+        scoring_function,
+        **algorithm_kwargs
+    )
+    
+    # Run the appropriate docking algorithm
+    if args.reference and args.exact_alignment:
+        print(f"Using exact alignment with reference structure...")
+        all_results = search_algorithm.exact_reference_docking(
+            protein, 
+            ligand, 
+            reference_ligand, 
+            skip_optimization=args.no_local_optimization
+        )
+    elif args.reference and not args.exact_alignment:
+        print(f"Using reference-guided docking...")
+        all_results = search_algorithm.reference_guided_docking(
+            protein, 
+            ligand, 
+            reference_ligand,
+            skip_optimization=args.no_local_optimization
+        )
+    elif args.exhaustiveness > 1:
         print(f"\nRunning {args.exhaustiveness} independent docking runs...")
-        
-        # Use ensemble docking with hybrid manager
         all_results = hybrid_manager.run_ensemble_docking(
             protein=protein,
             ligand=ligand,
@@ -297,32 +483,24 @@ def main():
             algorithm_type=algorithm_type,
             **algorithm_kwargs
         )
+    elif algorithm_type == 'monte-carlo' and PHYSICS_AVAILABLE:
+        print(f"\nUsing Monte Carlo sampling with {args.mc_steps} steps at {args.temperature}K")
+        search_algorithm = MonteCarloSampling(
+            scoring_function,
+            temperature=args.temperature,
+            n_steps=args.mc_steps,
+            cooling_factor=0.95  # Enable simulated annealing
+        )
+        all_results = search_algorithm.run_sampling(protein, ligand)
+    elif hasattr(args, 'enhanced') and args.enhanced:
+        print("Using enhanced rigid docking algorithm...")
+        all_results = search_algorithm.improve_rigid_docking(protein, ligand, args)
     else:
-        # Single docking run
-        if algorithm_type == 'monte-carlo' and PHYSICS_AVAILABLE:
-            print(f"\nUsing Monte Carlo sampling with {args.mc_steps} steps at {args.temperature}K")
-            search_algorithm = MonteCarloSampling(
-                scoring_function,
-                temperature=args.temperature,
-                n_steps=args.mc_steps,
-                cooling_factor=0.95  # Enable simulated annealing
-            )
-            # Run Monte Carlo sampling
-            all_results = search_algorithm.run_sampling(protein, ligand)
-        else:
-            # Use optimized search algorithm
-            search_algorithm = create_optimized_search_algorithm(
-                hybrid_manager,
-                algorithm_type,
-                scoring_function,
-                **algorithm_kwargs
-            )
-            
-            # Perform docking
-            all_results = search_algorithm.search(protein, ligand)
+        print("\nPerforming standard docking...")
+        all_results = search_algorithm.search(protein, ligand)
     
     # Apply local optimization to top poses if requested
-    if args.local_opt:
+    if args.local_opt and not args.no_local_optimization:
         print("\nPerforming local optimization on top poses...")
         optimized_results = []
         
@@ -347,6 +525,8 @@ def main():
         # Combine with original results
         combined_results = optimized_results + [r for r in all_results if r not in all_results[:10]]
         all_results = combined_results
+    elif args.no_local_optimization:
+        print("Skipping local optimization as requested (--no-local-optimization)")
     
     # Sort all results by score
     all_results.sort(key=lambda x: x[1])
@@ -369,7 +549,16 @@ def main():
     # Save results
     print(f"\nDocking completed successfully!")
     print(f"Saving results to {output_dir}...")
-    save_docking_results(unique_results, output_dir)
+    
+    # Pass flexible residues to save_docking_results if they exist
+    flexible_residues = None
+    if hasattr(protein, 'flexible_residues') and protein.flexible_residues:
+        flexible_residues = protein.flexible_residues
+        print(f"Found {len(flexible_residues)} flexible residues to include in output")
+    else:
+        print("No flexible residues found on protein object")
+    
+    save_docking_results(unique_results, output_dir, flexible_residues=flexible_residues)
     
     # Calculate elapsed time
     elapsed_time = time.time() - start_time
@@ -386,7 +575,7 @@ def main():
     )
     
     # Validate against reference if provided
-    if hasattr(args, 'reference') and args.reference:
+    if hasattr(args, 'reference') and args.reference and not args.exact_alignment:
         validate_against_reference(args, unique_results, output_dir)
     
     # Print summary

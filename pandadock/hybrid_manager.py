@@ -597,6 +597,9 @@ class HybridDockingManager:
         """
         print(f"Running ensemble docking with {n_runs} runs...")
         
+        # Extract no_local_optimization from kwargs if present
+        no_local_optimization = kwargs.pop('no_local_optimization', False)
+        
         # Determine GPU/CPU split
         n_gpu_runs, n_cpu_runs = self.split_workload(n_runs)
         
@@ -622,6 +625,10 @@ class HybridDockingManager:
                         scoring_function=scoring_function,
                         **kwargs
                     )
+                    
+                    # Store no_local_optimization flag in the algorithm instance
+                    if no_local_optimization:
+                        search_algorithm.skip_local_opt = True
                 else:
                     from .search import RandomSearch
                     search_algorithm = RandomSearch(
@@ -656,6 +663,10 @@ class HybridDockingManager:
                         scoring_function=scoring_function,
                         **kwargs
                     )
+                    
+                    # Store no_local_optimization flag in the algorithm instance
+                    if no_local_optimization:
+                        search_algorithm.skip_local_opt = True
                 else:
                     from .search import RandomSearch
                     search_algorithm = RandomSearch(
@@ -692,105 +703,105 @@ class HybridDockingManager:
 
 
 # Example usage in main script
-def run_optimized_docking(protein_file, ligand_file, output_dir=None, **kwargs):
-    """
-    Run docking with optimized hardware utilization.
-    
-    Parameters:
-    -----------
-    protein_file : str
-        Path to protein PDB file
-    ligand_file : str
-        Path to ligand MOL/SDF file
-    output_dir : str
-        Output directory
-    **kwargs : dict
-        Additional arguments for docking
-    
-    Returns:
-    --------
-    list
-        List of (pose, score) tuples, sorted by score
-    """
-    from .protein import Protein
-    from .ligand import Ligand
-    from .utils import save_docking_results
-    import time
-    import os
-    
-    # Start timer
-    start_time = time.time()
-    
-    # Create output directory if needed
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-    
-    # Initialize hybrid manager
-    use_gpu = kwargs.pop('use_gpu', True)
-    n_cpu_workers = kwargs.pop('n_cpu_workers', None)
-    
-    hybrid_manager = HybridDockingManager(
-        use_gpu=use_gpu,
-        n_cpu_workers=n_cpu_workers
-    )
-    
-    # Load molecules
-    print(f"Loading protein from {protein_file}...")
-    protein = Protein(protein_file)
-    
-    print(f"Loading ligand from {ligand_file}...")
-    ligand = Ligand(ligand_file)
-    
-    # Define active site if coordinates provided
-    if 'site' in kwargs:
-        site = kwargs.pop('site')
-        radius = kwargs.pop('radius', 10.0)
-        print(f"Using active site at {site} with radius {radius}Å")
-        protein.define_active_site(site, radius)
-    else:
-        # Try to detect binding pockets
-        print("Detecting binding pockets...")
-        pockets = protein.detect_pockets()
-        if pockets:
-            print(f"Found {len(pockets)} potential binding pockets")
-            print(f"Using largest pocket as active site")
-            protein.define_active_site(pockets[0]['center'], pockets[0]['radius'])
+    def run_optimized_docking(protein_file, ligand_file, output_dir=None, **kwargs):
+        """
+        Run docking with optimized hardware utilization.
+        
+        Parameters:
+        -----------
+        protein_file : str
+            Path to protein PDB file
+        ligand_file : str
+            Path to ligand MOL/SDF file
+        output_dir : str
+            Output directory
+        **kwargs : dict
+            Additional arguments for docking
+        
+        Returns:
+        --------
+        list
+            List of (pose, score) tuples, sorted by score
+        """
+        from .protein import Protein
+        from .ligand import Ligand
+        from .utils import save_docking_results
+        import time
+        import os
+        
+        # Start timer
+        start_time = time.time()
+        
+        # Create output directory if needed
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        
+        # Initialize hybrid manager
+        use_gpu = kwargs.pop('use_gpu', True)
+        n_cpu_workers = kwargs.pop('n_cpu_workers', None)
+        
+        hybrid_manager = HybridDockingManager(
+            use_gpu=use_gpu,
+            n_cpu_workers=n_cpu_workers
+        )
+        
+        # Load molecules
+        print(f"Loading protein from {protein_file}...")
+        protein = Protein(protein_file)
+        
+        print(f"Loading ligand from {ligand_file}...")
+        ligand = Ligand(ligand_file)
+        
+        # Define active site if coordinates provided
+        if 'site' in kwargs:
+            site = kwargs.pop('site')
+            radius = kwargs.pop('radius', 10.0)
+            print(f"Using active site at {site} with radius {radius}Å")
+            protein.define_active_site(site, radius)
         else:
-            print("No pockets detected, using whole protein")
-    
-    # Run docking
-    algorithm_type = kwargs.pop('algorithm', 'genetic')
-    n_runs = kwargs.pop('n_runs', 1)
-    
-    if n_runs > 1:
-        print(f"Running ensemble docking with {n_runs} runs...")
-        results = hybrid_manager.run_ensemble_docking(
-            protein=protein,
-            ligand=ligand,
-            n_runs=n_runs,
-            algorithm_type=algorithm_type,
-            **kwargs
-        )
-    else:
-        print("Running single docking simulation...")
-        results = hybrid_manager.run_docking(
-            protein=protein,
-            ligand=ligand,
-            algorithm_type=algorithm_type,
-            **kwargs
-        )
-    
-    # Clean up resources
-    hybrid_manager.cleanup()
-    
-    # Calculate elapsed time
-    elapsed_time = time.time() - start_time
-    
-    # Save results if output directory specified
-    if output_dir:
-        save_docking_results(results, output_dir)
-    
-    print(f"Docking completed in {elapsed_time:.2f} seconds")
-    print(f"Best score: {results[0][1]:.4f}")
-    
-    return results
+            # Try to detect binding pockets
+            print("Detecting binding pockets...")
+            pockets = protein.detect_pockets()
+            if pockets:
+                print(f"Found {len(pockets)} potential binding pockets")
+                print(f"Using largest pocket as active site")
+                protein.define_active_site(pockets[0]['center'], pockets[0]['radius'])
+            else:
+                print("No pockets detected, using whole protein")
+        
+        # Run docking
+        algorithm_type = kwargs.pop('algorithm', 'genetic')
+        n_runs = kwargs.pop('n_runs', 1)
+        
+        if n_runs > 1:
+            print(f"Running ensemble docking with {n_runs} runs...")
+            results = hybrid_manager.run_ensemble_docking(
+                protein=protein,
+                ligand=ligand,
+                n_runs=n_runs,
+                algorithm_type=algorithm_type,
+                **kwargs
+            )
+        else:
+            print("Running single docking simulation...")
+            results = hybrid_manager.run_docking(
+                protein=protein,
+                ligand=ligand,
+                algorithm_type=algorithm_type,
+                **kwargs
+            )
+        
+        # Clean up resources
+        hybrid_manager.cleanup()
+        
+        # Calculate elapsed time
+        elapsed_time = time.time() - start_time
+        
+        # Save results if output directory specified
+        if output_dir:
+            save_docking_results(results, output_dir)
+        
+        print(f"Docking completed in {elapsed_time:.2f} seconds")
+        print(f"Best score: {results[0][1]:.4f}")
+        
+        return results
