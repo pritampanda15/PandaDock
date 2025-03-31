@@ -1,0 +1,29 @@
+=====================================================
+        PandaDock - Python Molecular Docking Results    
+=====================================================
+
+RUN INFORMATION
+--------------
+Date and Time: 2025-03-31 16:48:22
+Protein: receptor.pdb
+Ligand: reference.sdf
+Algorithm: genetic
+Iterations/Generations: 2
+Total Runtime: 28.51 seconds
+
+RESULTS SUMMARY
+--------------
+Total Poses Generated: 2
+Best Score: -21.9269
+Worst Score: -15.4905
+Average Score: -18.7087
+
+TOP 10 POSES
+--------------
+Rank	Score	File
+1	-21.9269	pose_1_score_-21.9.pdb
+2	-15.4905	pose_2_score_-15.5.pdb
+
+
+Full results are available in the output directory.
+=====================================================

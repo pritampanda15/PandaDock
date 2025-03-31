@@ -15,7 +15,6 @@ from .scoring import CompositeScoringFunction, EnhancedScoringFunction
 from .search import RandomSearch, GeneticAlgorithm
 from .utils import save_docking_results
 from .preparation import prepare_protein, prepare_ligand
-from .reporting import DockingReporter
 from .validation import validate_against_reference
 from .main_integration import (
     add_hardware_options, 
@@ -237,10 +236,7 @@ def write_results_to_txt(results, output_dir, elapsed_time, protein_path, ligand
     print(f"Detailed results written to {results_path}")
 
 
-
-from .reporting import DockingReporter
 def main():
-
     """Main entry point for the docking program."""
     parser = argparse.ArgumentParser(description='PandaDock: Python Molecular Docking Tool')
     
@@ -310,17 +306,6 @@ def main():
                     help='Automatically detect flexible residues in the binding site')
     parser.add_argument('--max-flex-residues', type=int, default=5,
                     help='Maximum number of flexible residues to detect in auto mode (default: 5)')
-    
-    # Add reporting options
-    report_group = parser.add_argument_group('Reporting Options')
-    report_group.add_argument('--report-format', choices=['text', 'csv', 'json', 'html', 'all'],
-                            default='all', help='Report format (default: all)')
-    report_group.add_argument('--report-name', type=str, default=None,
-                            help='Custom name for the report files')
-    report_group.add_argument('--detailed-energy', action='store_true',
-                            help='Include detailed energy component breakdown in reports')
-    report_group.add_argument('--skip-plots', action='store_true',
-                            help='Skip generating plots for reports')
     
     # Add hardware acceleration options
     add_hardware_options(parser)
@@ -459,12 +444,6 @@ def main():
     # Setup output directory
     output_dir = f"{args.output}_{timestamp}"
     os.makedirs(output_dir, exist_ok=True)
-
-    # Track start time for reporting
-    start_time = time.time()
-    args.start_time = start_time
-    # Initialize the docking reporter
-    reporter = DockingReporter(output_dir, args, timestamp=timestamp)
     
     # Get algorithm type and parameters
     algorithm_type = get_algorithm_type_from_args(args)
@@ -551,15 +530,6 @@ def main():
     
     # Sort all results by score
     all_results.sort(key=lambda x: x[1])
-
-    # Extract energy components for reporting if possible
-    try:
-        print("Extracting energy components for detailed reporting...")
-        energy_breakdown = reporter.extract_energy_components(scoring_function, protein, [pose for pose, _ in all_results[:20]])
-        reporter.add_results(all_results, energy_breakdown)
-    except Exception as e:
-        print(f"Warning: Could not extract energy components: {e}")
-        reporter.add_results(all_results)
     
     # Take the top results (avoid duplicates)
     unique_results = []
@@ -606,10 +576,7 @@ def main():
     
     # Validate against reference if provided
     if hasattr(args, 'reference') and args.reference and not args.exact_alignment:
-        
-        validation_results = validate_against_reference(args, unique_results, output_dir)
-        # Add validation results to reporter
-        reporter.add_validation_results(validation_results)
+        validate_against_reference(args, unique_results, output_dir)
     
     # Print summary
     print(f"\nDocking completed in {elapsed_time:.1f} seconds")
@@ -617,31 +584,7 @@ def main():
     print(f"Results saved to: {output_dir}")
     print(f"============================================================")
     
-    
-    # Generate comprehensive reports
-    print("Generating comprehensive docking reports...")
-    if hasattr(args, 'report_format') and args.report_format != 'all':
-        # Generate only the requested format
-        if args.report_format == 'text':
-            reporter.generate_detailed_report()
-        elif args.report_format == 'csv':
-            reporter.generate_csv_report()
-        elif args.report_format == 'json':
-            reporter.generate_json_report()
-        elif args.report_format == 'html':
-            reporter.generate_html_report()
-    else:
-        # Generate all report formats
-        reporter.generate_detailed_report()
-        reporter.generate_csv_report()
-        reporter.generate_json_report()
-        
-        # Generate HTML report with visualizations if plots are not skipped
-        if not (hasattr(args, 'skip_plots') and args.skip_plots):
-            html_report = reporter.generate_html_report()
-            print(f"Comprehensive HTML report with visualizations saved to: {html_report}")
-
-# Clean up temporary files
+    # Clean up temporary files
     if args.prepare_molecules:
         import shutil
         shutil.rmtree(temp_dir, ignore_errors=True)
