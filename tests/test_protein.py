@@ -3,7 +3,7 @@ import unittest
 import os
 import tempfile
 from pandadock.protein import Protein
-
+@pytest.fixture
 class TestProtein(unittest.TestCase):
     def setUp(self):
         # Create a minimal PDB file for testing
