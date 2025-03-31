@@ -150,24 +150,24 @@ extras_require={
 ## Usage Combinations
 
 1. **For Maximum Accuracy**
-   ```
+   
    pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --enhanced-scoring --local-opt --prepare-molecules --use-gpu --auto-tune
-   ```
+   
 
 2. **For Reference-Based Docking**
-   ```
+   
    pandadock -p protein.pdb -l ligand.sdf -s X Y Z --reference ref_ligand.sdf --exact-alignment --no-local-optimization
-   ```
+   
 
 3. **For Flexible Side Chain Modeling**
-   ```
+   
    pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --auto-flex --max-flex-residues 5 --max-flex-bonds 4
-   ```
+   
 
 4. **For Multiple Independent Runs**
-   ```
+  
    pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --exhaustiveness 8 --population-size 200
-   ```
+   
 
 ## Output Enhancements
 
