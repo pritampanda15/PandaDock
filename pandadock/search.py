@@ -181,7 +181,7 @@ class DockingSearch:
                         offspring[i] = (pose, score)
                     
                     # Apply local optimization to the best individuals if not skipped
-                    if not skip_local_optimization and i < len(offspring) // 4:  # Optimize top 25% of offspring
+                    if not args.skip_local_optimization and i < len(offspring) // 4:  # Optimize top 25% of offspring
                         optimized_pose, optimized_score = self._local_optimization(pose, protein)
                         offspring[i] = (optimized_pose, optimized_score)
                     else:

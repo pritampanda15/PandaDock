@@ -10,8 +10,8 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 ### Reporting Bugs
 
-- Ensure the bug was not already reported by searching through [Issues](https://github.com/your-username/pandadock/issues)
-- If you cannot find an open issue addressing the problem, [open a new one](https://github.com/your-username/pandadock/issues/new)
+- Ensure the bug was not already reported by searching through [Issues](https://github.com/your-username/PandaDock/issues)
+- If you cannot find an open issue addressing the problem, [open a new one](https://github.com/your-username/PandaDock/issues/new)
 - Include a clear title and description, with as much relevant information as possible
 - Include code samples, error messages, and steps to reproduce the issue
 
@@ -37,7 +37,7 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 ```bash
 # Clone your fork
-git clone https://github.com/your-username/pandadock.git
+git clone https://github.com/your-username/PandaDock.git
 cd pandadock
 
 # Install in development mode

@@ -96,15 +96,31 @@ cd PandaDock
 # Install the package
 pip install -e .
 ```
+### Install via pip
 
-### Install RDKit (Optional but Recommended)
+```bash
+# Create virtual environment
+python -m venv .venv
 
-For better molecular handling, it's recommended to install RDKit:
+#Activate the environment
+source .venv/bin/activate
 
+#install rdkit (Recommended)
+pip install rdkit #in the virual environment 
+
+#install torch for gpu
+pip install torch 
+
+#install openbabel
+pip install openbabel
+
+# Then install PandaDock
+pip install pandadock
+```
 ```bash
 conda install -c conda-forge rdkit
 ```
-### Install via pip
+### Install via pip in conda
 
 ```bash
 # First install RDKit with conda
@@ -140,32 +156,131 @@ extras_require={
     "full": ["torch>=1.9.0"],  # Users can install with: pip install pandadock[full]
 },
 ```
-## Usage
+## Version 1.0 Latest Improvements (UPDATE)
+```bash
+## New Core Features
 
+1. **Reference-Guided Docking**
+   - `--reference` flag to guide docking based on known ligand poses
+   - `--exact-alignment` option for direct superimposition with reference structures
+   - `--no-local-optimization` to preserve exact alignment without refinement
+
+2. **Flexible Residue Handling**
+   - `--flex-residues` option for manual selection of flexible protein side chains
+   - `--auto-flex` for automatic detection of flexible residues in binding sites
+   - `--max-flex-residues` to control number of automatically detected flexible residues
+   - `--max-flex-bonds` to limit rotatable bonds per residue
+
+3. **Enhanced Search Algorithms**
+   - Improved rigid docking with multi-stage optimization
+   - Aggressive atom-by-atom refinement for better clash resolution
+   - Advanced clash detection and energy minimization
+
+4. **Hardware Acceleration**
+   - GPU acceleration with `--use-gpu` flag
+   - Hybrid CPU/GPU workload balancing
+   - Automatic hardware tuning with `--auto-tune`
+
+## Refinement Techniques
+
+1. **Clash Resolution Methods**
+   - Gentle clash relief to maintain structural integrity
+   - Atom-by-atom adjustment for problematic interactions
+   - Systematic directional shifts to escape local minima
+
+2. **Local Optimization Improvements**
+   - Multi-stage optimization with decreasing step sizes
+   - Enhanced rotational sampling with diagonal axes
+   - Retreat-and-approach strategy for complex binding sites
+
+## Usage Combinations
+
+1. **For Maximum Accuracy**
+   
+   pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --enhanced-scoring --local-opt --prepare-molecules --use-gpu --auto-tune
+   
+
+2. **For Reference-Based Docking**
+   
+   pandadock -p protein.pdb -l ligand.sdf -s X Y Z --reference ref_ligand.sdf --exact-alignment --no-local-optimization
+   
+
+3. **For Flexible Side Chain Modeling**
+   
+   pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --auto-flex --max-flex-residues 5 --max-flex-bonds 4
+   
+
+4. **For Multiple Independent Runs**
+  
+   pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --exhaustiveness 8 --population-size 200
+   
+
+## Output Enhancements
+
+1. **Complex Visualization**
+   - Generates complex PDB files showing both ligand and flexible residues
+   - Improved score plotting with detailed statistics
+
+2. **Detailed Reporting**
+   - Comprehensive docking results text files
+   - RMSD calculations for reference-based docking
+   - Energy breakdown for physics-based scoring
+
+These enhancements make PandaDock a more versatile molecular docking platform with advanced capabilities for structure-based drug design, virtual screening, and computational chemistry research.
+
+```
 ### Command Line Interface
 
-***Note: Remeber to change the --iteration or -i value to smaller number or else it will take hours to optimize it if you set it for blind docking <br>
+***Note: Remeber to change the --iteration or -i value to smaller number or else it will take hours to optimize it if you set it for blind docking using CPU<br> ***
 
 ```bash
-# Basic usage
-pandadock -p protein.pdb -l ligand.mol -o results
+1. Quick and Simple Docking
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --fast-mode #This provides fast results with minimal computation time.
 
-#Flexible residues
-pandadock -p protein.pdb -l ligand.sdf -s 110.133 135.572 141.959 -r 3.0 \
-  --flex-residues A_265 A_231 B_277 --max-flex-bonds 2 \
-  --physics-based --use-gpu
+2. Standard Accurate Docking
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced-scoring --local-opt --prepare-molecules #This is more accurate than the quick mode but takes more time.
 
-# Use genetic algorithm with 2000 iterations
-pandadock -p protein.pdb -l ligand.mol -a genetic -i 100 -o results
+3. High-Accuracy Docking with Hardware Acceleration
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --enhanced-scoring --local-opt --prepare-molecules --use-gpu --auto-tune  #This combination leverages GPU acceleration with enhanced algorithms for accuracy.
 
-# Specify active site
-pandadock -p protein.pdb -l ligand.mol -s 10.0 20.0 30.0 -r 12.0 -o results
+4. Reference-Guided Docking for Known Binding Modes
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --reference ref_ligand.sdf --enhanced-scoring --local-opt #Use when you have a reference crystal structure to guide the docking.
 
-# Automatic pocket detection
-pandadock -p protein.pdb -l ligand.mol --detect-pockets -o results
+5. Exact Alignment to Reference Structure
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --reference ref_ligand.sdf --exact-alignment --no-local-optimization #For exact superimposition with a reference ligand without any adjustments.
 
-# Enhanced docking with all features
-pandadock -p protein.pdb -l ligand.mol --enhanced-scoring --prepare-molecules --local-opt -i 1000 --exhaustiveness 5
+6. Exact Alignment with Refinement
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --reference ref_ligand.sdf --exact-alignment #For exact superimposition with a reference ligand plus refinement for better scoring.
+
+7. Flexible Side Chains in Binding Site
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --auto-flex --local-opt #Automatically detects and allows flexibility in binding site residues.
+
+8. Manual Flexible Side Chains
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --flex-residues A_123 B_45 --max-flex-bonds 4 #Manually specify which residues should be flexible during docking.
+
+9. Physics-Based Docking
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --physics-based --mmff-minimization --local-opt #Use more accurate physical models for scoring and optimization.
+
+10. Monte Carlo Sampling (Alternative to Genetic Algorithm)
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --monte-carlo --mc-steps 2000 --temperature 300 #Use Monte Carlo sampling instead of genetic algorithm for different search behavior.
+
+11. Exhaustive Search for Better Pose Diversity
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --exhaustiveness 8 --population-size 200 #Run multiple independent docking runs for better exploration of pose space.
+
+12. Automatic Binding Site Detection
+pandadock -p protein.pdb -l ligand.sdf --detect-pockets --enhanced-scoring --local-opt #Automatically detect binding pockets instead of specifying coordinates.
+
+13. Maximum Performance on CPU
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --cpu-workers 8 --cpu-affinity #Optimize for CPU performance with multiple cores and CPU affinity.
+
+14. Maximum Performance on GPU
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --use-gpu --gpu-id 0 --gpu-precision float32 --workload-balance 0.9 #Maximize GPU usage for fastest performance on compatible hardware.
+
+15. Hybrid CPU/GPU with Auto-Tuning
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --use-gpu --auto-tune --cpu-workers 4 #Let PandaDock automatically balance CPU and GPU workloads for optimal performance.
+
+
+
 ```
 
 ### Running Modes
@@ -275,7 +390,8 @@ save_docking_results(optimized_results, "docking_results")
 | `--detect-pockets` | Automatically detect binding pockets |
 | `--flex-residues` | Specify flexible residue IDs (e.g., A_42 B_57) |
 | `--max-flex-bonds` | Maximum rotatable bonds per residue (default: 3) |
-
+| `--auto-flex`      |     Automatically detect flexible residues in the binding site |
+|  `--max-flex-residues` | Maximum number of flexible residues to detect in auto mode (default: 5) |
 
 ### Enhancement Options
 | Argument | Description |
@@ -287,6 +403,7 @@ save_docking_results(optimized_results, "docking_results")
 | `--population-size` | Population size for genetic algorithm (default: 100) |
 | `--exhaustiveness` | Number of independent docking runs (default: 1) |
 | `--local-opt` | Perform local optimization on top poses |
+|  `--no-local-optimization` | Disable local optimization of poses (keep exact alignment)|
 | `--ph` | pH for protein preparation (default: 7.4) |
 | `--reference` | Reference ligand structure for validation |
 
@@ -310,53 +427,6 @@ save_docking_results(optimized_results, "docking_results")
 | `--workload-balance` | GPU/CPU workload balance (0.0-1.0, higher values assign more work to GPU) |
 | `--auto-tune` | Automatically tune hardware parameters for best performance |
 
-## Examples
-
-### Example 1: Basic Docking and Flexible Docking
-
-```bash
-pandadock -p tests/receptor.pdb -l tests/ligand.sdf -o results_receptor
-```
-
-```bash
-pandadock -p protein.pdb -l ligand.sdf -s 110.133 135.572 141.959 -r 3.0 \
-  --flex-residues A_42 A_85 A_132 --max-flex-bonds 2 -i 100
-```
-### Example 2: Enhanced Docking with Local Optimization
-
-```bash
-pandadock -p tests/receptor.pdb -l tests/ligand.sdf --enhanced-scoring --local-opt -i 1000 -o results_enhanced
-```
-
-### Example 3: Molecule Preparation and Multiple Runs
-
-```bash
-pandadock -p tests/receptor.pdb -l tests/ligand.sdf --prepare-molecules --exhaustiveness 5 -o results_ensemble
-```
-
-### Example 4: Validation Against Reference Structure
-
-```bash
-pandadock -p tests/receptor.pdb -l tests/ligand.sdf --reference tests/indinavir_xray.mol --enhanced-scoring -o results_validation
-```
-
-### Example 5: Physics-Based Docking
-
-```bash
-pandadock -p tests/receptor.pdb -l tests/ligand.sdf --physics-based --mmff-minimization --local-opt -o results_physics
-```
-
-### Example 6: GPU-Accelerated Docking
-
-```bash
-pandadock -p tests/receptor.pdb -l tests/ligand.sdf --use-gpu --enhanced-scoring -o results_gpu
-```
-
-### Example 7: Replicating a Known Protein-Ligand Complex
-
-```bash
-pandadock -p tests/receptor.pdb -l tests/ligand.sdf -s 110.13 136.34 141.95 -r 4.0 \
-  --physics-based --mmff-minimization --local-opt --use-gpu -i 50 -o results_complex
 ```
 
 ## Physics-Based Features

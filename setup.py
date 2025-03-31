@@ -5,17 +5,17 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="pandadock",
-    version="0.7.0",
+    version="1.0.0",
     author="Dr. Pritam Kumar Panda",
     author_email="pritam@stanford.edu",
     description="A GPU-accelerated molecular docking tool for computational drug discovery",
     long_description=long_description,
     long_description_content_type="text/markdown",
     project_urls={
-        "Bug Tracker": "https://github.com/pritampanda15/pandadock/issues",
-        "Documentation": "https://github.com/pritampanda15/pandadock/wiki",
+        "Bug Tracker": "https://github.com/pritampanda15/PandaDock/issues",
+        "Documentation": "https://github.com/pritampanda15/PandaDock/wiki",
     },
-    url="https://github.com/pritampanda15/pandadock",
+    url="https://github.com/pritampanda15/PandaDock",
     packages=find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -49,4 +49,5 @@ setup(
         ],
         "rdkit": ["rdkit>=2020.09.1"],
     },
+    include_package_data=True,  # Include files specified in MANIFEST.in
 )
