@@ -1,12 +1,12 @@
 Metadata-Version: 2.4
 Name: pandadock
-Version: 0.7.0
+Version: 1.0.0
 Summary: A GPU-accelerated molecular docking tool for computational drug discovery
-Home-page: https://github.com/pritampanda15/pandadock
+Home-page: https://github.com/pritampanda15/PandaDock
 Author: Dr. Pritam Kumar Panda
 Author-email: pritam@stanford.edu
-Project-URL: Bug Tracker, https://github.com/pritampanda15/pandadock/issues
-Project-URL: Documentation, https://github.com/pritampanda15/pandadock/wiki
+Project-URL: Bug Tracker, https://github.com/pritampanda15/PandaDock/issues
+Project-URL: Documentation, https://github.com/pritampanda15/PandaDock/wiki
 Classifier: Programming Language :: Python :: 3
 Classifier: Programming Language :: Python :: 3.7
 Classifier: Programming Language :: Python :: 3.8
