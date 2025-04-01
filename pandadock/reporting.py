@@ -15,6 +15,21 @@ import pandas as pd
 from tabulate import tabulate
 import csv
 
+
+class EnhancedJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles NumPy types and other special types."""
+    def default(self, obj):
+        if isinstance(obj, (np.integer, np.int64, np.int32)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float64, np.float32)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, (Path, datetime)):
+            return str(obj)
+        elif isinstance(obj, bool):
+            return bool(obj)
+        return super().default(obj)
 class DockingReporter:
     """
     Comprehensive reporting class for molecular docking results.
@@ -506,6 +521,25 @@ class DockingReporter:
         print(f"Results CSV written to {results_csv}")
         return results_csv, None
     
+    def ensure_serializable(obj):
+        """Convert values to JSON-serializable types."""
+        if isinstance(obj, dict):
+            return {k: ensure_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [ensure_serializable(item) for item in obj]
+        elif isinstance(obj, (np.integer, np.int64, np.int32)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float64, np.float32)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, (Path, datetime)):
+            return str(obj)
+        elif isinstance(obj, bool):
+            return bool(obj)
+        else:
+            return obj
+
     def generate_json_report(self):
         """
         Generate a JSON report with all docking information.
@@ -519,83 +553,77 @@ class DockingReporter:
         
         # Create a dictionary with all report information
         report_data = {
-            "run_info": self.run_info,
-            "algorithm": {
-                "type": self.args.algorithm if hasattr(self.args, 'algorithm') else "unknown",
-                "parameters": {}
+            "run_info": {
+                "timestamp": str(self.timestamp),
+                "protein": str(self.args.protein) if hasattr(self.args, 'protein') else "unknown",
+                "ligand": str(self.args.ligand) if hasattr(self.args, 'ligand') else "unknown",
+                "algorithm": self.args.algorithm if hasattr(self.args, 'algorithm') else "unknown"
             },
             "results": {
                 "pose_count": len(self.results),
-                "best_score": self.results[0][1] if self.results else None,
-                "poses": [{"rank": i+1, "score": score} 
-                          for i, (_, score) in enumerate(sorted(self.results, key=lambda x: x[1]))]
+                "poses": []
             }
         }
         
-        # Add algorithm parameters
-        if hasattr(self.args, 'algorithm'):
-            if self.args.algorithm == "genetic":
-                if hasattr(self.args, 'population_size'):
-                    report_data["algorithm"]["parameters"]["population_size"] = self.args.population_size
-                if hasattr(self.args, 'mutation_rate'):
-                    report_data["algorithm"]["parameters"]["mutation_rate"] = self.args.mutation_rate
-            elif self.args.algorithm == "monte-carlo":
-                if hasattr(self.args, 'mc_steps'):
-                    report_data["algorithm"]["parameters"]["steps"] = self.args.mc_steps
-                if hasattr(self.args, 'temperature'):
-                    report_data["algorithm"]["parameters"]["temperature"] = self.args.temperature
+        # Add pose information (converting all values to basic Python types)
+        if self.results:
+            sorted_results = sorted(self.results, key=lambda x: x[1])
+            report_data["results"]["best_score"] = float(sorted_results[0][1])
+            
+            for i, (_, score) in enumerate(sorted_results):
+                report_data["results"]["poses"].append({
+                    "rank": i+1,
+                    "score": float(score)
+                })
         
-        # Add scoring function details
-        report_data["scoring"] = {"type": "standard"}
-        if hasattr(self.args, 'enhanced_scoring') and self.args.enhanced_scoring:
-            report_data["scoring"]["type"] = "enhanced"
-        if hasattr(self.args, 'physics_based') and self.args.physics_based:
-            report_data["scoring"]["type"] = "physics-based"
-        
-        # Add energy breakdown if available (convert numpy values to float)
+        # Simplify scoring breakdown to basic Python types
         if self.scoring_breakdown:
-            report_data["energy_breakdown"] = []
-            for i, energy in enumerate(self.scoring_breakdown):
+            breakdown_list = []
+            for energy in self.scoring_breakdown:
                 energy_dict = {}
                 for key, value in energy.items():
-                    if isinstance(value, (np.int64, np.int32, np.float64, np.float32)):
-                        energy_dict[key] = float(value)
+                    # Convert numpy values to Python native types
+                    if hasattr(value, "item"):  # numpy scalar
+                        energy_dict[key] = value.item()
+                    elif isinstance(value, bool):
+                        energy_dict[key] = bool(value)
                     else:
-                        energy_dict[key] = value
-                report_data["energy_breakdown"].append(energy_dict)
+                        energy_dict[key] = float(value) if isinstance(value, (int, float)) else str(value)
+                breakdown_list.append(energy_dict)
+            report_data["energy_breakdown"] = breakdown_list
         
-        # Add validation results if available
-        if self.validation_results:
-            if isinstance(self.validation_results, list):
-                # Convert numpy values to float
-                validation_list = []
-                for result in self.validation_results:
-                    result_dict = {}
-                    for key, value in result.items():
-                        if isinstance(value, (np.int64, np.int32, np.float64, np.float32)):
-                            result_dict[key] = float(value)
-                        else:
-                            result_dict[key] = value
-                    validation_list.append(result_dict)
-                report_data["validation"] = validation_list
-            elif isinstance(self.validation_results, dict):
-                validation_dict = {}
-                for key, value in self.validation_results.items():
-                    if isinstance(value, (np.int64, np.int32, np.float64, np.float32)):
-                        validation_dict[key] = float(value)
-                    elif isinstance(value, np.ndarray):
-                        validation_dict[key] = value.tolist()
-                    else:
-                        validation_dict[key] = value
-                report_data["validation"] = validation_dict
-        
-        # Write JSON file
-        with open(json_path, 'w') as f:
-            json.dump(report_data, f, indent=4)
-        
-        print(f"JSON report written to {json_path}")
+        # Write JSON file with explicit error handling
+        try:
+            with open(json_path, 'w') as f:
+                json.dump(report_data, f, indent=4)
+            print(f"JSON report written to {json_path}")
+        except TypeError as e:
+            print(f"JSON serialization error: {e}")
+            print("Writing simplified JSON report without complex data")
+            
+            # Simplified report as fallback
+            basic_report = {
+                "run_info": report_data["run_info"],
+                "results": {
+                    "pose_count": report_data["results"]["pose_count"],
+                    "best_score": report_data["results"]["best_score"] if "best_score" in report_data["results"] else None
+                }
+            }
+            
+            with open(json_path, 'w') as f:
+                json.dump(basic_report, f, indent=4)
+            
         return json_path
     
+        # Write JSON file
+        #with open(json_path, 'w') as f:
+        #    json.dump(report_data, f, indent=4, cls=EnhancedJSONEncoder)
+        
+        #print(f"JSON report written to {json_path}")
+        #return json_path
+    
+    
+            
     def generate_plots(self, save_dir=None):
         """
         Generate plots visualizing the docking results.
