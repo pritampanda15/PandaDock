@@ -649,7 +649,7 @@ def main():
      
     # Apply analysis if requested
     if args.cluster_poses or args.analyze_interactions or args.classify_modes or \
-       args.energy_decomposition or args.generate_report:
+        args.energy_decomposition or args.generate_analysis_report:
         from .analysis import (PoseClusterer, InteractionFingerprinter, 
                               BindingModeClassifier, EnergyDecomposition,
                               DockingReportGenerator)

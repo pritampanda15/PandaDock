@@ -520,8 +520,9 @@ class ReplicaExchangeDocking(DockingSearch):
                           f"{replica_j['score']:.4f} @ {replica_j['temperature']:.1f}K")
             
             # Print current state
-            print(f"  Current replica scores: "
-                  f"{', '.join([f'{r['score']:.4f}' for r in replicas])}")
+            scores_list = [f"{r['score']:.4f}" for r in replicas]
+            scores_str = ', '.join(scores_list)
+            print(f"Current replica scores: {scores_str}")
         
         # Calculate acceptance rates
         mc_rate = mc_accepted / mc_attempts if mc_attempts > 0 else 0
