@@ -226,9 +226,38 @@ extras_require={
    - RMSD calculations for reference-based docking
    - Energy breakdown for physics-based scoring
 
-These enhancements make PandaDock a more versatile molecular docking platform with advanced capabilities for structure-based drug design, virtual screening, and computational chemistry research.
-
+- Enhanced Reporting Module
+- Detailed textual reports with complete information about:
+- Docking parameters and configuration
+- Comprehensive results summaries
+- Energy component breakdowns for each pose
+- Validation metrics when comparing against reference structures
+- Data export formats for further analysis:
+- CSV files with pose rankings and energy components
+- JSON format with all docking data for programmatic access
+- Visualization capabilities that generate:
+- Score distribution histograms
+- Score ranking plots
+- Energy component analysis charts
+- RMSD validation comparison plots
+- Interactive HTML reporting that combines:
+- All visualization plots in a single document
+- Tabular data for precise analysis
+- Color-coded success/failure indicators for validation
+- Comprehensive docking information in an easily shareable format
+- Energy Component Analysis
+- The reporting system can extract detailed energy breakdowns from different scoring functions:
+- For physics-based scoring: VDW, electrostatics, solvation, hydrogen bonding, and entropy components
+- For enhanced scoring: VDW, electrostatics, desolvation, hydrophobic interactions, and clash scores
+- For standard scoring: Basic VDW, hydrogen bonding, and clash scores
+- RMSD calculations for all poses against reference structures
+- Per-atom deviation analysis to identify problematic regions
+- Clear success/failure determination with the standard 2.0Å threshold
+- Visualization of RMSD distributions for multiple poses
 ```
+![Plots](plots/plots/energy_breakdown.png)
+![Plots](plots/plots/score_distribution.png)
+
 ### Command Line Interface
 
 ***Note: Remeber to change the --iteration or -i value to smaller number or else it will take hours to optimize it if you set it for blind docking using CPU<br> ***
@@ -427,6 +456,11 @@ save_docking_results(optimized_results, "docking_results")
 | `--workload-balance` | GPU/CPU workload balance (0.0-1.0, higher values assign more work to GPU) |
 | `--auto-tune` | Automatically tune hardware parameters for best performance |
 
+### Reporting Options:
+|  `--report-format` | {text,csv,json,html,all} Report format (default: all) |
+| `--report-name` | Custom name for the report files |
+| `--detailed-energy` |  Include detailed energy component breakdown in reports |
+| `--skip-plots` |   Skip generating plots for reports |
 ```
 
 ## Physics-Based Features
