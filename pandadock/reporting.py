@@ -521,24 +521,24 @@ class DockingReporter:
         print(f"Results CSV written to {results_csv}")
         return results_csv, None
     
-    def ensure_serializable(obj):
-        """Convert values to JSON-serializable types."""
-        if isinstance(obj, dict):
-            return {k: ensure_serializable(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [ensure_serializable(item) for item in obj]
-        elif isinstance(obj, (np.integer, np.int64, np.int32)):
-            return int(obj)
-        elif isinstance(obj, (np.floating, np.float64, np.float32)):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        elif isinstance(obj, (Path, datetime)):
-            return str(obj)
-        elif isinstance(obj, bool):
-            return bool(obj)
-        else:
-            return obj
+    #def ensure_serializable(obj):
+        #"""Convert values to JSON-serializable types."""
+        #if isinstance(obj, dict):
+            #return {k: ensure_serializable(v) for k, v in obj.items()}
+        #elif isinstance(obj, list):
+            #return [ensure_serializable(item) for item in obj]
+        #elif isinstance(obj, (np.integer, np.int64, np.int32)):
+            #return int(obj)
+        #elif isinstance(obj, (np.floating, np.float64, np.float32)):
+            #return float(obj)
+        #elif isinstance(obj, np.ndarray):
+            #return obj.tolist()
+        #elif isinstance(obj, (Path, datetime)):
+            #return str(obj)
+        #elif isinstance(obj, bool):
+            #return bool(obj)
+        #else:
+            #return obj
 
     def generate_json_report(self):
         """
