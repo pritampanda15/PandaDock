@@ -5,6 +5,8 @@ pyproject.toml
 requirements.txt
 setup.py
 pandadock/__init__.py
+pandadock/advanced_search.py
+pandadock/analysis.py
 pandadock/flexible_residues.py
 pandadock/gpu_scoring.py
 pandadock/hybrid_manager.py

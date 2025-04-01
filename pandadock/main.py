@@ -16,6 +16,8 @@ from .search import RandomSearch, GeneticAlgorithm
 from .utils import save_docking_results
 from .preparation import prepare_protein, prepare_ligand
 from .reporting import DockingReporter
+from pathlib import Path
+import matplotlib.pyplot as plt
 from .validation import validate_against_reference
 from .main_integration import (
     add_hardware_options, 
@@ -283,6 +285,115 @@ def check_for_updates():
         # Silently fail if version check doesn't work
         pass
 
+
+def add_advanced_search_options(parser):
+    """Add command-line options for advanced search algorithms."""
+    adv_search = parser.add_argument_group('Advanced Search Algorithms')
+    
+    # Algorithm selection
+    adv_search.add_argument('--advanced-search', choices=['gradient', 'replica-exchange', 
+                                                         'ml-guided', 'fragment-based', 'hybrid'],
+                           help='Advanced search algorithm to use')
+    
+    # Gradient-based options
+    adv_search.add_argument('--gradient-step', type=float, default=0.1,
+                          help='Step size for gradient calculation in gradient-based search')
+    adv_search.add_argument('--convergence-threshold', type=float, default=0.01,
+                          help='Convergence threshold for gradient-based search')
+    
+    # Replica exchange options
+    adv_search.add_argument('--n-replicas', type=int, default=4,
+                          help='Number of replicas for replica exchange')
+    adv_search.add_argument('--replica-temperatures', type=float, nargs='+',
+                          help='Temperatures for replicas (e.g., 300 400 500 600)')
+    adv_search.add_argument('--exchange-steps', type=int, default=10,
+                          help='Number of exchange attempts in replica exchange')
+    
+    # ML-guided options
+    adv_search.add_argument('--surrogate-model', choices=['rf', 'gp', 'nn'], default='rf',
+                          help='Surrogate model type for ML-guided search')
+    adv_search.add_argument('--exploitation-factor', type=float, default=0.8,
+                          help='Exploitation vs exploration balance (0-1) for ML-guided search')
+    
+    # Fragment-based options
+    adv_search.add_argument('--fragment-min-size', type=int, default=5,
+                          help='Minimum fragment size for fragment-based docking')
+    adv_search.add_argument('--growth-steps', type=int, default=3,
+                          help='Number of fragment growth steps')
+    
+    # Hybrid search options
+    adv_search.add_argument('--ga-iterations', type=int, default=50,
+                          help='Genetic algorithm iterations in hybrid search')
+    adv_search.add_argument('--lbfgs-iterations', type=int, default=50,
+                          help='L-BFGS iterations in hybrid search')
+    adv_search.add_argument('--top-n-for-local', type=int, default=10,
+                          help='Top N poses to optimize with L-BFGS in hybrid search')
+
+
+def add_analysis_options(parser):
+    """Add command-line options for pose clustering and analysis."""
+    analysis = parser.add_argument_group('Pose Clustering and Analysis')
+    
+    # Clustering options
+    analysis.add_argument('--cluster-poses', action='store_true',
+                         help='Perform clustering of docking poses')
+    analysis.add_argument('--clustering-method', choices=['hierarchical', 'dbscan'], 
+                        default='hierarchical',
+                        help='Method for clustering poses')
+    analysis.add_argument('--rmsd-cutoff', type=float, default=2.0,
+                        help='RMSD cutoff for pose clustering')
+    
+    # Interaction analysis
+    analysis.add_argument('--analyze-interactions', action='store_true',
+                         help='Generate interaction fingerprints and analysis')
+    analysis.add_argument('--interaction-types', nargs='+',
+                        choices=['hbond', 'hydrophobic', 'ionic', 'aromatic', 'halogen'],
+                        default=['hbond', 'hydrophobic', 'ionic'],
+                        help='Interaction types to include in analysis')
+    
+    # Binding mode analysis
+    analysis.add_argument('--classify-modes', action='store_true',
+                         help='Classify binding modes of docking poses')
+    analysis.add_argument('--discover-modes', action='store_true',
+                         help='Automatically discover binding modes from results')
+    analysis.add_argument('--n-modes', type=int, default=5,
+                        help='Number of binding modes to discover')
+    
+    # Energy analysis
+    analysis.add_argument('--energy-decomposition', action='store_true',
+                         help='Perform energy decomposition analysis')
+    analysis.add_argument('--per-residue-energy', action='store_true',
+                         help='Calculate per-residue energy contributions')
+    
+    # Reporting - with renamed arguments to avoid conflicts
+    analysis.add_argument('--generate-analysis-report', action='store_true',
+                         help='Generate comprehensive docking report')
+    analysis.add_argument('--analysis-report-format', choices=['html', 'pdf', 'txt'], default='html',
+                        help='Format for analysis report')
+    analysis.add_argument('--analysis-report-sections', nargs='+',
+                        choices=['summary', 'clusters', 'interactions', 'energetics'],
+                        default=['summary', 'clusters', 'interactions', 'energetics'],
+                        help='Sections to include in the analysis report')
+    # Add function to create advanced search algorithm
+def create_advanced_search_algorithm(algorithm_type, scoring_function, **kwargs):
+    """Create the appropriate advanced search algorithm."""
+    from .advanced_search import (GradientBasedSearch, ReplicaExchangeDocking, 
+                                MLGuidedSearch, FragmentBasedDocking, HybridSearch)
+    
+    if algorithm_type == 'gradient':
+        return GradientBasedSearch(scoring_function, **kwargs)
+    elif algorithm_type == 'replica-exchange':
+        return ReplicaExchangeDocking(scoring_function, **kwargs)
+    elif algorithm_type == 'ml-guided':
+        return MLGuidedSearch(scoring_function, **kwargs)
+    elif algorithm_type == 'fragment-based':
+        return FragmentBasedDocking(scoring_function, **kwargs)
+    elif algorithm_type == 'hybrid':
+        return HybridSearch(scoring_function, **kwargs)
+    else:
+        raise ValueError(f"Advanced search algorithm '{algorithm_type}' not implemented")
+    
+    
 def main():
     # Check for updates at startup
     check_for_updates()
@@ -370,6 +481,8 @@ def main():
     
     # Add hardware acceleration options
     add_hardware_options(parser)
+    add_advanced_search_options(parser)  # New function
+    add_analysis_options(parser)         # New function
     
     args = parser.parse_args()
     
@@ -498,6 +611,139 @@ def main():
         else:
             print("\nUsing standard composite scoring function with hardware acceleration")
     
+    # Get algorithm type based on arguments
+    if args.advanced_search:
+        # Use advanced search algorithm
+        from .advanced_search import create_advanced_search_algorithm
+        
+        # Collect algorithm-specific parameters
+        adv_search_kwargs = {}
+        if args.advanced_search == 'gradient':
+            adv_search_kwargs['gradient_step'] = args.gradient_step
+            adv_search_kwargs['convergence_threshold'] = args.convergence_threshold
+        elif args.advanced_search == 'replica-exchange':
+            adv_search_kwargs['n_replicas'] = args.n_replicas
+            adv_search_kwargs['temperatures'] = args.replica_temperatures
+            adv_search_kwargs['exchange_steps'] = args.exchange_steps
+        
+        
+        search_algorithm = create_advanced_search_algorithm(
+            args.advanced_search,
+            scoring_function,
+            **adv_search_kwargs
+        )
+        print(f"\nUsing advanced search algorithm: {args.advanced_search}")
+        
+    else:
+        # Use traditional search algorithm
+        algorithm_type = get_algorithm_type_from_args(args)
+        algorithm_kwargs = get_algorithm_kwargs_from_args(args)
+        
+        # Create search algorithm as before
+        search_algorithm = create_optimized_search_algorithm(
+            hybrid_manager,
+            algorithm_type,
+            scoring_function,
+            **algorithm_kwargs
+        )
+     
+    # Apply analysis if requested
+    if args.cluster_poses or args.analyze_interactions or args.classify_modes or \
+       args.energy_decomposition or args.generate_report:
+        from .analysis import (PoseClusterer, InteractionFingerprinter, 
+                              BindingModeClassifier, EnergyDecomposition,
+                              DockingReportGenerator)
+        
+        print("\nPerforming advanced analysis...")
+        
+        # Extract poses and scores
+        poses = [pose for pose, _ in all_results]
+        scores = [score for _, score in all_results]
+        
+        # Clustering
+        clustering_results = None
+        if args.cluster_poses:
+            print("Clustering docking poses...")
+            clusterer = PoseClusterer(
+                method=args.clustering_method,
+                rmsd_cutoff=args.rmsd_cutoff
+            )
+            clustering_results = clusterer.cluster_poses(poses)
+            
+            # Print clustering summary
+            print(f"Found {len(clustering_results['clusters'])} clusters")
+            for i, cluster in enumerate(clustering_results['clusters']):
+                print(f"Cluster {i+1}: {len(cluster['members'])} poses, "
+                      f"best score: {cluster['best_score']:.2f}")
+        
+        # Interaction analysis
+        if args.analyze_interactions:
+            print("Analyzing protein-ligand interactions...")
+            fingerprinter = InteractionFingerprinter(
+                interaction_types=args.interaction_types
+            )
+            # Analyze top poses
+            for i, (pose, score) in enumerate(all_results[:5]):
+                print(f"\nInteractions for pose {i+1} (score: {score:.2f}):")
+                key_interactions = fingerprinter.analyze_key_interactions(protein, pose)
+                for interaction in key_interactions:
+                    print(f"  {interaction}")
+        
+        # Binding mode classification
+        if args.classify_modes or args.discover_modes:
+            print("Analyzing binding modes...")
+            classifier = BindingModeClassifier()
+            
+            if args.discover_modes:
+                discovered_modes = classifier.discover_modes(
+                    protein, poses, n_modes=args.n_modes
+                )
+                print(f"Discovered {len(discovered_modes)} binding modes")
+                for i, mode in enumerate(discovered_modes):
+                    print(f"Mode {i+1}: {mode['count']} poses, "
+                          f"best score: {mode['best_score']:.2f}")
+                    
+            if args.classify_modes:
+                for i, (pose, score) in enumerate(all_results[:10]):
+                    mode = classifier.classify_pose(protein, pose)
+                    print(f"Pose {i+1} (score: {score:.2f}): {mode}")
+        
+        # Energy decomposition
+        energy_decomposition = None
+        if args.energy_decomposition:
+            print("Performing energy decomposition analysis...")
+            decomposer = EnergyDecomposition(scoring_function)
+            
+            # Analyze top pose
+            top_pose = all_results[0][0]
+            energy_decomposition = decomposer.decompose_energy(protein, top_pose)
+            
+            print("\nEnergy components for top pose:")
+            for component, value in energy_decomposition.items():
+                print(f"  {component}: {value:.2f}")
+                
+            if args.per_residue_energy:
+                print("\nTop residue contributions:")
+                res_contributions = decomposer.residue_contributions(protein, top_pose)
+                for res, value in res_contributions[:5]:
+                    print(f"  {res}: {value:.2f}")
+        
+        # Generate report
+        if args.generate_report:
+            print("Generating comprehensive docking report...")
+            report_generator = DockingReportGenerator(
+                report_format=args.report_format,
+                include_sections=args.report_sections
+            )
+            
+            report_file = f"{output_dir}/docking_report.{args.report_format}"
+            report_generator.generate_report(
+                protein, poses, scores, report_file,
+                clustering_results=clustering_results,
+                energy_decomposition=energy_decomposition
+            )
+            print(f"Report generated: {report_file}")
+            
     # Create timestamp for output directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     args.timestamp = timestamp  # Store for validation function
