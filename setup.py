@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="pandadock",
-    version="1.0.1",
+    version="1.0.2",
     author="Dr. Pritam Kumar Panda",
     author_email="pritam@stanford.edu",
     description="A GPU-accelerated molecular docking tool for computational drug discovery",
@@ -33,6 +33,8 @@ setup(
         "scipy>=1.5.0",
         "matplotlib>=3.3.0",
         "scikit-learn>=0.24.0",
+        "requests",  # For HTTP requests to PyPI
+        "packaging",  # For version parsing
     ],
     entry_points={
     'console_scripts': [
