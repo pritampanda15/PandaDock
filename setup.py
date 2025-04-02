@@ -1,70 +1,55 @@
 from setuptools import setup, find_packages
 
-# Read the contents of requirements.txt
-with open('requirements.txt', 'r') as f:
-    requirements = [line.strip() for line in f 
-                    if line.strip() and not line.startswith('#')]
-
-# Optional dependencies for different use cases
-extras_require = {
-    'gpu': [
-        'torch>=1.12.0',
-        'torchvision>=0.13.0',
-        'cupy-cuda11x>=11.0.0'
-    ],
-    'ml': [
-        'scikit-optimize>=0.9.0',
-        'GPy>=1.10.0'
-    ],
-    'vis': [
-        'seaborn>=0.11.0',
-        'plotly>=5.7.0'
-    ],
-    'full': [
-        'torch>=1.12.0',
-        'torchvision>=0.13.0',
-        'cupy-cuda11x>=11.0.0',
-        'scikit-optimize>=0.9.0',
-        'GPy>=1.10.0',
-        'seaborn>=0.11.0',
-        'plotly>=5.7.0',
-        'jupyter>=1.0.0'
-    ]
-}
+with open("README.md", "r", encoding="utf-8") as fh:
+    long_description = fh.read()
 
 setup(
-    name='pandadock',
-    version='1.0.0',
-    description='Physics-Based Molecular Docking Framework',
-    long_description=open('README.md').read(),
-    long_description_content_type='text/markdown',
-    author='Pritam Kumar Panda',
-    author_email='pritam@stanford.edu',
-    url='https://github.com/pritampanda15/PandaDock',
-    packages=find_packages(exclude=['tests*', 'docs*']),
-    install_requires=requirements,
-    extras_require=extras_require,
-    classifiers=[
-        'Development Status :: 4 - Beta',
-        'Intended Audience :: Science/Research',
-        'License :: OSI Approved :: MIT License',
-        'Programming Language :: Python :: 3.8',
-        'Programming Language :: Python :: 3.9',
-        'Programming Language :: Python :: 3.10',
-        'Topic :: Scientific/Engineering :: Bio-Informatics',
-        'Topic :: Scientific/Engineering :: Chemistry',
-    ],
-    keywords='molecular-docking computational-chemistry bioinformatics',
-    python_requires='>=3.8',
-    entry_points={
-        'console_scripts': [
-            'pandadock=pandadock.main:main',
-        ],
-    },
+    name="pandadock",
+    version="1.2",
+    author="Dr. Pritam Kumar Panda",
+    author_email="pritam@stanford.edu",
+    description="A GPU-accelerated molecular docking tool for computational drug discovery",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
     project_urls={
-        'Bug Reports': 'https://github.com/pritampanda15/PandaDock/issues',
-        'Source': 'https://github.com/pritampanda15/PandaDock',
-        'Documentation': 'https://github.com/pritampanda15/PandaDock/blob/main/README.md',
+        "Bug Tracker": "https://github.com/pritampanda15/PandaDock/issues",
+        "Documentation": "https://github.com/pritampanda15/PandaDock/wiki",
+    },
+    url="https://github.com/pritampanda15/PandaDock",
+    packages=find_packages(),
+    classifiers=[
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
+        "Topic :: Scientific/Engineering :: Bio-Informatics",
+        "Topic :: Scientific/Engineering :: Chemistry",
+    ],
+    python_requires=">=3.7",
+    install_requires=[
+        "numpy>=1.19.0",
+        "scipy>=1.5.0",
+        "matplotlib>=3.3.0",
+        "scikit-learn>=0.24.0",
+        "requests",  # For HTTP requests to PyPI
+        "packaging",  # For version parsing
+    ],
+    entry_points={
+    'console_scripts': [
+        'pandadock=pandadock.main:main',
+    ],
+},
+    extras_require={
+        "gpu": ["torch>=1.9.0"],
+        "dev": [
+            "pytest>=6.0.0",
+            "pytest-cov>=2.10.0",
+            "black>=20.8b1",
+            "flake8>=3.8.0",
+        ],
+        "rdkit": ["rdkit>=2020.09.1"],
     },
     include_package_data=True,  # Include files specified in MANIFEST.in
 )
