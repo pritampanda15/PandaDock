@@ -411,3 +411,44 @@ class EnhancedScoringFunction(CompositeScoringFunction):
             entropy_penalty = 0.0
         
         return entropy_penalty
+# Path: pandadock/scoring.py
+
+# Add this class after your existing scoring function classes
+class TetheredScoringFunction:
+    """
+    A scoring function wrapper that adds a penalty term based on RMSD from a reference position.
+    """
+    
+    def __init__(self, base_scoring_function, reference_ligand, weight=10.0, max_penalty=100.0):
+        self.base_scoring_function = base_scoring_function
+        self.reference_coordinates = reference_ligand.xyz.copy()
+        self.weight = weight
+        self.max_penalty = max_penalty
+        
+    def score(self, protein, ligand):
+        # Get the base score
+        base_score = self.base_scoring_function.score(protein, ligand)
+        
+        # Calculate RMSD from reference
+        rmsd = self._calculate_rmsd(ligand.xyz)
+        
+        # Apply RMSD penalty, capped at max_penalty
+        rmsd_penalty = min(self.weight * rmsd, self.max_penalty)
+        
+        # Return combined score
+        return base_score + rmsd_penalty
+    
+    def _calculate_rmsd(self, coordinates):
+        # Ensure same number of atoms
+        if len(coordinates) != len(self.reference_coordinates):
+            raise ValueError(f"Coordinate mismatch: reference has {len(self.reference_coordinates)} atoms, but current pose has {len(coordinates)} atoms")
+        
+        # Calculate squared differences
+        squared_diff = np.sum((coordinates - self.reference_coordinates) ** 2, axis=1)
+        
+        # Return RMSD
+        return np.sqrt(np.mean(squared_diff))
+    
+    # Forward any other methods to the base scoring function
+    def __getattr__(self, name):
+        return getattr(self.base_scoring_function, name)

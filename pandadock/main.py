@@ -434,6 +434,11 @@ def main():
         parser.add_argument('--detect-pockets', action='store_true',
                             help='Automatically detect binding pockets')
         
+        parser.add_argument('--tethered-docking', action='store_true',
+                    help='Use tethered scoring with reference structure')
+        parser.add_argument('--tether-weight', type=float, default=10.0,
+                    help='Weight for tethered scoring (higher = stronger tethering)')
+        
         # Quick mode options
         parser.add_argument('--fast-mode', action='store_true',
                             help='Run with minimal enhancements for quick results')
@@ -673,7 +678,16 @@ def main():
         all_results = []
         
         # Run the appropriate docking algorithm
-        if args.reference and args.exact_alignment:
+        if args.reference and args.tethered_docking:
+            print(f"Using tethered reference-based docking with weight {args.tether_weight}...")
+            all_results = search_algorithm.exact_reference_docking_with_tethering(
+                protein, 
+                ligand, 
+                reference_ligand,
+                tether_weight=args.tether_weight,
+                skip_optimization=args.no_local_optimization
+            )
+        elif args.reference and args.exact_alignment:
             print(f"Using exact alignment with reference structure...")
             all_results = search_algorithm.exact_reference_docking(
                 protein, 

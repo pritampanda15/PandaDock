@@ -225,17 +225,17 @@ class DockingSearch:
             
             # 1. Coarse-grained optimization with larger steps
             optimized_pose, optimized_score = self._enhanced_local_optimization(
-                protein, optimized_pose, step_size=0.5, angle_step=0.1, max_steps=50
+                protein, optimized_pose, step_size=0.5, angle_step=0.1, max_steps=20
             )
             
             # 2. Fine-grained optimization with smaller steps
             optimized_pose, optimized_score = self._enhanced_local_optimization(
-                protein, optimized_pose, step_size=0.2, angle_step=0.05, max_steps=50
+                protein, optimized_pose, step_size=0.2, angle_step=0.05, max_steps=20
             )
             
             # 3. Very fine-grained optimization for final refinement
             optimized_pose, optimized_score = self._enhanced_local_optimization(
-                protein, optimized_pose, step_size=0.1, angle_step=0.02, max_steps=30
+                protein, optimized_pose, step_size=0.1, angle_step=0.02, max_steps=20
             )
             
             optimized_results.append((optimized_pose, optimized_score))
@@ -1108,7 +1108,106 @@ class DockingSearch:
         from .ligand import Ligand
         return Ligand(filename)
         
-    
+        
+    def exact_reference_docking_with_tethering(self, protein, ligand, reference_ligand, 
+                                            tether_weight=10.0, skip_optimization=False):
+        """
+        Perform docking with exact alignment to a reference and tethered optimization.
+        """
+        print("\nPerforming tethered reference-based docking...")
+        
+        # Create a perfect superimposed pose
+        import copy
+        aligned_pose = copy.deepcopy(ligand)
+        
+        # Step 1: Calculate centroids
+        ref_centroid = np.mean(reference_ligand.xyz, axis=0)
+        ligand_centroid = np.mean(aligned_pose.xyz, axis=0)
+        
+        # Step 2: Translate ligand to origin
+        aligned_pose.translate(-ligand_centroid)
+        
+        # Step 3: Check if atom counts match for the Kabsch algorithm
+        if aligned_pose.xyz.shape[0] == reference_ligand.xyz.shape[0]:
+            # Center reference coordinates
+            ref_coords_centered = reference_ligand.xyz - ref_centroid
+            
+            # Calculate covariance matrix
+            covariance = np.dot(aligned_pose.xyz.T, ref_coords_centered)
+            
+            # SVD decomposition
+            U, S, Vt = np.linalg.svd(covariance)
+            
+            # Calculate rotation matrix
+            rotation_matrix = np.dot(Vt.T, U.T)
+            
+            # Check for reflection case (determinant should be 1)
+            if np.linalg.det(rotation_matrix) < 0:
+                Vt[-1, :] *= -1
+                rotation_matrix = np.dot(Vt.T, U.T)
+            
+            # Apply rotation
+            aligned_pose.rotate(rotation_matrix)
+        else:
+            print("Warning: Atom count mismatch between ligand and reference")
+            print(f"Ligand atoms: {aligned_pose.xyz.shape[0]}, Reference atoms: {reference_ligand.xyz.shape[0]}")
+            print("Using centroid alignment only without rotation")
+        
+        # Step 4: Translate to reference position
+        aligned_pose.translate(ref_centroid)
+        
+        # Store the exact aligned pose before any refinement
+        exact_aligned_pose = copy.deepcopy(aligned_pose)
+        
+        # Import the tethered scoring function
+        from .scoring import TetheredScoringFunction
+        
+        # Create a tethered scoring function
+        tethered_scoring = TetheredScoringFunction(
+            self.scoring_function,
+            reference_ligand,
+            weight=tether_weight
+        )
+        
+        # Score the exact aligned pose with normal scoring function
+        baseline_score = self.scoring_function.score(protein, aligned_pose)
+        print(f"Exact reference-aligned pose baseline score: {baseline_score:.2f}")
+        
+        # Skip refinement/optimization if requested
+        if skip_optimization:
+            print("Skipping refinement as requested")
+            return [(aligned_pose, baseline_score)]
+        
+        # Perform optimization with tethered scoring
+        print("Applying tethered optimization to improve score while preserving alignment...")
+        
+        # Store original scoring function temporarily
+        original_scoring = self.scoring_function
+        
+        # Replace with tethered scoring function
+        self.scoring_function = tethered_scoring
+        
+        # Perform optimization
+        optimized_pose, optimized_score = self._enhanced_local_optimization(
+            protein, exact_aligned_pose, step_size=0.2, angle_step=0.05, max_steps=50
+        )
+        
+        # Restore original scoring function
+        self.scoring_function = original_scoring
+        
+        # Score the optimized pose with original scoring function
+        final_score = original_scoring.score(protein, optimized_pose)
+        
+        # Calculate RMSD between optimized and reference
+        from .utils import calculate_rmsd
+        rmsd = calculate_rmsd(optimized_pose.xyz, reference_ligand.xyz)
+        
+        print(f"Tethered optimization complete:")
+        print(f" - Final score: {final_score:.2f}")
+        print(f" - RMSD from reference: {rmsd:.3f} Å")
+        
+        # Return results
+        return [(optimized_pose, final_score), (exact_aligned_pose, baseline_score)]
     
     
 class RandomSearch(DockingSearch):

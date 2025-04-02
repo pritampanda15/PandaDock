@@ -170,25 +170,26 @@ def calculate_rmsd(coords1, coords2):
     Parameters:
     -----------
     coords1 : array-like
-        First set of coordinates
+        First set of coordinates (N x 3)
     coords2 : array-like
-        Second set of coordinates
+        Second set of coordinates (N x 3)
     
     Returns:
     --------
     float
-        RMSD value
+        RMSD value in same units as input coordinates
     """
     coords1 = np.array(coords1)
     coords2 = np.array(coords2)
     
     if coords1.shape != coords2.shape:
-        raise ValueError("Coordinate arrays must have the same shape")
+        raise ValueError(f"Coordinate mismatch: set 1 has shape {coords1.shape}, but set 2 has shape {coords2.shape}")
     
-    n_atoms = coords1.shape[0]
-    squared_diff = np.sum((coords1 - coords2) ** 2)
-    rmsd = np.sqrt(squared_diff / n_atoms)
+    # For 3D molecular coordinates (Nx3 array)
+    # Sum squared differences for each atom's x,y,z components
+    squared_diff = np.sum((coords1 - coords2) ** 2, axis=1)
+    
+    # Calculate mean of the squared differences and take square root
+    rmsd = np.sqrt(np.mean(squared_diff))
     
     return rmsd
-
-
