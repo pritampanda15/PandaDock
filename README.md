@@ -358,7 +358,7 @@ Enhanced electrostatics model accounting for screening and dielectric effects.
 
 **Best For:** More accurate electrostatics calculations
 
-## Version 1.0 Latest Improvements
+## Version 1.2 Latest Improvements
 
 ### New Core Features
 
