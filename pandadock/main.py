@@ -645,9 +645,95 @@ def main():
             algorithm_type,
             scoring_function,
             **algorithm_kwargs
+        )        
+    # Create timestamp for output directory
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    args.timestamp = timestamp  # Store for validation function
+    
+    # Setup output directory
+    output_dir = f"{args.output}_{timestamp}"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Initialize reporter
+    reporter = DockingReporter(output_dir, args, timestamp=timestamp)
+    
+    # Get algorithm type and parameters
+    algorithm_type = get_algorithm_type_from_args(args)
+    algorithm_kwargs = get_algorithm_kwargs_from_args(args)
+    
+    # Create the search algorithm
+    search_algorithm = create_optimized_search_algorithm(
+        hybrid_manager,
+        algorithm_type,
+        scoring_function,
+        **algorithm_kwargs
+    )
+    
+    # Run the appropriate docking algorithm
+    if args.reference and args.exact_alignment:
+        print(f"Using exact alignment with reference structure...")
+        all_results = search_algorithm.exact_reference_docking(
+            protein, 
+            ligand, 
+            reference_ligand, 
+            skip_optimization=args.no_local_optimization
         )
-     
-    # Apply analysis if requested
+    elif args.reference and not args.exact_alignment:
+        print(f"Using reference-guided docking...")
+        all_results = search_algorithm.reference_guided_docking(
+            protein, 
+            ligand, 
+            reference_ligand,
+            skip_optimization=args.no_local_optimization
+        )
+    elif args.exhaustiveness > 1:
+        print(f"\nRunning {args.exhaustiveness} independent docking runs...")
+        all_results = hybrid_manager.run_ensemble_docking(
+            protein=protein,
+            ligand=ligand,
+            n_runs=args.exhaustiveness,
+            algorithm_type=algorithm_type,
+            **algorithm_kwargs
+        )
+    elif algorithm_type == 'monte-carlo' and PHYSICS_AVAILABLE:
+        print(f"\nUsing Monte Carlo sampling with {args.mc_steps} steps at {args.temperature}K")
+        search_algorithm = MonteCarloSampling(
+            scoring_function,
+            temperature=args.temperature,
+            n_steps=args.mc_steps,
+            cooling_factor=0.95  # Enable simulated annealing
+        )
+        all_results = search_algorithm.run_sampling(protein, ligand)
+    elif hasattr(args, 'enhanced') and args.enhanced:
+        print("Using enhanced rigid docking algorithm...")
+        all_results = search_algorithm.improve_rigid_docking(protein, ligand, args)
+    else:
+        print("\nPerforming standard docking...")
+        all_results = search_algorithm.search(protein, ligand)
+    
+    # Apply local optimization to top poses if requested
+    if args.local_opt and not args.no_local_optimization:
+        print("\nPerforming local optimization on top poses...")
+        optimized_results = []
+        
+        # Optimize top 10 poses
+        for i, (pose, score) in enumerate(sorted(all_results, key=lambda x: x[1])[:10]):
+            print(f"Optimizing pose {i+1}...")
+            
+            if args.mmff_minimization and PHYSICS_AVAILABLE:
+                # Use MMFF minimization in protein environment
+                print(f"  Using MMFF minimization in protein environment")
+                minimizer = MMFFMinimization()
+                opt_pose = minimizer.minimize_pose(protein, pose)
+                opt_score = scoring_function.score(protein, opt_pose)
+                optimized_results.append((opt_pose, opt_score))
+            elif hasattr(search_algorithm, '_local_optimization'):
+                # Use built-in local optimization
+                opt_pose, opt_score = search_algorithm._local_optimization(pose, protein)
+                optimized_results.append((opt_pose, opt_score))
+            else:
+                optimized_results.append((pose, score))
+        # Apply analysis if requested
     if args.cluster_poses or args.analyze_interactions or args.classify_modes or \
         args.energy_decomposition or args.generate_analysis_report:
         from .analysis import (PoseClusterer, InteractionFingerprinter, 
@@ -743,98 +829,7 @@ def main():
                 energy_decomposition=energy_decomposition
             )
             print(f"Report generated: {report_file}")
-            
-    # Create timestamp for output directory
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    args.timestamp = timestamp  # Store for validation function
-    
-    # Setup output directory
-    output_dir = f"{args.output}_{timestamp}"
-    os.makedirs(output_dir, exist_ok=True)
 
-    # Track start time for reporting
-    start_time = time.time()
-    args.start_time = start_time
-    # Initialize the docking reporter
-    reporter = DockingReporter(output_dir, args, timestamp=timestamp)
-    
-    # Get algorithm type and parameters
-    algorithm_type = get_algorithm_type_from_args(args)
-    algorithm_kwargs = get_algorithm_kwargs_from_args(args)
-    
-    # Create the search algorithm
-    search_algorithm = create_optimized_search_algorithm(
-        hybrid_manager,
-        algorithm_type,
-        scoring_function,
-        **algorithm_kwargs
-    )
-    
-    # Run the appropriate docking algorithm
-    if args.reference and args.exact_alignment:
-        print(f"Using exact alignment with reference structure...")
-        all_results = search_algorithm.exact_reference_docking(
-            protein, 
-            ligand, 
-            reference_ligand, 
-            skip_optimization=args.no_local_optimization
-        )
-    elif args.reference and not args.exact_alignment:
-        print(f"Using reference-guided docking...")
-        all_results = search_algorithm.reference_guided_docking(
-            protein, 
-            ligand, 
-            reference_ligand,
-            skip_optimization=args.no_local_optimization
-        )
-    elif args.exhaustiveness > 1:
-        print(f"\nRunning {args.exhaustiveness} independent docking runs...")
-        all_results = hybrid_manager.run_ensemble_docking(
-            protein=protein,
-            ligand=ligand,
-            n_runs=args.exhaustiveness,
-            algorithm_type=algorithm_type,
-            **algorithm_kwargs
-        )
-    elif algorithm_type == 'monte-carlo' and PHYSICS_AVAILABLE:
-        print(f"\nUsing Monte Carlo sampling with {args.mc_steps} steps at {args.temperature}K")
-        search_algorithm = MonteCarloSampling(
-            scoring_function,
-            temperature=args.temperature,
-            n_steps=args.mc_steps,
-            cooling_factor=0.95  # Enable simulated annealing
-        )
-        all_results = search_algorithm.run_sampling(protein, ligand)
-    elif hasattr(args, 'enhanced') and args.enhanced:
-        print("Using enhanced rigid docking algorithm...")
-        all_results = search_algorithm.improve_rigid_docking(protein, ligand, args)
-    else:
-        print("\nPerforming standard docking...")
-        all_results = search_algorithm.search(protein, ligand)
-    
-    # Apply local optimization to top poses if requested
-    if args.local_opt and not args.no_local_optimization:
-        print("\nPerforming local optimization on top poses...")
-        optimized_results = []
-        
-        # Optimize top 10 poses
-        for i, (pose, score) in enumerate(sorted(all_results, key=lambda x: x[1])[:10]):
-            print(f"Optimizing pose {i+1}...")
-            
-            if args.mmff_minimization and PHYSICS_AVAILABLE:
-                # Use MMFF minimization in protein environment
-                print(f"  Using MMFF minimization in protein environment")
-                minimizer = MMFFMinimization()
-                opt_pose = minimizer.minimize_pose(protein, pose)
-                opt_score = scoring_function.score(protein, opt_pose)
-                optimized_results.append((opt_pose, opt_score))
-            elif hasattr(search_algorithm, '_local_optimization'):
-                # Use built-in local optimization
-                opt_pose, opt_score = search_algorithm._local_optimization(pose, protein)
-                optimized_results.append((opt_pose, opt_score))
-            else:
-                optimized_results.append((pose, score))
-        
         # Combine with original results
         combined_results = optimized_results + [r for r in all_results if r not in all_results[:10]]
         all_results = combined_results
