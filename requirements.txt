@@ -1,12 +1,42 @@
-numpy>=1.19.0
-scipy>=1.5.0
-matplotlib>=3.3.0
-scikit-learn>=0.24.0
-psutil>=5.8.0
-# Optional packages for GPU acceleration
-# torch>=1.9.0
-# cupy-cuda11x>=10.2.0
-# RDKit is recommended but optional (install via conda)
-# conda install -c conda-forge rdkit
-# Open Babel is optional for additional molecule preparation
-# conda install -c conda-forge openbabel
+# Core Scientific Computing and Data Analysis
+numpy>=1.22.0
+scipy>=1.9.0
+pandas>=1.4.0
+matplotlib>=3.5.0
+scikit-learn>=1.1.0
+
+# Molecular Modeling and Cheminformatics
+rdkit-pypi>=2022.3.1  # Pure Python RDKit package
+openbabel>=3.1.1.1  # Optional, for advanced molecule preparation
+
+# Hardware and Performance
+psutil>=5.9.0
+tabulate>=0.8.9
+
+# Machine Learning and Optimization
+joblib>=1.1.0
+
+# Optional GPU Acceleration (Uncomment as needed)
+# torch>=1.12.0
+# torchvision>=0.13.0
+# cupy-cuda11x>=11.0.0
+
+# Optional Visualization and Reporting
+seaborn>=0.11.0
+plotly>=5.7.0
+
+# Optional Physics and Simulation
+# Install via conda: conda install -c conda-forge openmm
+# openmm>=7.7.0
+
+# Advanced Machine Learning (Optional)
+# scikit-optimize>=0.9.0
+# GPy>=1.10.0  # Gaussian Process Regression
+
+# Jupyter Integration (Optional)
+# ipykernel>=6.0.0
+# jupyter>=1.0.0
+
+# Additional Optional Computational Libraries
+# dask>=2022.2.0  # For distributed computing
+# numba>=0.55.0   # JIT compilation for performance
