@@ -736,7 +736,7 @@ def main():
                 include_sections=args.report_sections
             )
             
-            report_file = f"{output_dir}/docking_report.{args.report_format}"
+            report_file = os.path.join(output_dir, f"docking_report.{args.analysis_report_format}")
             report_generator.generate_report(
                 protein, poses, scores, report_file,
                 clustering_results=clustering_results,
