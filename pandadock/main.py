@@ -940,8 +940,11 @@ def main():
     
     # Print summary
     print(f"\nDocking completed in {elapsed_time:.1f} seconds")
-    print(f"Best score: {unique_results[0][1]:.2f}")
-    print(f"Results saved to: {output_dir}")
+    if unique_results:
+        print(f"Best score: {unique_results[0][1]:.2f}")
+        print(f"Results saved to: {output_dir}")
+    else:
+        print("No valid docking solutions found.")
     print(f"============================================================")
     
     
