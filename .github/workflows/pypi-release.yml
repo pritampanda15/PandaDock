@@ -3,28 +3,36 @@ name: Publish Python Package to PyPI
 on:
   release:
     types: [created]
-    
+  workflow_dispatch:  # Allow manual triggering for testing
+
 permissions:
-  contents: read  # Allows reading repository contents
-  
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.x'
+        python-version: '3.10'
     
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install build twine
+        pip install build twine setuptools wheel
     
     - name: Build package
       run: python -m build
+    
+    - name: Verify distribution files
+      run: |
+        ls dist/
+        tar tvf dist/*.tar.gz
+        unzip -l dist/*.whl
     
     - name: Publish to Test PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
@@ -37,3 +45,4 @@ jobs:
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         password: ${{ secrets.PYPI_API_TOKEN }}
+        skip-existing: true
