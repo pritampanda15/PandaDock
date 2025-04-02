@@ -1108,9 +1108,9 @@ class DockingSearch:
         from .ligand import Ligand
         return Ligand(filename)
         
-        
+
     def exact_reference_docking_with_tethering(self, protein, ligand, reference_ligand, 
-                                            tether_weight=10.0, skip_optimization=False):
+                                            tether_weight=20.0, skip_optimization=False):
         """
         Perform docking with exact alignment to a reference and tethered optimization.
         """
