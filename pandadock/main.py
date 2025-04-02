@@ -200,9 +200,6 @@ def write_results_to_txt(results, output_dir, elapsed_time, protein_path, ligand
     """
     results_path = Path(output_dir) / "docking_results.txt"
     
-    # Sort results by score (lowest first)
-    sorted_results = sorted(results, key=lambda x: x[1])
-    
     with open(results_path, 'w') as f:
         f.write("=====================================================\n")
         f.write("        PandaDock - Python Molecular Docking Results    \n")
@@ -218,22 +215,34 @@ def write_results_to_txt(results, output_dir, elapsed_time, protein_path, ligand
         f.write(f"Iterations/Generations: {iterations}\n")
         f.write(f"Total Runtime: {elapsed_time:.2f} seconds\n\n")
         
-        # Write summary of results
-        f.write("RESULTS SUMMARY\n")
-        f.write("--------------\n")
-        f.write(f"Total Poses Generated: {len(results)}\n")
-        f.write(f"Best Score: {sorted_results[0][1]:.4f}\n")
-        f.write(f"Worst Score: {sorted_results[-1][1]:.4f}\n")
-        f.write(f"Average Score: {sum([score for _, score in results])/len(results):.4f}\n\n")
+        # Check if results is empty
+        if not results:
+            f.write("RESULTS SUMMARY\n")
+            f.write("--------------\n")
+            f.write("No valid docking solutions found.\n")
+            f.write("This can occur due to incompatible structures, overly strict scoring parameters,\n")
+            f.write("or issues with the search space definition.\n\n")
+        else:
+            # Sort results by score (lowest first)
+            sorted_results = sorted(results, key=lambda x: x[1])
+            
+            # Write summary of results
+            f.write("RESULTS SUMMARY\n")
+            f.write("--------------\n")
+            f.write(f"Total Poses Generated: {len(results)}\n")
+            f.write(f"Best Score: {sorted_results[0][1]:.4f}\n")
+            f.write(f"Worst Score: {sorted_results[-1][1]:.4f}\n")
+            f.write(f"Average Score: {sum([score for _, score in results])/len(results):.4f}\n\n")
+            
+            # Write top 10 poses
+            f.write("TOP 10 POSES\n")
+            f.write("--------------\n")
+            f.write("Rank\tScore\tFile\n")
+            for i, (pose, score) in enumerate(sorted_results[:10]):
+                f.write(f"{i+1}\t{score:.4f}\tpose_{i+1}_score_{score:.1f}.pdb\n")
+            
+            f.write("\n\nFull results are available in the output directory.\n")
         
-        # Write top 10 poses
-        f.write("TOP 10 POSES\n")
-        f.write("--------------\n")
-        f.write("Rank\tScore\tFile\n")
-        for i, (pose, score) in enumerate(sorted_results[:10]):
-            f.write(f"{i+1}\t{score:.4f}\tpose_{i+1}_score_{score:.1f}.pdb\n")
-        
-        f.write("\n\nFull results are available in the output directory.\n")
         f.write("=====================================================\n")
     
     print(f"Detailed results written to {results_path}")
@@ -879,9 +888,21 @@ def main():
         print("No flexible residues found on protein object")
     
     # Check if we have any results before saving
+    # In main.py before validation and reporting
     if not unique_results:
-        print("\nWarning: No valid docking solutions found. Check parameters or input structures.")
-        print("This can happen due to bad starting conformations, or incompatible protein/ligand structures.")
+        print("\nWarning: No valid docking solutions found.")
+        # Skip validation and other result-dependent operations
+    else:
+        # Validate against reference if provided
+        if hasattr(args, 'reference') and args.reference and not args.exact_alignment:
+            validation_results = validate_against_reference(args, unique_results, output_dir)
+            # Add validation results to reporter
+            reporter.add_validation_results(validation_results)
+        
+        # Print summary
+        print(f"\nDocking completed in {elapsed_time:.1f} seconds")
+        print(f"Best score: {unique_results[0][1]:.2f}")
+        print(f"Results saved to: {output_dir}")
     
     # Clean up and exit gracefully
     if args.prepare_molecules:
