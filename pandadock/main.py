@@ -638,14 +638,7 @@ def main():
         # Use traditional search algorithm
         algorithm_type = get_algorithm_type_from_args(args)
         algorithm_kwargs = get_algorithm_kwargs_from_args(args)
-        
-        # Create search algorithm as before
-        search_algorithm = create_optimized_search_algorithm(
-            hybrid_manager,
-            algorithm_type,
-            scoring_function,
-            **algorithm_kwargs
-        )        
+            
     # Create timestamp for output directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     args.timestamp = timestamp  # Store for validation function
@@ -712,9 +705,9 @@ def main():
         all_results = search_algorithm.search(protein, ligand)
     
     # Apply local optimization to top poses if requested
+    optimized_results = []  # Initialize this variable outside the if statement
     if args.local_opt and not args.no_local_optimization:
         print("\nPerforming local optimization on top poses...")
-        optimized_results = []
         
         # Optimize top 10 poses
         for i, (pose, score) in enumerate(sorted(all_results, key=lambda x: x[1])[:10]):
@@ -733,12 +726,22 @@ def main():
                 optimized_results.append((opt_pose, opt_score))
             else:
                 optimized_results.append((pose, score))
-        # Apply analysis if requested
+        
+        # Combine with original results
+        combined_results = optimized_results + [r for r in all_results if r not in all_results[:10]]
+        all_results = combined_results
+    elif args.no_local_optimization:
+        print("Skipping local optimization as requested (--no-local-optimization)")
+
+    # Sort all results by score
+    all_results.sort(key=lambda x: x[1])
+
+    # Apply analysis if requested (properly indented as a separate section)
     if args.cluster_poses or args.analyze_interactions or args.classify_modes or \
         args.energy_decomposition or args.generate_analysis_report:
         from .analysis import (PoseClusterer, InteractionFingerprinter, 
-                              BindingModeClassifier, EnergyDecomposition,
-                              DockingReportGenerator)
+                            BindingModeClassifier, EnergyDecomposition,
+                            DockingReportGenerator)
         
         print("\nPerforming advanced analysis...")
         
@@ -760,66 +763,66 @@ def main():
             print(f"Found {len(clustering_results['clusters'])} clusters")
             for i, cluster in enumerate(clustering_results['clusters']):
                 print(f"Cluster {i+1}: {len(cluster['members'])} poses, "
-                      f"best score: {cluster['best_score']:.2f}")
-        
-        # Interaction analysis
-        if args.analyze_interactions:
-            print("Analyzing protein-ligand interactions...")
-            fingerprinter = InteractionFingerprinter(
-                interaction_types=args.interaction_types
-            )
-            # Analyze top poses
-            for i, (pose, score) in enumerate(all_results[:5]):
-                print(f"\nInteractions for pose {i+1} (score: {score:.2f}):")
-                key_interactions = fingerprinter.analyze_key_interactions(protein, pose)
-                for interaction in key_interactions:
-                    print(f"  {interaction}")
-        
-        # Binding mode classification
-        if args.classify_modes or args.discover_modes:
-            print("Analyzing binding modes...")
-            classifier = BindingModeClassifier()
+                    f"best score: {cluster['best_score']:.2f}")
             
-            if args.discover_modes:
-                discovered_modes = classifier.discover_modes(
-                    protein, poses, n_modes=args.n_modes
+            # Interaction analysis
+            if args.analyze_interactions:
+                print("Analyzing protein-ligand interactions...")
+                fingerprinter = InteractionFingerprinter(
+                    interaction_types=args.interaction_types
                 )
-                print(f"Discovered {len(discovered_modes)} binding modes")
-                for i, mode in enumerate(discovered_modes):
-                    print(f"Mode {i+1}: {mode['count']} poses, "
-                          f"best score: {mode['best_score']:.2f}")
-                    
-            if args.classify_modes:
-                for i, (pose, score) in enumerate(all_results[:10]):
-                    mode = classifier.classify_pose(protein, pose)
-                    print(f"Pose {i+1} (score: {score:.2f}): {mode}")
-        
-        # Energy decomposition
-        energy_decomposition = None
-        if args.energy_decomposition:
-            print("Performing energy decomposition analysis...")
-            decomposer = EnergyDecomposition(scoring_function)
+                # Analyze top poses
+                for i, (pose, score) in enumerate(all_results[:5]):
+                    print(f"\nInteractions for pose {i+1} (score: {score:.2f}):")
+                    key_interactions = fingerprinter.analyze_key_interactions(protein, pose)
+                    for interaction in key_interactions:
+                        print(f"  {interaction}")
             
-            # Analyze top pose
-            top_pose = all_results[0][0]
-            energy_decomposition = decomposer.decompose_energy(protein, top_pose)
-            
-            print("\nEnergy components for top pose:")
-            for component, value in energy_decomposition.items():
-                print(f"  {component}: {value:.2f}")
+            # Binding mode classification
+            if args.classify_modes or args.discover_modes:
+                print("Analyzing binding modes...")
+                classifier = BindingModeClassifier()
                 
-            if args.per_residue_energy:
-                print("\nTop residue contributions:")
-                res_contributions = decomposer.residue_contributions(protein, top_pose)
-                for res, value in res_contributions[:5]:
-                    print(f"  {res}: {value:.2f}")
+                if args.discover_modes:
+                    discovered_modes = classifier.discover_modes(
+                        protein, poses, n_modes=args.n_modes
+                    )
+                    print(f"Discovered {len(discovered_modes)} binding modes")
+                    for i, mode in enumerate(discovered_modes):
+                        print(f"Mode {i+1}: {mode['count']} poses, "
+                            f"best score: {mode['best_score']:.2f}")
+                        
+                if args.classify_modes:
+                    for i, (pose, score) in enumerate(all_results[:10]):
+                        mode = classifier.classify_pose(protein, pose)
+                        print(f"Pose {i+1} (score: {score:.2f}): {mode}")
+            
+            # Energy decomposition
+            energy_decomposition = None
+            if args.energy_decomposition:
+                print("Performing energy decomposition analysis...")
+                decomposer = EnergyDecomposition(scoring_function)
+                
+                # Analyze top pose
+                top_pose = all_results[0][0]
+                energy_decomposition = decomposer.decompose_energy(protein, top_pose)
+                
+                print("\nEnergy components for top pose:")
+                for component, value in energy_decomposition.items():
+                    print(f"  {component}: {value:.2f}")
+                    
+                if args.per_residue_energy:
+                    print("\nTop residue contributions:")
+                    res_contributions = decomposer.residue_contributions(protein, top_pose)
+                    for res, value in res_contributions[:5]:
+                        print(f"  {res}: {value:.2f}")
         
         # Generate report
         if args.generate_analysis_report:
             print("Generating comprehensive docking report...")
             report_generator = DockingReportGenerator(
-                report_format=args.report_format,
-                include_sections=args.report_sections
+                report_format=args.analysis_report_format,
+                include_sections=args.analysis_report_sections
             )
             
             report_file = os.path.join(output_dir, f"docking_report.{args.analysis_report_format}")
