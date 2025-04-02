@@ -815,7 +815,7 @@ def main():
                     print(f"  {res}: {value:.2f}")
         
         # Generate report
-        if args.generate_report:
+        if args.generate_analysis_report:
             print("Generating comprehensive docking report...")
             report_generator = DockingReportGenerator(
                 report_format=args.report_format,
