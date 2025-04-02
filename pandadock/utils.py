@@ -17,6 +17,10 @@ def save_docking_results(results, output_dir='docking_results', flexible_residue
     flexible_residues : list, optional
         List of flexible residue objects (for flexible docking)
     """
+    # Check if results is empty
+    if not results:
+        print("Warning: No docking results to save.")
+        return
     # Create output directory
     out_path = Path(output_dir)
     os.makedirs(out_path, exist_ok=True)

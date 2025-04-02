@@ -878,6 +878,22 @@ def main():
     else:
         print("No flexible residues found on protein object")
     
+    # Check if we have any results before saving
+    if not unique_results:
+        print("\nWarning: No valid docking solutions found. Check parameters or input structures.")
+        print("This can happen due to bad starting conformations, or incompatible protein/ligand structures.")
+    
+    # Clean up and exit gracefully
+    if args.prepare_molecules:
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+    
+        # Clean up hardware resources
+        hybrid_manager.cleanup()
+    
+        print(f"============================================================")
+        return 1  # Return error code
+    
     save_docking_results(unique_results, output_dir, flexible_residues=flexible_residues)
     
     # Calculate elapsed time
