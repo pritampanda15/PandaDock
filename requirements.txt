@@ -7,7 +7,7 @@ scikit-learn>=1.1.0
 
 # Molecular Modeling and Cheminformatics
 rdkit-pypi>=2022.3.1  # Pure Python RDKit package
-openbabel>=3.1.1.1  # Optional, for advanced molecule preparation
+#openbabel>=3.1.1.1  # Optional, for advanced molecule preparation
 
 # Hardware and Performance
 psutil>=5.9.0
