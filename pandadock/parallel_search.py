@@ -98,18 +98,28 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         """
         population = []
         
+        # Verify ligand coordinates are valid
+        if ligand.xyz is None or len(ligand.xyz) == 0:
+            raise ValueError("Ligand coordinates (xyz) are empty or not initialized. Make sure the ligand file was loaded correctly.")
+        
         # Determine search space
-        if protein.active_site:
+        if hasattr(protein, 'active_site') and protein.active_site:
             center = protein.active_site['center']
             radius = protein.active_site['radius']
         else:
             # Use protein center of mass
+            if protein.xyz is None or len(protein.xyz) == 0:
+                raise ValueError("Protein coordinates (xyz) are empty or not initialized. Make sure the protein file was loaded correctly.")
             center = np.mean(protein.xyz, axis=0)
             radius = 15.0  # Arbitrary search radius
         
         for _ in range(self.population_size):
             # Make a deep copy of the ligand
             pose = copy.deepcopy(ligand)
+            
+            # Verify the copied pose has valid coordinates
+            if pose.xyz is None or len(pose.xyz) == 0:
+                raise ValueError("Copied ligand pose has no coordinates. There may be an issue with the deep copy operation.")
             
             # Generate random position within sphere
             r = radius * random.random() ** (1.0/3.0)
@@ -141,6 +151,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
             population.append((pose, None))
         
         return population
+
     
     def search(self, protein, ligand):
         """

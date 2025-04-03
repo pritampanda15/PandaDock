@@ -540,6 +540,24 @@ pandadock -p protein.pdb -l ligand.mol --auto-tune
 pandadock -p protein.pdb -l ligand.mol --use-gpu --physics-based --mmff-minimization
 ```
 
+### Batch screening
+```python
+from pandadock import batch_screening
+
+# Run batch screening on a directory of ligands
+results = batch_screening.run_batch_screening(
+    protein_file="your_protein.pdb",
+    ligand_dir="directory_with_ligands",
+    output_dir="batch_results",
+    scoring_type="enhanced",
+    algorithm_type="genetic",
+    n_poses=10,
+    use_gpu=True
+)
+```
+```bash
+python -m pandadock.batch_screening -p your_protein.pdb -l directory_with_ligands -o batch_results
+```
 ### Python API
 
 ```python
