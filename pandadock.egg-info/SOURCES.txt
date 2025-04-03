@@ -13,6 +13,7 @@ pandadock/gpu_scoring.py
 pandadock/hybrid_manager.py
 pandadock/integration.py
 pandadock/ligand.py
+pandadock/ligand_backup.py
 pandadock/main.py
 pandadock/main_integration.py
 pandadock/parallel_search.py

@@ -16,7 +16,7 @@ class Ligand:
         """
         self.atoms = []
         self.bonds = []
-        self.xyz = None
+        self.xyz = np.empty((0, 3))  # Initialize as empty array with correct shape
         self.rotatable_bonds = []
         self.conformers = []
         
@@ -41,11 +41,17 @@ class Ligand:
             from rdkit import Chem
             mol = Chem.MolFromMolFile(str(mol_path))
             if mol is None:
-                raise ValueError(f"Failed to parse molecule file: {mol_file}")
+                print(f"Warning: RDKit failed to parse molecule file: {mol_file}")
+                print("Trying fallback parsing method...")
+                self._parse_mol_file(mol_path)
+                return
             
             # Get atom coordinates
             conformer = mol.GetConformer()
             self.xyz = np.array([conformer.GetAtomPosition(i) for i in range(mol.GetNumAtoms())])
+            
+            if len(self.xyz) == 0:
+                raise ValueError(f"No atom coordinates found in molecule file: {mol_file}")
             
             # Get atom information
             for atom in mol.GetAtoms():
@@ -76,47 +82,76 @@ class Ligand:
             # Fallback to simple MOL file parsing if RDKit is not available
             print("Warning: RDKit not available, using simplified MOL parser")
             self._parse_mol_file(mol_path)
+        except Exception as e:
+            print(f"Error loading molecule: {e}")
+            raise
     
     def _parse_mol_file(self, mol_path):
         """Simple parser for MOL files without RDKit."""
-        with open(mol_path, 'r') as f:
-            lines = f.readlines()
-        
-        # Parse atom and bond counts (line 4 in MOL format)
-        counts_line = lines[3].strip()
-        atom_count = int(counts_line[0:3])
-        bond_count = int(counts_line[3:6])
-        
-        # Parse atoms (starts at line 5)
-        atom_coords = []
-        for i in range(atom_count):
-            atom_line = lines[4+i]
-            x = float(atom_line[0:10].strip())
-            y = float(atom_line[10:20].strip())
-            z = float(atom_line[20:30].strip())
-            symbol = atom_line[31:34].strip()
+        try:
+            with open(mol_path, 'r') as f:
+                lines = f.readlines()
             
-            self.atoms.append({
-                'idx': i,
-                'symbol': symbol,
-                'coords': np.array([x, y, z])
-            })
-            atom_coords.append([x, y, z])
-        
-        self.xyz = np.array(atom_coords)
-        
-        # Parse bonds
-        for i in range(bond_count):
-            bond_line = lines[4+atom_count+i]
-            atom1 = int(bond_line[0:3].strip()) - 1  # MOL indices start at 1
-            atom2 = int(bond_line[3:6].strip()) - 1
-            bond_type = int(bond_line[6:9].strip())
+            # Parse atom and bond counts (line 4 in MOL format)
+            counts_line = lines[3].strip()
+            atom_count = int(counts_line[0:3])
+            bond_count = int(counts_line[3:6])
             
-            self.bonds.append({
-                'begin_atom_idx': atom1,
-                'end_atom_idx': atom2,
-                'bond_type': bond_type
-            })
+            if atom_count == 0:
+                raise ValueError(f"No atoms found in MOL file: {mol_path}")
+            
+            # Parse atoms (starts at line 5)
+            atom_coords = []
+            for i in range(atom_count):
+                atom_line = lines[4+i]
+                x = float(atom_line[0:10].strip())
+                y = float(atom_line[10:20].strip())
+                z = float(atom_line[20:30].strip())
+                symbol = atom_line[31:34].strip()
+                
+                self.atoms.append({
+                    'idx': i,
+                    'symbol': symbol,
+                    'coords': np.array([x, y, z])
+                })
+                atom_coords.append([x, y, z])
+            
+            self.xyz = np.array(atom_coords)
+            
+            if len(self.xyz) == 0:
+                raise ValueError(f"Failed to parse atom coordinates from MOL file: {mol_path}")
+            
+            # Parse bonds
+            for i in range(bond_count):
+                if 4+atom_count+i >= len(lines):
+                    print(f"Warning: Bond count mismatch in MOL file: {mol_path}")
+                    break
+                
+                bond_line = lines[4+atom_count+i]
+                atom1 = int(bond_line[0:3].strip()) - 1  # MOL indices start at 1
+                atom2 = int(bond_line[3:6].strip()) - 1
+                bond_type = int(bond_line[6:9].strip())
+                
+                self.bonds.append({
+                    'begin_atom_idx': atom1,
+                    'end_atom_idx': atom2,
+                    'bond_type': bond_type
+                })
+                
+                # Identify potential rotatable bonds (only single bonds)
+                if bond_type == 1:
+                    self.rotatable_bonds.append(i)
+            
+            print(f"Parsed MOL file: {len(self.atoms)} atoms, {len(self.bonds)} bonds")
+        
+        except Exception as e:
+            print(f"Error parsing MOL file: {e}")
+            # Initialize with empty values
+            self.atoms = []
+            self.bonds = []
+            self.xyz = np.empty((0, 3))
+            self.rotatable_bonds = []
+            raise ValueError(f"Failed to parse MOL file: {e}")
     
     def generate_conformers(self, n_conformers=10):
         """
