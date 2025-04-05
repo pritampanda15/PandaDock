@@ -385,7 +385,7 @@ Enhanced electrostatics model accounting for screening and dielectric effects.
 
 **Best For:** More accurate electrostatics calculations
 
-## Version 1.2 Latest Improvements
+## Version 1.3.1 Latest Improvements
 
 ### New Core Features
 
@@ -443,6 +443,8 @@ PandaDock offers flexible running modes to balance between speed and accuracy:
   - `--flex-residues` - Use flexible residues
 
 #### Example Commands
+
+**<span style="color:red">⚠️ IMPORTANT FOR CPU USERS: The default iteration setting is 1000, which may be time-consuming on CPU-only systems. Feel free to adjust this value based on your computational resources using the `-i` option.</span>**
 
 ```bash
 # 1. Quick and Simple Docking
