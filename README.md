@@ -29,33 +29,28 @@ PandaDock is a Python-based molecular docking package designed for bioinformatic
 
 ## Installation
 
-### Prerequisites
+## Requirements
 
-Requirements
-Python Version
+### Python Version
+- **Python 3.7 or newer is required**
 
-Python 3.7 or newer is required
+### Core Dependencies
+- NumPy >= 1.19.0
+- SciPy >= 1.6.0
+- Matplotlib >= 3.3.0
 
-Core Dependencies
-
-NumPy >= 1.19.0
-SciPy >= 1.6.0
-Matplotlib >= 3.3.0
-
-Optional Dependencies (Recommended)
+### Optional Dependencies (Recommended)
 These packages significantly enhance functionality but are not strictly required:
 
-RDKit: For molecule preparation, MMFF minimization, and enhanced chemistry features
-PyTorch or CuPy: For GPU acceleration
-psutil: For CPU affinity optimization
-scikit-learn: For binding site detection
+- **RDKit**: For molecule preparation, MMFF minimization, and enhanced chemistry features
+- **PyTorch** or **CuPy**: For GPU acceleration
+- **psutil**: For CPU affinity optimization
+- **scikit-learn**: For binding site detection
 
-Hardware Acceleration
+### Hardware Acceleration
 For GPU acceleration, one of the following is required:
-
-CUDA-compatible GPU with PyTorch
-CUDA-compatible GPU with CuPy
-
+- CUDA-compatible GPU with PyTorch
+- CUDA-compatible GPU with CuPy
 ### Install from GitHub
 
 ```bash
@@ -126,6 +121,22 @@ pip install cupy-cuda11x
 pip install pandadock[gpu]  # For GPU support only
 pip install pandadock[full]  # For all optional dependencies
 ```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **GPU not detected**: Ensure that CUDA drivers are properly installed and that PyTorch or CuPy can detect your GPU.
+
+2. **Import errors**: Make sure all dependencies are installed with the correct versions.
+
+3. **Missing molecule file formats**: Install RDKit for better support of chemical file formats.
+
+4. **Slow performance**: Enable GPU acceleration or increase the number of CPU workers.
+
+5. **Version compatibility issues**: Ensure you're using Python 3.7 or newer.
+
+For more help, please open an issue on the GitHub repository.
 
 ## Algorithm Documentation
 
