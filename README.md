@@ -31,14 +31,30 @@ PandaDock is a Python-based molecular docking package designed for bioinformatic
 
 ### Prerequisites
 
-PandaDock requires Python 3.6+ and the following dependencies:
-- NumPy
-- SciPy
-- Matplotlib
-- scikit-learn
-- RDKit (optional but recommended)
-- Open Babel (optional for additional molecule preparation)
-- PyTorch or CuPy (optional for GPU acceleration)
+Requirements
+Python Version
+
+Python 3.7 or newer is required
+
+Core Dependencies
+
+NumPy >= 1.19.0
+SciPy >= 1.6.0
+Matplotlib >= 3.3.0
+
+Optional Dependencies (Recommended)
+These packages significantly enhance functionality but are not strictly required:
+
+RDKit: For molecule preparation, MMFF minimization, and enhanced chemistry features
+PyTorch or CuPy: For GPU acceleration
+psutil: For CPU affinity optimization
+scikit-learn: For binding site detection
+
+Hardware Acceleration
+For GPU acceleration, one of the following is required:
+
+CUDA-compatible GPU with PyTorch
+CUDA-compatible GPU with CuPy
 
 ### Install from GitHub
 
