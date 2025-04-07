@@ -1285,7 +1285,7 @@ class GeneticAlgorithm(DockingSearch):
     
     def _local_optimization(self, pose, protein):
         """
-        Perform local optimization of pose using gradient descent.
+        Perform local optimization of pose using gradient descent with clash detection.
         
         Parameters:
         -----------
@@ -1303,6 +1303,7 @@ class GeneticAlgorithm(DockingSearch):
         angle_step = 0.05  # Radians for rotation
         max_steps = 50
         converged = False
+        clash_threshold = 1.0  # Threshold for acceptable clash score
         
         # Make a copy of the pose to avoid modifying the original
         current_pose = copy.deepcopy(pose)
@@ -1331,7 +1332,11 @@ class GeneticAlgorithm(DockingSearch):
                 test_pose.translate(direction)
                 test_score = self.scoring_function.score(protein, test_pose)
                 
-                if test_score < best_score:
+                # Calculate clash score specifically
+                clash_score = self._calculate_clash_score(protein, test_pose)
+                
+                # Only accept if both overall score is better AND clash score is below threshold
+                if test_score < best_score and clash_score < clash_threshold:
                     best_pose = copy.deepcopy(test_pose)
                     best_score = test_score
                     improved = True
@@ -1363,7 +1368,11 @@ class GeneticAlgorithm(DockingSearch):
                     
                     test_score = self.scoring_function.score(protein, test_pose)
                     
-                    if test_score < best_score:
+                    # Calculate clash score specifically
+                    clash_score = self._calculate_clash_score(protein, test_pose)
+                    
+                    # Only accept if both overall score is better AND clash score is below threshold
+                    if test_score < best_score and clash_score < clash_threshold:
                         best_pose = copy.deepcopy(test_pose)
                         best_score = test_score
                         improved = True
@@ -1392,6 +1401,54 @@ class GeneticAlgorithm(DockingSearch):
         print(f"Score improved from {self.scoring_function.score(protein, pose):.2f} to {best_score:.2f}")
         
         return best_pose, best_score
+
+    def _calculate_clash_score(self, protein, ligand):
+        """
+        Calculate a score specifically for steric clashes between protein and ligand.
+        
+        Parameters:
+        -----------
+        protein : Protein
+            Protein object
+        ligand : Ligand
+            Ligand pose
+        
+        Returns:
+        --------
+        float
+            Clash score (lower is better)
+        """
+        # Get protein atoms
+        if protein.active_site and 'atoms' in protein.active_site:
+            protein_atoms = protein.active_site['atoms']
+        else:
+            protein_atoms = protein.atoms
+        
+        clash_score = 0.0
+        
+        for p_atom in protein_atoms:
+            p_coords = p_atom['coords']
+            p_symbol = p_atom.get('element', p_atom.get('name', 'C'))[0]
+            p_radius = self.scoring_function.vdw_radii.get(p_symbol, 1.7)
+            
+            for l_atom in ligand.atoms:
+                l_coords = l_atom['coords']
+                l_symbol = l_atom.get('symbol', 'C')
+                l_radius = self.scoring_function.vdw_radii.get(l_symbol, 1.7)
+                
+                # Calculate distance
+                distance = np.linalg.norm(p_coords - l_coords)
+                
+                # Define minimum allowed distance (typically 70-80% of sum of vdW radii)
+                min_allowed = (p_radius + l_radius) * 0.7
+                
+                # Penalize severe clashes
+                if distance < min_allowed:
+                    # Calculate penalty proportional to the overlap
+                    overlap = (min_allowed - distance) / min_allowed
+                    clash_score += overlap**2  # Square to emphasize severe clashes
+        
+        return clash_score
 
     def search(self, protein, ligand):
         """Perform genetic algorithm search."""
