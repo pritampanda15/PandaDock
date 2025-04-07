@@ -144,7 +144,7 @@ class DockingSearch:
                 scoring_function=scoring_function,
                 max_iterations=self.max_iterations // 5,
                 population_size=min(len(top_random) * 2, 100),
-                mutation_rate=0.3  # Higher mutation rate for better exploration
+                mutation_rate=0.3,  # Higher mutation rate for better exploration
                 # Pass the optimization flag to the GA
                 perform_local_opt=args.local_opt if hasattr(args, 'local_opt') else False
             )
