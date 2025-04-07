@@ -7,7 +7,7 @@ import copy
 class DockingSearch:
     """Base class for docking search algorithms."""
     
-    def __init__(self, scoring_function, max_iterations=1000):
+    def __init__(self, scoring_function, max_iterations=100):
         """
         Initialize search algorithm.
         
