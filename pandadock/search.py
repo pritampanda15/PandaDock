@@ -1287,7 +1287,7 @@ class GeneticAlgorithm(DockingSearch):
     """Genetic algorithm for docking search."""
     
     def __init__(self, scoring_function, max_iterations=1000, 
-                 population_size=50, mutation_rate=0.2):
+                 population_size=50, mutation_rate=0.2, perform_local_opt=False):
         """Initialize genetic algorithm."""
         super().__init__(scoring_function, max_iterations)
         self.population_size = population_size
