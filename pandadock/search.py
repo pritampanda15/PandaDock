@@ -7,7 +7,7 @@ import copy
 class DockingSearch:
     """Base class for docking search algorithms."""
     
-    def __init__(self, scoring_function, max_iterations=100):
+    def __init__(self, scoring_function, max_iterations=1000):
         """
         Initialize search algorithm.
         
@@ -1286,7 +1286,7 @@ class RandomSearch(DockingSearch):
 class GeneticAlgorithm(DockingSearch):
     """Genetic algorithm for docking search."""
     
-    def __init__(self, scoring_function, max_iterations=100, 
+    def __init__(self, scoring_function, max_iterations=1000, 
                  population_size=50, mutation_rate=0.2):
         """Initialize genetic algorithm."""
         super().__init__(scoring_function, max_iterations)
