@@ -145,6 +145,8 @@ class DockingSearch:
                 max_iterations=self.max_iterations // 5,
                 population_size=min(len(top_random) * 2, 100),
                 mutation_rate=0.3  # Higher mutation rate for better exploration
+                # Pass the optimization flag to the GA
+                perform_local_opt=args.local_opt if hasattr(args, 'local_opt') else False
             )
             
             # Run GA
@@ -171,15 +173,12 @@ class DockingSearch:
                 
                 # Evaluate offspring
                 for i, (pose, _) in enumerate(offspring):
-                    # Apply local optimization to the best individuals if allowed
-                    if not hasattr(args, 'no_local_optimization') or not args.no_local_optimization:
-                        if i < len(offspring) // 4:  # Optimize top 25% of offspring
-                            optimized_pose, optimized_score = self._local_optimization(pose, protein)
-                            offspring[i] = (optimized_pose, optimized_score)
-                        else:
-                            score = scoring_function.score(protein, pose)
-                            offspring[i] = (pose, score)
-                    else:
+                    # Apply local optimization ONLY IF args.local_opt is TRUE
+                    # The GA now handles this internally via self.perform_local_opt
+                    if ga.perform_local_opt and i < len(offspring) // 4:  # Optimize top 25% if enabled
+                        optimized_pose, optimized_score = self._local_optimization(pose, protein)
+                        offspring[i] = (optimized_pose, optimized_score)
+                    else: # Otherwise, just score
                         score = scoring_function.score(protein, pose)
                         offspring[i] = (pose, score)
                 
@@ -197,58 +196,55 @@ class DockingSearch:
             ga_results = population
             all_results.extend(ga_results)
         
-        # 3. Apply more aggressive local optimization to best poses
-        print("Applying enhanced local optimization...")
-        optimized_results = []
-        
-        # Sort all results by score and take top unique poses
-        all_results.sort(key=lambda x: x[1])
-        unique_poses = []
-        seen_scores = set()
-        
-        for pose, score in all_results:
-            # Round score to avoid floating point comparison issues
-            rounded_score = round(score, 2)
-            if rounded_score not in seen_scores:
-                unique_poses.append((pose, score))
-                seen_scores.add(rounded_score)
-                if len(unique_poses) >= 20:
-                    break
-        
-        # Apply more aggressive local optimization to top 10 poses
-        for i, (pose, score) in enumerate(unique_poses[:10]):
-            print(f"  Optimizing pose {i+1}...")
-            
-            # Enhanced local optimization with multiple stages
-            optimized_pose = copy.deepcopy(pose)
-            optimized_score = score
-            
-            # 1. Coarse-grained optimization with larger steps
-            optimized_pose, optimized_score = self._enhanced_local_optimization(
-                protein, optimized_pose, step_size=0.5, angle_step=0.1, max_steps=20
-            )
-            
-            # 2. Fine-grained optimization with smaller steps
-            optimized_pose, optimized_score = self._enhanced_local_optimization(
-                protein, optimized_pose, step_size=0.2, angle_step=0.05, max_steps=20
-            )
-            
-            # 3. Very fine-grained optimization for final refinement
-            optimized_pose, optimized_score = self._enhanced_local_optimization(
-                protein, optimized_pose, step_size=0.1, angle_step=0.02, max_steps=20
-            )
-            
-            optimized_results.append((optimized_pose, optimized_score))
-        
-        # Add remaining poses
-        optimized_results.extend(unique_poses[10:])
-        
-        # Sort final results
-        optimized_results.sort(key=lambda x: x[1])
-        
-        print(f"Enhanced rigid docking completed. Best score: {optimized_results[0][1]:.2f}")
-        
-        return optimized_results
+        # 3. Apply more aggressive local optimization to best poses ONLY IF args.local_opt is TRUE
+        if hasattr(args, 'local_opt') and args.local_opt:
+            print("Applying enhanced local optimization (enabled by --local-opt)...")
+            optimized_results = []
+
+            # Sort all results by score and take top unique poses
+            all_results.sort(key=lambda x: x[1])
+            unique_poses = []
+            seen_scores = set()
+
+            for pose, score in all_results:
+                rounded_score = round(score, 2)
+                if rounded_score not in seen_scores:
+                    unique_poses.append((pose, score))
+                    seen_scores.add(rounded_score)
+                    if len(unique_poses) >= 20:
+                        break
+
+            # Apply more aggressive local optimization to top 10 poses
+            poses_to_optimize_count = min(10, len(unique_poses))
+            for i, (pose, score) in enumerate(unique_poses[:poses_to_optimize_count]):
+                print(f"  Optimizing pose {i+1}/{poses_to_optimize_count} (initial score: {score:.2f})...")
+
+                optimized_pose = copy.deepcopy(pose)
+                optimized_score = score
+                optimized_pose, optimized_score = self._enhanced_local_optimization(
+                    protein, optimized_pose, step_size=0.5, angle_step=0.1, max_steps=20
+                )
+                optimized_pose, optimized_score = self._enhanced_local_optimization(
+                    protein, optimized_pose, step_size=0.2, angle_step=0.05, max_steps=20
+                )
+                optimized_pose, optimized_score = self._enhanced_local_optimization(
+                    protein, optimized_pose, step_size=0.1, angle_step=0.02, max_steps=20
+                )
+                optimized_results.append((optimized_pose, optimized_score))
+
+            # Add remaining poses that were not optimized
+            optimized_results.extend(unique_poses[poses_to_optimize_count:])
+
+            # Sort final results
+            optimized_results.sort(key=lambda x: x[1])
+            print(f"Enhanced rigid docking completed. Best score: {optimized_results[0][1]:.2f}")
+            return optimized_results # Return the optimized list
+        else:
+            # If local opt not enabled, just sort and return the results from random/GA
+            print("Skipping enhanced local optimization (--local-opt not specified).")
+            all_results.sort(key=lambda x: x[1])
+            print(f"Enhanced rigid docking completed without local optimization. Best score: {all_results[0][1]:.2f}")
+            return all_results
 
     def _enhanced_local_optimization(self, protein, pose, step_size=0.2, angle_step=0.05, max_steps=50):
         """
@@ -441,28 +437,33 @@ class DockingSearch:
                 if (i + 1) % 25 == 0:
                     print(f"Generated {i + 1}/100 reference-guided poses")
             
-            # Skip local optimization if requested
+                # Skip local optimization if requested (i.e., skip_optimization is True)
             if skip_optimization:
-                print("Skipping local optimization as requested")
+                print("Skipping local optimization as requested (use --local-opt to enable)")
                 results.sort(key=lambda x: x[1])
                 return results
-            
-            # Apply local optimization to best poses
+
+            # Apply local optimization to best poses (only runs if skip_optimization is False)
+            print("Performing local optimization on top poses (enabled by --local-opt)...")
             results.sort(key=lambda x: x[1])
             optimized_results = []
-            
-            for i, (pose, score) in enumerate(results[:10]):  # Optimize top 10
-                print(f"Optimizing pose {i+1}/10")
+            poses_to_optimize_count = min(10, len(results))
+
+            for i, (pose, score) in enumerate(results[:poses_to_optimize_count]):
+                print(f"Optimizing pose {i+1}/{poses_to_optimize_count} (initial score: {score:.2f})")
                 if hasattr(self, '_enhanced_local_optimization'):
                     opt_pose, opt_score = self._enhanced_local_optimization(protein, pose, step_size=0.2, max_steps=30)
-                else:
+                elif hasattr(self, '_local_optimization'): # Fallback to standard if enhanced not available
                     opt_pose, opt_score = self._local_optimization(pose, protein)
+                else: # If no optimization method, keep original
+                    print("  Warning: No local optimization method found. Keeping original.")
+                    opt_pose, opt_score = pose, score
                 optimized_results.append((opt_pose, opt_score))
-            
+
             # Combine results and sort
-            all_results = optimized_results + results[10:]
+            all_results = optimized_results + results[poses_to_optimize_count:]
             all_results.sort(key=lambda x: x[1])
-            
+
             return all_results
     
     def exact_reference_docking(self, protein, ligand, reference_ligand, skip_optimization=False):
@@ -684,7 +685,7 @@ class DockingSearch:
         """
         import copy
         import random
-        
+        print("Applying aggressive refinement (enabled by --local-opt)...")
         # Make a working copy
         working_pose = copy.deepcopy(pose)
         original_xyz = working_pose.xyz.copy()
@@ -1175,7 +1176,7 @@ class DockingSearch:
         
         # Skip refinement/optimization if requested
         if skip_optimization:
-            print("Skipping refinement as requested")
+            print("Skipping refinement (use --local-opt to enable)")
             return [(aligned_pose, baseline_score)]
         
         # Perform optimization with tethered scoring
@@ -1194,7 +1195,16 @@ class DockingSearch:
         
         # Restore original scoring function
         self.scoring_function = original_scoring
-        
+        if hasattr(self, '_enhanced_local_optimization'):
+             optimized_pose, _ = self._enhanced_local_optimization( # Score here is tethered score
+                 protein, exact_aligned_pose, step_size=0.2, angle_step=0.05, max_steps=50
+             )
+        elif hasattr(self, '_local_optimization'):
+            print("  Warning: Using standard local optimization for tethering.")
+            optimized_pose, _ = self._local_optimization(protein, exact_aligned_pose)
+        else:
+            print("  Warning: No local optimization method found for tethering. Using aligned pose.")
+            optimized_pose = exact_aligned_pose # Fallback
         # Score the optimized pose with original scoring function
         final_score = original_scoring.score(protein, optimized_pose)
         
@@ -1307,6 +1317,7 @@ class GeneticAlgorithm(DockingSearch):
         
         # Make a copy of the pose to avoid modifying the original
         current_pose = copy.deepcopy(pose)
+        current_score = self.scoring_function.score(protein, pose) # Get score before opt
         current_score = self.scoring_function.score(protein, current_pose)
         best_pose = copy.deepcopy(current_pose)
         best_score = current_score
@@ -1463,6 +1474,10 @@ class GeneticAlgorithm(DockingSearch):
             radius = 15.0  # Arbitrary search radius
         
         print(f"Starting genetic algorithm search with population {self.population_size}")
+        if self.perform_local_opt:
+            print("Local optimization within GA generations is ENABLED.")
+        else:
+            print("Local optimization within GA generations is DISABLED.")
         
         # Initialize population
         population = []

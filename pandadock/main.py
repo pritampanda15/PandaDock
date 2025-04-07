@@ -458,12 +458,12 @@ def main():
                             help='Population size for genetic algorithm (default: 100)')
         parser.add_argument('--exhaustiveness', type=int, default=1,
                             help='Number of independent docking runs (default: 1)')
-        parser.add_argument('--local-opt', action='store_true',
-                            help='Perform local optimization on top poses')
+        parser.add_argument('--local-opt', action='store_true', # Default is False
+                            help='Enable local optimization on top poses (default: disabled)')
         parser.add_argument('--ph', type=float, default=7.4,
                             help='pH for protein preparation (default: 7.4)')
-        parser.add_argument('--no-local-optimization', action='store_true',
-                       help='Disable local optimization of poses (keep exact alignment)')
+        #parser.add_argument('--no-local-optimization', action='store_true',
+                       #help='Disable local optimization of poses (keep exact alignment)')
         
         # Physics-based options
         parser.add_argument('--physics-based', action='store_true',
@@ -681,65 +681,75 @@ def main():
         if args.reference and args.tethered_docking:
             print(f"Using tethered reference-based docking with weight {args.tether_weight}...")
             all_results = search_algorithm.exact_reference_docking_with_tethering(
-                protein, 
-                ligand, 
+                protein,
+                ligand,
                 reference_ligand,
                 tether_weight=args.tether_weight,
-                skip_optimization=args.no_local_optimization
+                skip_optimization=not args.local_opt # Skip if local_opt is FALSE
             )
         elif args.reference and args.exact_alignment:
             print(f"Using exact alignment with reference structure...")
             all_results = search_algorithm.exact_reference_docking(
-                protein, 
-                ligand, 
-                reference_ligand, 
-                skip_optimization=args.no_local_optimization
+                protein,
+                ligand,
+                reference_ligand,
+                skip_optimization=not args.local_opt # Skip if local_opt is FALSE
             )
         elif args.reference and not args.exact_alignment:
             print(f"Using reference-guided docking...")
             all_results = search_algorithm.reference_guided_docking(
-                protein, 
-                ligand, 
+                protein,
+                ligand,
                 reference_ligand,
-                skip_optimization=args.no_local_optimization
+                skip_optimization=not args.local_opt # Skip if local_opt is FALSE
             )
         elif args.exhaustiveness > 1:
-            print(f"\nRunning {args.exhaustiveness} independent docking runs...")
-            all_results = hybrid_manager.run_ensemble_docking(
-                protein=protein,
-                ligand=ligand,
-                n_runs=args.exhaustiveness,
-                algorithm_type=algorithm_type,
-                **algorithm_kwargs
-            )
+             # Ensemble docking needs separate handling if optimization is desired per run
+             # For now, assume post-run optimization applies if --local-opt is set
+             print(f"\nRunning {args.exhaustiveness} independent docking runs...")
+             all_results = hybrid_manager.run_ensemble_docking(
+                 protein=protein,
+                 ligand=ligand,
+                 n_runs=args.exhaustiveness,
+                 algorithm_type=algorithm_type,
+                 **algorithm_kwargs
+             )
+             # Post-optimization logic below will handle these results if --local-opt is set
         elif algorithm_type == 'monte-carlo' and PHYSICS_AVAILABLE:
-            print(f"\nUsing Monte Carlo sampling with {args.mc_steps} steps at {args.temperature}K")
-            mc_algorithm = MonteCarloSampling(
-                scoring_function,
-                temperature=args.temperature,
-                n_steps=args.mc_steps,
-                cooling_factor=0.95  # Enable simulated annealing
-            )
-            all_results = mc_algorithm.run_sampling(protein, ligand)
+             # Monte Carlo usually includes optimization/sampling inherently
+             print(f"\nUsing Monte Carlo sampling with {args.mc_steps} steps at {args.temperature}K")
+             mc_algorithm = MonteCarloSampling(
+                 scoring_function,
+                 temperature=args.temperature,
+                 n_steps=args.mc_steps,
+                 cooling_factor=0.95  # Enable simulated annealing
+             )
+             all_results = mc_algorithm.run_sampling(protein, ligand)
+             # Post-optimization logic might still refine MC results if --local-opt is set
         elif hasattr(args, 'enhanced') and args.enhanced:
-            print("Using enhanced rigid docking algorithm...")
-            all_results = search_algorithm.improve_rigid_docking(protein, ligand, args)
+             # Pass args to improve_rigid_docking so it knows about --local-opt
+             print("Using enhanced rigid docking algorithm...")
+             all_results = search_algorithm.improve_rigid_docking(protein, ligand, args)
         else:
-            print("\nPerforming standard docking...")
-            all_results = search_algorithm.search(protein, ligand)
+             print("\nPerforming standard docking...")
+             all_results = search_algorithm.search(protein, ligand)
+             # Post-optimization logic below will handle these results if --local-opt is set
         
         # Apply local optimization to top poses if requested
         optimized_results = []  # Initialize variable
-        if args.local_opt and not args.no_local_optimization and all_results:
-            print("\nPerforming local optimization on top poses...")
-            
+        if args.local_opt and all_results:
+            print("\nPerforming local optimization on top poses (enabled by --local-opt)...")
+
             # Only optimize if we have results
             if all_results:
                 # Optimize top 10 poses or fewer if we have less than 10 results
                 poses_to_optimize = min(10, len(all_results))
-                for i, (pose, score) in enumerate(sorted(all_results, key=lambda x: x[1])[:poses_to_optimize]):
-                    print(f"Optimizing pose {i+1}...")
-                    
+                # Sort results before selecting top poses for optimization
+                sorted_initial_results = sorted(all_results, key=lambda x: x[1])
+                
+                for i, (pose, score) in enumerate(sorted_initial_results[:poses_to_optimize]):
+                    print(f"Optimizing pose {i+1} (initial score: {score:.2f})...")
+
                     if args.mmff_minimization and PHYSICS_AVAILABLE:
                         # Use MMFF minimization in protein environment
                         print(f"  Using MMFF minimization in protein environment")
@@ -752,15 +762,28 @@ def main():
                         opt_pose, opt_score = search_algorithm._local_optimization(pose, protein)
                         optimized_results.append((opt_pose, opt_score))
                     else:
-                        optimized_results.append((pose, score))
-                
-                # Combine with original results
-                combined_results = optimized_results + [r for r in all_results if r not in all_results[:poses_to_optimize]]
-                all_results = combined_results
-        elif args.no_local_optimization:
-            print("Skipping local optimization as requested (--no-local-optimization)")
+                        # If no specific optimization method, keep the original
+                        print("  Warning: No specific local optimization method found for this setup. Keeping original pose.")
+                        optimized_results.append((pose, score)) # Keep original if no method
 
-        # Sort all results by score if we have results
+                # Combine optimized results with the remaining unoptimized results
+                # Ensure we don't add duplicates and maintain order based on original rank
+                optimized_indices = {i for i in range(poses_to_optimize)}
+                remaining_results = [r for i, r in enumerate(sorted_initial_results) if i not in optimized_indices]
+                
+                # Add optimized results first, then the rest
+                all_results = optimized_results + remaining_results
+                # Re-sort after optimization
+                all_results.sort(key=lambda x: x[1])
+                print("Local optimization complete.")
+            else: # Should not happen if all_results check passed, but good practice
+                 print("  No results found to optimize.")
+
+        # The old check for --no-local-optimization is no longer needed, as skipping is the default.
+        # elif args.no_local_optimization: <-- REMOVE THIS BLOCK
+        #     print("Skipping local optimization as requested (--no-local-optimization)")
+
+        # Sort final results if optimization happened or if it was skipped
         if all_results:
             all_results.sort(key=lambda x: x[1])
 
