@@ -1292,7 +1292,8 @@ class GeneticAlgorithm(DockingSearch):
         super().__init__(scoring_function, max_iterations)
         self.population_size = population_size
         self.mutation_rate = mutation_rate
-    
+        self.perform_local_opt = perform_local_opt
+        
     def _local_optimization(self, pose, protein):
         """
         Perform local optimization of pose using gradient descent with clash detection.
