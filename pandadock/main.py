@@ -425,8 +425,8 @@ def main():
                             help='Output directory for docking results')
         parser.add_argument('-a', '--algorithm', choices=['random', 'genetic'], default='genetic',
                             help='Docking algorithm to use (default: genetic)')
-        parser.add_argument('-i', '--iterations', type=int, default=100,
-                            help='Number of iterations/generations (default: 100)')
+        parser.add_argument('-i', '--iterations', type=int, default=1000,
+                            help='Number of iterations/generations (default: 1000)')
         parser.add_argument('-s', '--site', nargs=3, type=float, metavar=('X', 'Y', 'Z'),
                             help='Active site center coordinates')
         parser.add_argument('-r', '--radius', type=float, default=10.0,
