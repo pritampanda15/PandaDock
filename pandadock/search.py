@@ -1533,14 +1533,15 @@ class GeneticAlgorithm(DockingSearch):
             self._mutation(offspring, radius, center)
                 
             # Evaluate offspring
+            # Evaluate offspring
             for i, (pose, _) in enumerate(offspring):
-                score = self.scoring_function.score(protein, pose)
-                
-                # Apply local optimization to the best individuals unless skip_local_opt is True
-                if not hasattr(self, 'skip_local_opt') and i < len(offspring) // 4:
+                # Apply local optimization ONLY IF self.perform_local_opt is TRUE
+                # Use the stored instance variable
+                if self.perform_local_opt and i < len(offspring) // 4: # Optimize top 25% if enabled
                     optimized_pose, optimized_score = self._local_optimization(pose, protein)
                     offspring[i] = (optimized_pose, optimized_score)
-                else:
+                else: # Otherwise, just score
+                    score = self.scoring_function.score(protein, pose)
                     offspring[i] = (pose, score)
             
             # Combine and select new population
