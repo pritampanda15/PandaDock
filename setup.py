@@ -35,6 +35,8 @@ setup(
         "scikit-learn>=0.24.0",
         "requests",  # For HTTP requests to PyPI
         "packaging",  # For version parsing
+        "pandas"
+        "tabulate"
     ],
     entry_points={
     'console_scripts': [
