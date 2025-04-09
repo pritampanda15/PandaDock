@@ -1419,10 +1419,12 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
                 if distance >= 0.5 * r_eq:
                     # Regular 12-6 Lennard-Jones
                     vdw_term = epsilon * ((ratio**12) - 2.0 * (ratio**6))
+                    vdw_term = min(max(vdw_term, -50.0), 50.0)
                 else:
                     # Smoothed function for very close distances
                     smoothed_ratio = 0.5 * r_eq / distance
                     vdw_term = epsilon * ((smoothed_ratio**12) - 2.0 * (smoothed_ratio**6))
+                    vdw_term = min(max(vdw_term, -50.0), 50.0)
                 
                 vdw_energy += vdw_term
         
