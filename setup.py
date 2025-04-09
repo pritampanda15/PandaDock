@@ -36,7 +36,8 @@ setup(
         "requests",  # For HTTP requests to PyPI
         "packaging",  # For version parsing
         "pandas",
-        "tabulate"
+        "tabulate",
+        "tqdm"
     ],
     entry_points={
     'console_scripts': [

@@ -4,6 +4,8 @@ matplotlib>=3.3.0
 scikit-learn>=0.24.0
 requests
 packaging
+pandas
+tabulate
 
 [dev]
 pytest>=6.0.0
