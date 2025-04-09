@@ -6,6 +6,7 @@ requests
 packaging
 pandas
 tabulate
+tqdm
 
 [dev]
 pytest>=6.0.0

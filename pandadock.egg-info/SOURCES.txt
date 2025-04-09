@@ -7,6 +7,7 @@ setup.py
 pandadock/__init__.py
 pandadock/advanced_search.py
 pandadock/analysis.py
+pandadock/batch_screening.py
 pandadock/flexible_residues.py
 pandadock/gpu_scoring.py
 pandadock/hybrid_manager.py
@@ -30,5 +31,6 @@ pandadock.egg-info/entry_points.txt
 pandadock.egg-info/requires.txt
 pandadock.egg-info/top_level.txt
 tests/__init__.py
+tests/batch_screening_example.py
 tests/test_basic.py
 tests/test_protein.py

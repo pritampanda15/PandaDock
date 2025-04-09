@@ -2,6 +2,10 @@
 
 PandaDock is a Python-based molecular docking package designed for bioinformatics and drug design applications. It provides a command-line interface for molecular docking simulations, with support for multiple scoring functions and search algorithms.
 
+
+**Note to users: Please always have a look into the GitHub repo as PandaDock is continiously developed based on the user requirements. And please always update to the latest version for better results and performance. 
+
+
 ![PandaDock Logo](logo/pandadock-logo.svg)
 
 ## Features

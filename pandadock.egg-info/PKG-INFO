@@ -26,6 +26,7 @@ Requires-Dist: requests
 Requires-Dist: packaging
 Requires-Dist: pandas
 Requires-Dist: tabulate
+Requires-Dist: tqdm
 Provides-Extra: gpu
 Requires-Dist: torch>=1.9.0; extra == "gpu"
 Provides-Extra: dev
