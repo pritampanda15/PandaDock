@@ -22,6 +22,21 @@ class GradientBasedSearch(DockingSearch):
     
     def __init__(self, scoring_function, max_iterations=100, 
                  gradient_step=0.1, convergence_threshold=0.01):
+        """
+        Initialize the gradient-based search algorithm.
+
+        Parameters:
+        -----------
+        scoring_function : ScoringFunction
+            Scoring function to evaluate poses.
+        max_iterations : int, optional
+            Maximum number of iterations (default is 100).
+        gradient_step : float, optional
+            Step size for gradient calculation (default is 0.1).
+        convergence_threshold : float, optional
+            Threshold to determine convergence (default is 0.01).
+        """
+
         super().__init__(scoring_function, max_iterations)
         self.gradient_step = gradient_step
         self.convergence_threshold = convergence_threshold
