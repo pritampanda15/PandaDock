@@ -17,6 +17,7 @@ from .utils import save_docking_results
 from .preparation import prepare_protein, prepare_ligand
 from .reporting import DockingReporter
 import matplotlib.pyplot as plt
+from .utils import setup_logging
 from .validation import validate_against_reference
 from .main_integration import (
     add_hardware_options, 
@@ -29,6 +30,81 @@ from .main_integration import (
     get_algorithm_kwargs_from_args
 )
 
+
+import logging
+
+# Configure logging globally
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("pandadock.log"),  # Default log file
+        logging.StreamHandler()  # Log to console
+    ]
+)
+
+# Create a custom logger
+logger = logging.getLogger("PandaDock")
+# Configure the logger
+logger.setLevel(logging.INFO)
+file_handler = logging.FileHandler("pandadock.log")
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+# Use the logger
+logger.info("Starting docking process...")
+
+def create_initial_files(output_dir, args):
+    """Create initial files to confirm program is running."""
+    # Create the output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Create a status file
+    status = {
+        "start_time": datetime.now().isoformat(),
+        "protein": str(args.protein),
+        "ligand": str(args.ligand),
+        "algorithm": args.algorithm,
+        "status": "running",
+        "progress": 0.0,
+        "parameters": vars(args)  # Include all parameters passed to the program
+    }
+
+    try:
+        with open(Path(output_dir) / "status.json", 'w') as f:
+            json.dump(status, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Failed to write status.json: {e}")
+
+    # Create a README file with the exact command-line arguments
+    try:
+        with open(Path(output_dir) / "README.txt", 'w') as f:
+            f.write(f"PandaDock Run: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Protein: {args.protein}\n")
+            f.write(f"Ligand: {args.ligand}\n")
+            f.write(f"Algorithm: {args.algorithm}\n")
+            f.write("\nExact Command Line:\n")
+            import sys
+            f.write(f"{' '.join(sys.argv)}\n\n")  # Log the exact command-line arguments
+            f.write("Parameters Set by the Program:\n")
+            for key, value in vars(args).items():  # Log all parameters
+                f.write(f"{key}: {value}\n")
+    except Exception as e:
+        logger.warning(f"Failed to write README.txt: {e}")
+
+    # Create a logs directory
+    logs_dir = Path(output_dir) / "logs"
+    os.makedirs(logs_dir, exist_ok=True)
+
+    # Add a file handler to the logger for the new log file
+    log_file = logs_dir / "pandadock.log"
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    logger.addHandler(file_handler)
+
+    logger.info("PandaDock initialized. Logs will be saved to %s", log_file)
+
 # Import physics-based algorithms
 try:
     from .physics import (MMFFMinimization, GeneralizedBornSolvation, 
@@ -36,7 +112,7 @@ try:
     PHYSICS_AVAILABLE = True
 except ImportError:
     PHYSICS_AVAILABLE = False
-    print("Warning: Physics-based modules not available. Some features will be disabled.")
+    logging.info("Warning: Physics-based modules not available. Some features will be disabled.")
 
 def prepare_protein_configs(protein, args):
     """
@@ -73,7 +149,7 @@ def prepare_protein_configs(protein, args):
         if hasattr(args, 'flex_residues') and args.flex_residues:
             # Use user-specified flexible residues
             flex_residues = args.flex_residues
-            print(f"Using user-specified flexible residues: {', '.join(flex_residues)}")
+            logging.info(f"Using user-specified flexible residues: {', '.join(flex_residues)}")
         elif hasattr(args, 'auto_flex') and args.auto_flex:
             # Auto-detect flexible residues based on binding site
             if protein.active_site and 'residues' in protein.active_site:
@@ -84,9 +160,9 @@ def prepare_protein_configs(protein, args):
                 flex_residues = _detect_flexible_residues(protein, binding_site_residues, 
                                                           max_residues=args.max_flex_residues if hasattr(args, 'max_flex_residues') else 5)
                 
-                print(f"Auto-detected flexible residues: {', '.join(flex_residues)}")
+                logging.info(f"Auto-detected flexible residues: {', '.join(flex_residues)}")
             else:
-                print("Warning: No active site defined. Cannot auto-detect flexible residues.")
+                logging.info("Warning: No active site defined. Cannot auto-detect flexible residues.")
         
         if flex_residues:
             flex_protein.define_flexible_residues(flex_residues, 
@@ -97,7 +173,7 @@ def prepare_protein_configs(protein, args):
                 'flexible_residues': flex_residues
             })
         else:
-            print("No flexible residues defined. Using only rigid configuration.")
+            logging.info("No flexible residues defined. Using only rigid configuration.")
     
     return configs
 
@@ -140,7 +216,7 @@ def _detect_flexible_residues(protein, binding_site_residues, max_residues=5):
         'VAL'   # Valine - smaller branched hydrophobic sidechain
     ]
     
-    print(f"Searching for flexible residues among {len(binding_site_residues)} binding site residues")
+    logging.info(f"Searching for flexible residues among {len(binding_site_residues)} binding site residues")
     
     candidate_residues = []
     
@@ -164,14 +240,14 @@ def _detect_flexible_residues(protein, binding_site_residues, max_residues=5):
                         if ca_atom:
                             distance = np.linalg.norm(ca_atom['coords'] - center)
                             candidate_residues.append((res_id, distance, res_type))
-                            print(f"  Found candidate flexible residue: {res_id} ({res_type}) - distance: {distance:.2f}Å")
+                            logging.info(f"  Found candidate flexible residue: {res_id} ({res_type}) - distance: {distance:.2f}Å")
     
     # Sort by distance to center (closest first)
     candidate_residues.sort(key=lambda x: x[1])
     
-    print(f"Selected {min(max_residues, len(candidate_residues))} flexible residues:")
+    logging.info(f"Selected {min(max_residues, len(candidate_residues))} flexible residues:")
     for i, (res_id, distance, res_type) in enumerate(candidate_residues[:max_residues]):
-        print(f"  {i+1}. {res_id} ({res_type}) - distance: {distance:.2f}Å")
+        logging.info(f"  {i+1}. {res_id} ({res_type}) - distance: {distance:.2f}Å")
     
     # Return up to max_residues
     return [res_id for res_id, _, _ in candidate_residues[:max_residues]]
@@ -244,7 +320,7 @@ def write_results_to_txt(results, output_dir, elapsed_time, protein_path, ligand
         
         f.write("=====================================================\n")
     
-    print(f"Detailed results written to {results_path}")
+    logging.info(f"Detailed results written to {results_path}")
 
 def check_for_updates():
     """Check for newer versions of PandaDock on PyPI and notify user if available."""
@@ -279,11 +355,11 @@ def check_for_updates():
         
         # Compare versions
         if version.parse(latest_version) > version.parse(current_version):
-            print("\n" + "="*70)
-            print(f"  New version available: PandaDock {latest_version} (you have {current_version})")
-            print(f"  Update with: pip install --upgrade pandadock")
-            print("  See release notes at: https://github.com/pritampanda15/PandaDock/releases")
-            print("="*70 + "\n")
+            logging.info("\n" + "="*70)
+            logging.info(f"  New version available: PandaDock {latest_version} (you have {current_version})")
+            logging.info(f"  Update with: pip install --upgrade pandadock")
+            logging.info("  See release notes at: https://github.com/pritampanda15/PandaDock/releases")
+            logging.info("="*70 + "\n")
             
     except Exception:
         # Silently fail if version check doesn't work
@@ -347,7 +423,7 @@ def add_analysis_options(parser):
     
     # Interaction analysis
     analysis.add_argument('--analyze-interactions', action='store_true',
-                         help='Generate interaction fingerprints and analysis')
+                         help='Generate interaction fingerlogging.infos and analysis')
     analysis.add_argument('--interaction-types', nargs='+',
                         choices=['hbond', 'hydrophobic', 'ionic', 'aromatic', 'halogen'],
                         default=['hbond', 'hydrophobic', 'ionic'],
@@ -396,6 +472,30 @@ def create_advanced_search_algorithm(algorithm_type, scoring_function, **kwargs)
         raise ValueError(f"Advanced search algorithm '{algorithm_type}' not implemented")
 
 def main():
+
+    temp_dir = None
+
+    try:
+        # Create temporary directory for prepared files
+        temp_dir = Path('temp_pandadock')
+        os.makedirs(temp_dir, exist_ok=True)
+
+        # Example process
+        logging.info("Starting docking process...")
+        # ... docking logic here ...
+
+    except Exception as e:
+        logging.error(f"An error occurred: {e}", exc_info=True)
+
+    finally:
+        # Clean up temporary files
+        if temp_dir is not None:
+            import shutil
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                logging.info(f"Temporary directory {temp_dir} cleaned up successfully.")
+            except Exception as e:
+                logging.warning(f"Failed to clean up temporary directory {temp_dir}: {e}")
     # Initialize return value
     return_code = 0
 
@@ -405,7 +505,7 @@ def main():
     # Record start time immediately
     start_time = time.time()
 
-    print(f"============ PandaDock - Python Molecular Docking ============")
+    logging.info(f"============ PandaDock - Python Molecular Docking ============")
     
     # Initialize variables that might be used in finally block
     temp_dir = None
@@ -423,7 +523,7 @@ def main():
         # Optional arguments
         parser.add_argument('-o', '--output', default='docking_results', 
                             help='Output directory for docking results')
-        parser.add_argument('-a', '--algorithm', choices=['random', 'genetic'], default='genetic',
+        parser.add_argument('-a', '--algorithm', choices=['random', 'genetic', 'pandadock'], default='genetic',
                             help='Docking algorithm to use (default: genetic)')
         parser.add_argument('-i', '--iterations', type=int, default=1000,
                             help='Number of iterations/generations (default: 1000)')
@@ -464,6 +564,7 @@ def main():
                             help='pH for protein preparation (default: 7.4)')
         #parser.add_argument('--no-local-optimization', action='store_true',
                        #help='Disable local optimization of poses (keep exact alignment)')
+
         
         # Physics-based options
         parser.add_argument('--physics-based', action='store_true',
@@ -476,6 +577,31 @@ def main():
                             help='Number of Monte Carlo steps (default: 1000)')
         parser.add_argument('--temperature', type=float, default=300.0,
                             help='Temperature for Monte Carlo simulation in Kelvin (default: 300K)')
+
+
+        # 2. Add pandadock options after physics-based options
+        # pandadock options
+        pandadock_group = parser.add_argument_group('pandadock Options')
+        pandadock_group.add_argument('--high-temp', type=float, default=1000.0,
+                                help='High temperature for pandadock MD simulations (K)')
+        pandadock_group.add_argument('--target-temp', type=float, default=300.0,
+                                help='Target temperature for pandadock cooling (K)')
+        pandadock_group.add_argument('--num-conformers', type=int, default=10,
+                                help='Number of ligand conformers to generate in pandadock')
+        pandadock_group.add_argument('--num-orientations', type=int, default=10,
+                                help='Number of orientations to try for each conformer in pandadock')
+        pandadock_group.add_argument('--md-steps', type=int, default=1000,
+                                help='Number of MD steps for simulated annealing in pandadock')
+        pandadock_group.add_argument('--minimize-steps', type=int, default=200,
+                                help='Number of minimization steps for final refinement in pandadock')
+        pandadock_group.add_argument('--use-grid', action='store_true',
+                                help='Use grid-based energy calculations in pandadock')
+        pandadock_group.add_argument('--cooling-factor', type=float, default=0.95,
+                                help='Cooling factor for simulated annealing (applies to PANDADOCK and Monte Carlo)')
+
+        # 3. Add auto-algorithm option
+        parser.add_argument('--auto-algorithm', action='store_true',
+                        help='Automatically select the best docking algorithm based on your system')
 
         # Flexible residue options
         parser.add_argument('--flex-residues', nargs='+', 
@@ -512,10 +638,29 @@ def main():
         # Create temporary directory for prepared files
         temp_dir = Path('temp_pandadock')
         os.makedirs(temp_dir, exist_ok=True)
-        
-        # Process mode flags - set parameters based on mode
+
+  # Process mode flags - set parameters based on mode
+        if args.auto_algorithm:
+            # Simple heuristic for algorithm selection:
+            # - If physics-based scoring is enabled, use PANDADOCK
+            # - If enhanced scoring is enabled with local opt, use Monte Carlo
+            # - If fast mode is enabled, use Random
+            # - Otherwise, use Genetic
+            if args.physics_based:
+                args.algorithm = 'cdocker'
+                logging.info("Auto-selecting CDOCKER algorithm for physics-based scoring")
+            elif args.enhanced_scoring and args.local_opt:
+                args.monte_carlo = True  # This overrides args.algorithm
+                logging.info("Auto-selecting Monte Carlo algorithm for enhanced scoring with local optimization")
+            elif args.fast_mode:
+                args.algorithm = 'random'
+                logging.info("Auto-selecting Random search algorithm for fast mode")
+            else:
+                args.algorithm = 'genetic'
+                logging.info("Auto-selecting Genetic algorithm (default)")
+      
         if args.fast_mode:
-            print("\nRunning in fast mode with minimal enhancements")
+            logging.info("\nRunning in fast mode with minimal enhancements")
             args.enhanced_scoring = False
             args.physics_based = False
             args.mmff_minimization = False
@@ -525,8 +670,17 @@ def main():
             args.prepare_molecules = False
             args.population_size = 50  # Smaller population
         
+        if args.monte_carlo:
+            logging.info("\nRunning in Monte Carlo mode")
+            args.algorithm = 'monte-carlo'
+            args.exhaustiveness = 1
+
+        if args.auto_algorithm:
+            logging.info("\nRunning with auto-algorithm selection")
+            args.algorithm = 'auto'
+        
         if args.enhanced:
-            print("\nRunning with enhanced algorithms (slower but more accurate)")
+            logging.info("\nRunning with enhanced algorithms (slower but more accurate)")
             args.enhanced_scoring = True
             args.local_opt = True
             if args.population_size < 100:
@@ -537,7 +691,7 @@ def main():
         ligand_path = args.ligand
         
         if args.prepare_molecules:
-            print("\nPreparing molecules for docking...")
+            logging.info("\nPreparing molecules for docking...")
             
             # Prepare protein
             prepared_protein = prepare_protein(
@@ -558,47 +712,47 @@ def main():
             ligand_path = prepared_ligand
         
         # Load protein
-        print(f"\nLoading protein from {protein_path}...")
+        logging.info(f"\nLoading protein from {protein_path}...")
         protein = Protein(protein_path)
         
         # Define active site
         if args.site:
-            print(f"Using provided active site center: {args.site}")
+            logging.info(f"Using provided active site center: {args.site}")
             protein.define_active_site(args.site, args.radius)
         elif args.detect_pockets:
-            print("Detecting binding pockets...")
+            logging.info("Detecting binding pockets...")
             pockets = protein.detect_pockets()
             if pockets:
-                print(f"Found {len(pockets)} potential binding pockets")
-                print(f"Using largest pocket as active site")
+                logging.info(f"Found {len(pockets)} potential binding pockets")
+                logging.info(f"Using largest pocket as active site")
                 protein.define_active_site(pockets[0]['center'], pockets[0]['radius'])
             else:
-                print("No pockets detected, using whole protein")
+                logging.info("No pockets detected, using whole protein")
         else:
-            print("No active site specified, using whole protein")
+            logging.info("No active site specified, using whole protein")
         
         # Check for flexible residues options
         if hasattr(args, 'auto_flex') and args.auto_flex:
-            print("Auto-flex option detected. Will attempt to automatically find flexible residues.")
+            logging.info("Auto-flex option detected. Will attempt to automatically find flexible residues.")
             
         if args.auto_flex or args.flex_residues:
-            print("\nPreparing flexible protein configurations...")
+            logging.info("\nPreparing flexible protein configurations...")
             configs = prepare_protein_configs(protein, args)
             
             if len(configs) > 1:
-                print(f"Using flexible protein configuration with {len(configs[1]['flexible_residues'])} flexible residues")
+                logging.info(f"Using flexible protein configuration with {len(configs[1]['flexible_residues'])} flexible residues")
                 protein = configs[1]['protein']  # Use the flexible configuration
             else:
-                print("No flexible configuration available, using rigid protein")
+                logging.info("No flexible configuration available, using rigid protein")
         
         # Load ligand
-        print(f"\nLoading ligand from {ligand_path}...")
+        logging.info(f"\nLoading ligand from {ligand_path}...")
         ligand = Ligand(ligand_path)
         
         # Load reference ligand if provided
         reference_ligand = None
         if args.reference:
-            print(f"Loading reference ligand from {args.reference}...")
+            logging.info(f"Loading reference ligand from {args.reference}...")
             reference_ligand = Ligand(args.reference)
         
         # Setup hardware acceleration
@@ -606,38 +760,48 @@ def main():
         
         # Apply MMFF minimization if requested
         if args.mmff_minimization and PHYSICS_AVAILABLE:
-            print("\nApplying MMFF94 force field minimization to ligand")
+            logging.info("\nApplying MMFF94 force field minimization to ligand")
             minimizer = MMFFMinimization()
             ligand = minimizer.minimize_ligand(ligand)
-            print("Ligand minimization complete")
+            logging.info("Ligand minimization complete")
         elif args.mmff_minimization and not PHYSICS_AVAILABLE:
-            print("\nWarning: MMFF minimization requested but physics module not available. Skipping.")
+            logging.info("\nWarning: MMFF minimization requested but physics module not available. Skipping.")
         
         # Create scoring function based on hardware and requested type
         scoring_type = get_scoring_type_from_args(args)
         
         if scoring_type == 'physics' and PHYSICS_AVAILABLE:
-            print("\nUsing physics-based scoring function (MM-GBSA inspired)")
+            logging.info("\nUsing physics-based scoring function (MM-GBSA inspired)")
             scoring_function = PhysicsBasedScoring()
         else:
             # Use hardware-optimized scoring function
             scoring_function = create_optimized_scoring_function(hybrid_manager, scoring_type)
             
             if scoring_type == 'enhanced':
-                print("\nUsing enhanced scoring function with hardware acceleration")
+                logging.info("\nUsing enhanced scoring function with hardware acceleration")
             else:
-                print("\nUsing standard composite scoring function with hardware acceleration")
+                logging.info("\nUsing standard composite scoring function with hardware acceleration")
         
         # Create timestamp for output directory
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        args.timestamp = timestamp  # Store for validation function
-        
+        #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        #@args.timestamp = timestamp  # Store for validation function
+        protein_base = Path(args.protein).stem
+        ligand_base = Path(args.ligand).stem
+        algo_name = args.algorithm
+        readable_date = datetime.now().strftime("%Y-%m-%d_%H-%M")
+        output_name = f"{protein_base}_{ligand_base}_{algo_name}_{readable_date}"
         # Setup output directory
-        output_dir = f"{args.output}_{timestamp}"
+        output_dir = f"{args.output}_{output_name}"
         os.makedirs(output_dir, exist_ok=True)
         
+        # Create initial files and setup logging
+        create_initial_files(output_dir, args)
+        logger = setup_logging(output_dir)
+        logger.info(f"PandaDock starting - output will be saved to {output_dir}")
+    
+
         # Initialize reporter
-        reporter = DockingReporter(output_dir, args, timestamp=timestamp)
+        reporter = DockingReporter(output_dir, args, timestamp=readable_date)
         
         # Get algorithm type and parameters
         algorithm_type = get_algorithm_type_from_args(args)
@@ -664,7 +828,7 @@ def main():
                 scoring_function,
                 **adv_search_kwargs
             )
-            print(f"\nUsing advanced search algorithm: {args.advanced_search}")
+            logging.info(f"\nUsing advanced search algorithm: {args.advanced_search}")
         else:
             # Create the standard search algorithm
             search_algorithm = create_optimized_search_algorithm(
@@ -676,10 +840,10 @@ def main():
         
         # Initialize results
         all_results = []
-        
+        search_algorithm.output_dir = output_dir
         # Run the appropriate docking algorithm
         if args.reference and args.tethered_docking:
-            print(f"Using tethered reference-based docking with weight {args.tether_weight}...")
+            logging.info(f"Using tethered reference-based docking with weight {args.tether_weight}...")
             all_results = search_algorithm.exact_reference_docking_with_tethering(
                 protein,
                 ligand,
@@ -688,7 +852,7 @@ def main():
                 skip_optimization=not args.local_opt # Skip if local_opt is FALSE
             )
         elif args.reference and args.exact_alignment:
-            print(f"Using exact alignment with reference structure...")
+            logging.info(f"Using exact alignment with reference structure...")
             all_results = search_algorithm.exact_reference_docking(
                 protein,
                 ligand,
@@ -696,7 +860,7 @@ def main():
                 skip_optimization=not args.local_opt # Skip if local_opt is FALSE
             )
         elif args.reference and not args.exact_alignment:
-            print(f"Using reference-guided docking...")
+            logging.info(f"Using reference-guided docking...")
             all_results = search_algorithm.reference_guided_docking(
                 protein,
                 ligand,
@@ -706,7 +870,7 @@ def main():
         elif args.exhaustiveness > 1:
              # Ensemble docking needs separate handling if optimization is desired per run
              # For now, assume post-run optimization applies if --local-opt is set
-             print(f"\nRunning {args.exhaustiveness} independent docking runs...")
+             logging.info(f"\nRunning {args.exhaustiveness} independent docking runs...")
              all_results = hybrid_manager.run_ensemble_docking(
                  protein=protein,
                  ligand=ligand,
@@ -717,7 +881,7 @@ def main():
              # Post-optimization logic below will handle these results if --local-opt is set
         elif algorithm_type == 'monte-carlo' and PHYSICS_AVAILABLE:
              # Monte Carlo usually includes optimization/sampling inherently
-             print(f"\nUsing Monte Carlo sampling with {args.mc_steps} steps at {args.temperature}K")
+             logging.info(f"\nUsing Monte Carlo sampling with {args.mc_steps} steps at {args.temperature}K")
              mc_algorithm = MonteCarloSampling(
                  scoring_function,
                  temperature=args.temperature,
@@ -728,17 +892,17 @@ def main():
              # Post-optimization logic might still refine MC results if --local-opt is set
         elif hasattr(args, 'enhanced') and args.enhanced:
              # Pass args to improve_rigid_docking so it knows about --local-opt
-             print("Using enhanced rigid docking algorithm...")
+             logging.info("Using enhanced rigid docking algorithm...")
              all_results = search_algorithm.improve_rigid_docking(protein, ligand, args)
         else:
-             print("\nPerforming standard docking...")
+             logging.info("\nPerforming standard docking...")
              all_results = search_algorithm.search(protein, ligand)
              # Post-optimization logic below will handle these results if --local-opt is set
         
         # Apply local optimization to top poses if requested
         optimized_results = []  # Initialize variable
         if args.local_opt and all_results:
-            print("\nPerforming local optimization on top poses (enabled by --local-opt)...")
+            logging.info("\nPerforming local optimization on top poses (enabled by --local-opt)...")
 
             # Only optimize if we have results
             if all_results:
@@ -748,11 +912,11 @@ def main():
                 sorted_initial_results = sorted(all_results, key=lambda x: x[1])
                 
                 for i, (pose, score) in enumerate(sorted_initial_results[:poses_to_optimize]):
-                    print(f"Optimizing pose {i+1} (initial score: {score:.2f})...")
+                    logging.info(f"Optimizing pose {i+1} (initial score: {score:.2f})...")
 
                     if args.mmff_minimization and PHYSICS_AVAILABLE:
                         # Use MMFF minimization in protein environment
-                        print(f"  Using MMFF minimization in protein environment")
+                        logging.info(f"  Using MMFF minimization in protein environment")
                         minimizer = MMFFMinimization()
                         opt_pose = minimizer.minimize_pose(protein, pose)
                         opt_score = scoring_function.score(protein, opt_pose)
@@ -763,7 +927,7 @@ def main():
                         optimized_results.append((opt_pose, opt_score))
                     else:
                         # If no specific optimization method, keep the original
-                        print("  Warning: No specific local optimization method found for this setup. Keeping original pose.")
+                        logging.info("  Warning: No specific local optimization method found for this setup. Keeping original pose.")
                         optimized_results.append((pose, score)) # Keep original if no method
 
                 # Combine optimized results with the remaining unoptimized results
@@ -775,13 +939,13 @@ def main():
                 all_results = optimized_results + remaining_results
                 # Re-sort after optimization
                 all_results.sort(key=lambda x: x[1])
-                print("Local optimization complete.")
+                logging.info("Local optimization complete.")
             else: # Should not happen if all_results check passed, but good practice
-                 print("  No results found to optimize.")
+                 logging.info("  No results found to optimize.")
 
         # The old check for --no-local-optimization is no longer needed, as skipping is the default.
         # elif args.no_local_optimization: <-- REMOVE THIS BLOCK
-        #     print("Skipping local optimization as requested (--no-local-optimization)")
+        #     logging.info("Skipping local optimization as requested (--no-local-optimization)")
 
         # Sort final results if optimization happened or if it was skipped
         if all_results:
@@ -797,7 +961,7 @@ def main():
                                     BindingModeClassifier, EnergyDecomposition,
                                     DockingReportGenerator)
                 
-                print("\nPerforming advanced analysis...")
+                logging.info("\nPerforming advanced analysis...")
                 
                 # Extract poses and scores
                 poses = [pose for pose, _ in all_results]
@@ -806,45 +970,45 @@ def main():
                 # Clustering
                 clustering_results = None
                 if args.cluster_poses:
-                    print("Clustering docking poses...")
+                    logging.info("Clustering docking poses...")
                     clusterer = PoseClusterer(
                         method=args.clustering_method,
                         rmsd_cutoff=args.rmsd_cutoff
                     )
                     clustering_results = clusterer.cluster_poses(poses)
                     
-                    # Print clustering summary
-                    print(f"Found {len(clustering_results['clusters'])} clusters")
+                    # logging.info clustering summary
+                    logging.info(f"Found {len(clustering_results['clusters'])} clusters")
                     for i, cluster in enumerate(clustering_results['clusters']):
-                        print(f"Cluster {i+1}: {len(cluster['members'])} poses, "
+                        logging.info(f"Cluster {i+1}: {len(cluster['members'])} poses, "
                             f"best score: {cluster['best_score']:.2f}")
                     
                     # Interaction analysis
                     if args.analyze_interactions:
-                        print("Analyzing protein-ligand interactions...")
-                        fingerprinter = InteractionFingerprinter(
+                        logging.info("Analyzing protein-ligand interactions...")
+                        fingerlogging.infoer = InteractionFingerlogging.infoer(
                             interaction_types=args.interaction_types
                         )
                         # Analyze top poses (up to 5)
                         poses_to_analyze = min(5, len(all_results))
                         for i, (pose, score) in enumerate(all_results[:poses_to_analyze]):
-                            print(f"\nInteractions for pose {i+1} (score: {score:.2f}):")
-                            key_interactions = fingerprinter.analyze_key_interactions(protein, pose)
+                            logging.info(f"\nInteractions for pose {i+1} (score: {score:.2f}):")
+                            key_interactions = fingerlogging.infoer.analyze_key_interactions(protein, pose)
                             for interaction in key_interactions:
-                                print(f"  {interaction}")
+                                logging.info(f"  {interaction}")
                     
                     # Binding mode classification
                     if args.classify_modes or args.discover_modes:
-                        print("Analyzing binding modes...")
+                        logging.info("Analyzing binding modes...")
                         classifier = BindingModeClassifier()
                         
                         if args.discover_modes:
                             discovered_modes = classifier.discover_modes(
                                 protein, poses, n_modes=args.n_modes
                             )
-                            print(f"Discovered {len(discovered_modes)} binding modes")
+                            logging.info(f"Discovered {len(discovered_modes)} binding modes")
                             for i, mode in enumerate(discovered_modes):
-                                print(f"Mode {i+1}: {mode['count']} poses, "
+                                logging.info(f"Mode {i+1}: {mode['count']} poses, "
                                     f"best score: {mode['best_score']:.2f}")
                                 
                         if args.classify_modes:
@@ -852,31 +1016,31 @@ def main():
                             poses_to_classify = min(10, len(all_results))
                             for i, (pose, score) in enumerate(all_results[:poses_to_classify]):
                                 mode = classifier.classify_pose(protein, pose)
-                                print(f"Pose {i+1} (score: {score:.2f}): {mode}")
+                                logging.info(f"Pose {i+1} (score: {score:.2f}): {mode}")
                     
                     # Energy decomposition
                     energy_decomposition = None
                     if args.energy_decomposition and all_results:
-                        print("Performing energy decomposition analysis...")
+                        logging.info("Performing energy decomposition analysis...")
                         decomposer = EnergyDecomposition(scoring_function)
                         
                         # Analyze top pose
                         top_pose = all_results[0][0]
                         energy_decomposition = decomposer.decompose_energy(protein, top_pose)
                         
-                        print("\nEnergy components for top pose:")
+                        logging.info("\nEnergy components for top pose:")
                         for component, value in energy_decomposition.items():
-                            print(f"  {component}: {value:.2f}")
+                            logging.info(f"  {component}: {value:.2f}")
                             
                         if args.per_residue_energy:
-                            print("\nTop residue contributions:")
+                            logging.info("\nTop residue contributions:")
                             res_contributions = decomposer.residue_contributions(protein, top_pose)
                             for res, value in res_contributions[:5]:
-                                print(f"  {res}: {value:.2f}")
+                                logging.info(f"  {res}: {value:.2f}")
                 
                 # Generate report
                 if args.generate_analysis_report:
-                    print("Generating comprehensive docking report...")
+                    logging.info("Generating comprehensive docking report...")
                     report_generator = DockingReportGenerator(
                         report_format=args.analysis_report_format,
                         include_sections=args.analysis_report_sections
@@ -888,14 +1052,14 @@ def main():
                         clustering_results=clustering_results,
                         energy_decomposition=energy_decomposition
                     )
-                    print(f"Report generated: {report_file}")
+                    logging.info(f"Report generated: {report_file}")
             else:
-                print("\nSkipping analysis as no valid docking solutions were found.")
+                logging.info("\nSkipping analysis as no valid docking solutions were found.")
 
         # Extract energy components for reporting if possible
         try:
             if all_results:
-                print("Extracting energy components for detailed reporting...")
+                logging.info("Extracting energy components for detailed reporting...")
                 energy_breakdown = reporter.extract_energy_components(
                     scoring_function, 
                     protein, 
@@ -905,7 +1069,7 @@ def main():
             else:
                 reporter.add_results([])  # Add empty results
         except Exception as e:
-            print(f"Warning: Could not extract energy components: {e}")
+            logging.info(f"Warning: Could not extract energy components: {e}")
             reporter.add_results(all_results)
         
         # Take the top results (avoid duplicates)
@@ -928,19 +1092,19 @@ def main():
         
         # Check if we have any results before saving
         if not unique_results:
-            print("\nWarning: No valid docking solutions found.")
+            logging.info("\nWarning: No valid docking solutions found.")
         else:
             # Save results if we have any
-            print(f"\nDocking completed successfully!")
-            print(f"Saving results to {output_dir}...")
+            logging.info(f"\nDocking completed successfully!")
+            logging.info(f"Saving results to {output_dir}...")
             
             # Pass flexible residues to save_docking_results if they exist
             flexible_residues = None
             if hasattr(protein, 'flexible_residues') and protein.flexible_residues:
                 flexible_residues = protein.flexible_residues
-                print(f"Found {len(flexible_residues)} flexible residues to include in output")
+                logging.info(f"Found {len(flexible_residues)} flexible residues to include in output")
             else:
-                print("No flexible residues found on protein object")
+                logging.info("No flexible residues found on protein object")
             
             # Save docking results
             save_docking_results(unique_results, output_dir, flexible_residues=flexible_residues)
@@ -962,17 +1126,17 @@ def main():
             iterations=args.iterations if algorithm_type != 'monte-carlo' else args.mc_steps
         )
         
-        # Print summary
-        print(f"\nDocking completed in {elapsed_time:.1f} seconds")
+        # logging.info summary
+        logging.info(f"\nDocking completed in {elapsed_time:.1f} seconds")
         if unique_results:
-            print(f"Best score: {unique_results[0][1]:.2f}")
-            print(f"Results saved to: {output_dir}")
+            logging.info(f"Best score: {unique_results[0][1]:.2f}")
+            logging.info(f"Results saved to: {output_dir}")
         else:
-            print("No valid docking solutions found.")
-        print(f"============================================================")
+            logging.info("No valid docking solutions found.")
+        logging.info(f"============================================================")
         
         # Generate comprehensive reports
-        print("Generating comprehensive docking reports...")
+        logging.info("Generating comprehensive docking reports...")
         if hasattr(args, 'report_format') and args.report_format != 'all':
             # Generate only the requested format
             if args.report_format == 'text':
@@ -992,15 +1156,15 @@ def main():
             # Generate HTML report with visualizations if plots are not skipped
             if not (hasattr(args, 'skip_plots') and args.skip_plots):
                 html_report = reporter.generate_html_report()
-                print(f"Comprehensive HTML report with visualizations saved to: {html_report}")
+                logging.info(f"Comprehensive HTML report with visualizations saved to: {html_report}")
                 
     except Exception as e:
         # Calculate elapsed time if there was an error
         elapsed_time = time.time() - start_time
-        print(f"\nError during docking: {str(e)}")
+        logging.info(f"\nError during docking: {str(e)}")
         import traceback
-        traceback.print_exc()
-        print(f"\nDocking failed after {elapsed_time:.1f} seconds")
+        traceback.logging.info_exc()
+        logging.info(f"\nDocking failed after {elapsed_time:.1f} seconds")
         return_code = 1
     
     finally:
@@ -1013,7 +1177,7 @@ def main():
         if hybrid_manager is not None:
             hybrid_manager.cleanup()
             
-        print(f"============================================================")
+        logging.info(f"============================================================")
         return return_code
 
 if __name__ == "__main__":

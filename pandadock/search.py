@@ -3,11 +3,12 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 import random
 import copy
+from .utils import setup_logging
 
 class DockingSearch:
     """Base class for docking search algorithms."""
     
-    def __init__(self, scoring_function, max_iterations=1000):
+    def __init__(self, scoring_function, max_iterations=1000, output_dir=None):
         """
         Initialize search algorithm.
         
@@ -20,6 +21,9 @@ class DockingSearch:
         """
         self.scoring_function = scoring_function
         self.max_iterations = max_iterations
+        self.output_dir = output_dir
+        logger = setup_logging(output_dir)
+        self.logger = logger
     
     def search(self, protein, ligand):
         """

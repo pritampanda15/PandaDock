@@ -1,4 +1,4 @@
-# scoring_physics.py
+# scoring_physics_improved.py
 import numpy as np
 from scipy.spatial.distance import cdist
 
@@ -17,16 +17,16 @@ class ScoringFunction:
         }
         
         # Physics-based parameters
-        # Atom charges
+        # Adjusted atom charges for better electrostatics
         self.atom_charges = {
-            'H': 0.0, 'C': 0.0, 'N': -0.5, 'O': -0.5, 'S': -0.2,
-            'P': 0.5, 'F': -0.25, 'Cl': -0.1, 'Br': -0.1, 'I': -0.1
+            'H': 0.0, 'C': 0.0, 'N': -0.4, 'O': -0.4, 'S': -0.15,
+            'P': 0.4, 'F': -0.2, 'Cl': -0.08, 'Br': -0.08, 'I': -0.08
         }
         
-        # Solvation parameters
+        # Recalibrated solvation parameters (reduced magnitude)
         self.atom_solvation = {
-            'H': 0.0, 'C': 0.4, 'N': -0.2, 'O': -0.3, 'S': 0.6,
-            'P': -0.3, 'F': 0.1, 'Cl': 0.5, 'Br': 0.5, 'I': 0.5
+            'H': 0.0, 'C': 0.4, 'N': -1.5, 'O': -1.5, 'S': 0.4,
+            'P': -0.2, 'F': 0.1, 'Cl': 0.3, 'Br': 0.3, 'I': 0.3
         }
         
         # Extended atom type parameters for more precise interactions
@@ -102,22 +102,23 @@ class ScoringFunction:
         # Hydrophobic atom types
         self.hydrophobic_types = ['C', 'A', 'F', 'Cl', 'Br', 'I', 'C.3', 'C.2', 'C.ar']
         
-        # Atomic solvation parameters (kcal/mol·Å²)
+        # Recalibrated atomic solvation parameters (kcal/mol·Å²)
+        # Significantly reduced magnitudes to prevent solvation from dominating
         self.atom_solvation_params = {
-            'C': 12.77,
-            'A': 12.77,  # Aromatic carbon
-            'N': -17.40,
-            'NA': -17.40,
-            'O': -17.40,
-            'OA': -17.40,
-            'S': -8.31,
-            'SA': -8.31,
-            'H': 0.0,
-            'F': -6.60,
-            'Cl': -0.72,
-            'Br': -0.85,
-            'I': -0.88,
-            'P': -6.70,
+            'C': 0.4,    # Reduced from 12.77
+            'A': 0.4,    # Reduced from 12.77
+            'N': -1.5,   # Less negative from -17.40
+            'NA': -1.5,  # Less negative
+            'O': -1.5,   # Less negative from -17.40
+            'OA': -1.5,  # Less negative
+            'S': -0.8,   # Less negative from -8.31
+            'SA': -0.8,  # Less negative
+            'H': 0.0,    # Unchanged
+            'F': -0.5,   # Less negative from -6.60
+            'Cl': -0.1,  # Slightly adjusted from -0.72
+            'Br': -0.1,  # Slightly adjusted from -0.85
+            'I': -0.1,   # Slightly adjusted from -0.88
+            'P': -0.7,   # Less negative from -6.70
         }
         
         # Atom volume parameters (Å³)
@@ -139,7 +140,7 @@ class ScoringFunction:
         }
         
         # Constants for desolvation
-        self.solpar = 0.01097   # kcal/mol per Å²
+        self.solpar = 0.005   # Reduced from 0.01097 kcal/mol per Å²
         self.solvation_k = 3.5  # Å, solvation radius
         
         # Distance cutoffs
@@ -227,16 +228,16 @@ class ScoringFunction:
                 # Calculate ratio for efficiency
                 ratio = r_eq / distance
                 
-                # Use modified potential with smoothing at close distances
-                if distance >= 0.5 * r_eq:
+                # Use modified potential with smoother transition for close distances
+                if distance >= 0.7 * r_eq:  # Increased from 0.5 for smoother behavior
                     # Regular 12-6 Lennard-Jones
                     vdw_term = epsilon * ((ratio**12) - 2.0 * (ratio**6))
-                    vdw_term = min(max(vdw_term, -50.0), 50.0)
+                    vdw_term = min(max(vdw_term, -50.0), 50.0)  # Clip extreme values
                 else:
-                    # Smoothed function for very close distances
-                    smoothed_ratio = 0.5 * r_eq / distance
-                    vdw_term = epsilon * ((smoothed_ratio**12) - 2.0 * (smoothed_ratio**6))
-                    vdw_term = min(max(vdw_term, -50.0), 50.0)
+                    # Linear repulsion function for very close distances
+                    # This prevents explosion of energy at close contacts
+                    rep_factor = 50.0 * (0.7 * r_eq - distance) / (0.7 * r_eq)
+                    vdw_term = min(rep_factor, 50.0)  # Cap at 50.0
                 
                 vdw_energy += vdw_term
         
@@ -282,13 +283,19 @@ class ScoringFunction:
                     r_eq = params['r_eq']
                     epsilon = params['epsilon']
                     
-                    # 12-10 potential
+                    # 12-10 potential with smoother distance dependence
                     if distance < 0.1:
                         distance = 0.1
                     
-                    # Calculate 12-10 energy term (ideal at r_eq)
-                    ratio = r_eq / distance
-                    hbond_term = epsilon * ((ratio**12) - 2.0 * (ratio**10))
+                    # Calculate distance from optimal H-bond length
+                    dist_diff = abs(distance - r_eq)
+                    
+                    # Gaussian-like function with optimal value at r_eq
+                    # This is smoother than the 12-10 potential and better represents H-bond energetics
+                    if dist_diff <= 0.8:  # H-bonds only contribute significantly within ~0.8Å of optimal
+                        hbond_term = -epsilon * np.exp(-(dist_diff**2) / 0.3)  
+                    else:
+                        hbond_term = 0.0  # Negligible contribution beyond cutoff
                     
                     # Apply angular factor (simplified)
                     angle_factor = self._calculate_hbond_angle_factor(p_atom, l_atom, protein, ligand)
@@ -307,11 +314,13 @@ class ScoringFunction:
                     r_eq = params['r_eq']
                     epsilon = params['epsilon']
                     
-                    if distance < 0.1:
-                        distance = 0.1
+                    # Gaussian-like function
+                    dist_diff = abs(distance - r_eq)
                     
-                    ratio = r_eq / distance
-                    hbond_term = epsilon * ((ratio**12) - 2.0 * (ratio**10))
+                    if dist_diff <= 0.8:
+                        hbond_term = -epsilon * np.exp(-(dist_diff**2) / 0.3)
+                    else:
+                        hbond_term = 0.0
                     
                     angle_factor = self._calculate_hbond_angle_factor(l_atom, p_atom, ligand, protein)
                     hbond_energy += hbond_term * angle_factor
@@ -338,15 +347,15 @@ class ScoringFunction:
             
             # For simplicity, we'll use a default angle factor
             # In a real implementation, you'd use bonding information to calculate precise angles
-            return 0.5  # Default 50% effectiveness
+            return 0.7  # Increased from 0.5 for stronger H-bond contributions
             
         except Exception as e:
-            return 0.25  # Fallback if calculation fails
+            return 0.3  # Increased from 0.25 for fallback
     
     def _calculate_electrostatics_physics(self, protein_atoms, ligand_atoms):
         """
         Calculate electrostatic interactions using Coulomb's law with
-        distance-dependent dielectric.
+        improved distance-dependent dielectric model.
         """
         elec_energy = 0.0
         coulomb_constant = 332.0  # Convert to kcal/mol
@@ -380,19 +389,25 @@ class ScoringFunction:
                 if distance < 0.1:
                     distance = 0.1
                 
-                # Calculate distance-dependent dielectric
-                # Uses ε(r) = 4r model
-                dielectric = 4.0 * distance
+                # Calculate improved distance-dependent dielectric
+                # Increased from 4.0 * distance to 6.0 * distance to reduce electrostatic penalties
+                dielectric = 6.0 * distance
                 
-                # Calculate Coulomb energy
-                elec_term = coulomb_constant * p_charge * l_charge / (dielectric * distance)
+                # Calculate Coulomb energy with Debye-Hückel-like screening
+                # This adds a distance-dependent screening term that attenuates long-range interactions
+                screening_factor = np.exp(-distance / 10.0)  # 10Å screening length
+                elec_term = coulomb_constant * p_charge * l_charge * screening_factor / (dielectric * distance)
+                
+                # Scale down extreme electrostatic interactions
+                elec_term = np.sign(elec_term) * min(abs(elec_term), 10.0)
+                
                 elec_energy += elec_term
         
         return elec_energy
     
     def _calculate_desolvation_physics(self, protein_atoms, ligand_atoms):
         """
-        Calculate desolvation energy using atomic solvation and volume parameters.
+        Calculate desolvation energy using recalibrated atomic solvation and volume parameters.
         """
         desolv_energy = 0.0
         sigma = self.solvation_k  # Solvation radius in Å
@@ -423,6 +438,9 @@ class ScoringFunction:
                 # Calculate desolvation energy (volume-weighted)
                 desolv_term = (self.solpar * p_solv * l_vol + 
                               self.solpar * l_solv * p_vol) * exp_term
+                
+                # Apply a scaling factor to further reduce extreme desolvation values
+                desolv_term = np.sign(desolv_term) * min(abs(desolv_term), 5.0)
                 
                 desolv_energy += desolv_term
         
@@ -592,15 +610,15 @@ class EnhancedScoringFunction(CompositeScoringFunction):
     def __init__(self):
         super().__init__()
         
-        # Physics-based calibrated weights
+        # Improved physics-based calibrated weights for better balance
         self.weights = {
-            'vdw': 0.1662,           # Van der Waals weight
-            'hbond': 0.1209,         # Hydrogen bond weight
-            'elec': 0.1406,          # Electrostatic weight 
-            'desolv': 0.1322,        # Desolvation weight
-            'hydrophobic': 0.1418,   # Hydrophobic interactions
-            'clash': 1.0,            # Clash penalty
-            'entropy': 0.2983        # Torsional entropy weight
+            'vdw': 0.3,           # Increased from 0.1662
+            'hbond': 0.2,         # Increased from 0.1209
+            'elec': 0.2,          # Increased from 0.1406
+            'desolv': 0.05,       # Decreased from 0.1322 to reduce domination
+            'hydrophobic': 0.2,   # Increased from 0.1418  
+            'clash': 1.0,         # Kept the same
+            'entropy': 0.25       # Slightly decreased from 0.2983
         }
     
     def score(self, protein, ligand):
@@ -611,7 +629,7 @@ class EnhancedScoringFunction(CompositeScoringFunction):
         else:
             protein_atoms = protein.atoms
         
-        # Calculate all energy terms using physics-based methods
+        # Calculate all energy terms using improved physics-based methods
         vdw_score = self._calculate_vdw_physics(protein_atoms, ligand.atoms)
         hbond_score = self._calculate_hbond_physics(protein_atoms, ligand.atoms, protein, ligand)
         elec_score = self._calculate_electrostatics_physics(protein_atoms, ligand.atoms)
@@ -620,7 +638,7 @@ class EnhancedScoringFunction(CompositeScoringFunction):
         clash_score = self._calculate_clashes_physics(protein_atoms, ligand.atoms)
         entropy_score = self._calculate_entropy(ligand)
         
-        # Combine scores with physics-based weights
+        # Combine scores with improved physics-based weights
         total_score = (
             self.weights['vdw'] * vdw_score +
             self.weights['hbond'] * hbond_score +

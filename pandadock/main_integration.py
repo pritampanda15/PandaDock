@@ -181,7 +181,7 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
     manager : HybridDockingManager
         Hybrid docking manager
     algorithm_type : str
-        Type of algorithm ('genetic', 'random', or 'monte-carlo')
+        Type of algorithm ('genetic', 'random', 'monte-carlo', or 'pandadock')
     scoring_function : ScoringFunction
         Scoring function to use
     **kwargs : dict
@@ -193,14 +193,34 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
         Optimized search algorithm
     """
     # Standard algorithm types
-    if algorithm_type in ['genetic', 'random']:
-        return manager.prepare_search_algorithm(
-            algorithm_type=algorithm_type,
-            scoring_function=scoring_function,
-            **kwargs
-        )
-    
-    # Monte Carlo requires special handling
+    if algorithm_type == 'genetic':
+        try:
+            from .parallel_search import ParallelGeneticAlgorithm
+            return ParallelGeneticAlgorithm(
+                scoring_function=scoring_function,
+                **kwargs
+            )
+        except ImportError:
+            from .search import GeneticAlgorithm
+            return GeneticAlgorithm(
+                scoring_function=scoring_function,
+                **kwargs
+            )
+            
+    elif algorithm_type == 'random':
+        try:
+            from .parallel_search import ParallelRandomSearch
+            return ParallelRandomSearch(
+                scoring_function=scoring_function,
+                **kwargs
+            )
+        except ImportError:
+            from .search import RandomSearch
+            return RandomSearch(
+                scoring_function=scoring_function,
+                **kwargs
+            )
+            
     elif algorithm_type == 'monte-carlo':
         try:
             from .physics import MonteCarloSampling
@@ -210,21 +230,38 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
             )
         except ImportError:
             print("Monte Carlo sampling not available. Using genetic algorithm instead.")
-            return manager.prepare_search_algorithm(
-                algorithm_type='genetic',
+            return create_optimized_search_algorithm(
+                manager,
+                'genetic',
+                scoring_function,
+                **kwargs
+            )
+            
+    elif algorithm_type == 'pandadock':
+        try:
+            from .pandadock import PANDADOCKAlgorithm
+            return PANDADOCKAlgorithm(
                 scoring_function=scoring_function,
+                **kwargs
+            )
+        except ImportError:
+            print("PANDADOCK algorithm not available. Using genetic algorithm instead.")
+            return create_optimized_search_algorithm(
+                manager,
+                'genetic',
+                scoring_function,
                 **kwargs
             )
     
     # Unknown algorithm type
     else:
         print(f"Unknown algorithm type: {algorithm_type}. Using genetic algorithm.")
-        return manager.prepare_search_algorithm(
-            algorithm_type='genetic',
-            scoring_function=scoring_function,
+        return create_optimized_search_algorithm(
+            manager,
+            'genetic',
+            scoring_function,
             **kwargs
         )
-
 
 def get_scoring_type_from_args(args):
     """
@@ -238,7 +275,7 @@ def get_scoring_type_from_args(args):
     Returns:
     --------
     str
-        Scoring type ('standard', 'enhanced', or 'physics')
+        Scoring type ('standard', 'enhanced', 'pandadock' or 'physics')
     """
     if args.physics_based:
         return 'physics'
@@ -246,8 +283,6 @@ def get_scoring_type_from_args(args):
         return 'enhanced'
     else:
         return 'standard'
-
-
 def get_algorithm_type_from_args(args):
     """
     Determine algorithm type based on command-line arguments.
@@ -260,12 +295,13 @@ def get_algorithm_type_from_args(args):
     Returns:
     --------
     str
-        Algorithm type ('genetic', 'random', or 'monte-carlo')
+        Algorithm type ('genetic', 'random', 'monte-carlo', or 'pandadock')
     """
     if args.monte_carlo:
         return 'monte-carlo'
     else:
-        return args.algorithm
+        return args.algorithm  # Now can include 'pandadock' as an option
+    
 
 
 def get_algorithm_kwargs_from_args(args):
@@ -275,29 +311,50 @@ def get_algorithm_kwargs_from_args(args):
     algorithm_type = get_algorithm_type_from_args(args)
     algorithm_kwargs = {}
     
+    # Common parameters for most algorithms
+    if hasattr(args, 'iterations'):
+        algorithm_kwargs['max_iterations'] = args.iterations
+    
     # Algorithm-specific parameters
-    if algorithm_type == 'genetic' or algorithm_type == 'random':
-        # Common parameters for genetic and random algorithms
-        if hasattr(args, 'iterations'):
-            algorithm_kwargs['max_iterations'] = args.iterations
+    if algorithm_type == 'genetic':
+        if hasattr(args, 'population_size'):
+            algorithm_kwargs['population_size'] = args.population_size
         
-        # Genetic-specific parameters
-        if algorithm_type == 'genetic':
-            if hasattr(args, 'population_size'):
-                algorithm_kwargs['population_size'] = args.population_size
-            
-            if hasattr(args, 'mutation_rate'):
-                algorithm_kwargs['mutation_rate'] = getattr(args, 'mutation_rate', 0.2)
-            
+        if hasattr(args, 'mutation_rate'):
+            algorithm_kwargs['mutation_rate'] = getattr(args, 'mutation_rate', 0.2)
+        
     elif algorithm_type == 'monte-carlo':
         # Monte Carlo specific parameters
         if hasattr(args, 'mc_steps'):
             algorithm_kwargs['n_steps'] = args.mc_steps
-        elif hasattr(args, 'iterations'):
-            # Use iterations as a fallback if mc_steps is not specified
-            algorithm_kwargs['n_steps'] = args.iterations
         
         if hasattr(args, 'temperature'):
             algorithm_kwargs['temperature'] = args.temperature
+            
+        if hasattr(args, 'cooling_factor'):
+            algorithm_kwargs['cooling_factor'] = args.cooling_factor
+    
+    elif algorithm_type == 'pandadock':
+        # pandadock specific parameters
+        if hasattr(args, 'high_temp'):
+            algorithm_kwargs['high_temp'] = args.high_temp
+            
+        if hasattr(args, 'target_temp'):
+            algorithm_kwargs['target_temp'] = args.target_temp
+            
+        if hasattr(args, 'num_conformers'):
+            algorithm_kwargs['num_conformers'] = args.num_conformers
+            
+        if hasattr(args, 'num_orientations'):
+            algorithm_kwargs['num_orientations'] = args.num_orientations
+            
+        if hasattr(args, 'md_steps'):
+            algorithm_kwargs['md_steps'] = args.md_steps
+            
+        if hasattr(args, 'minimize_steps'):
+            algorithm_kwargs['minimize_steps'] = args.minimize_steps
+            
+        if hasattr(args, 'use_grid'):
+            algorithm_kwargs['use_grid'] = args.use_grid
     
     return algorithm_kwargs
