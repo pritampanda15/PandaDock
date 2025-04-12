@@ -1725,7 +1725,7 @@ class HybridSearch(DockingSearch):
         
         return optimized_pose, optimized_score
 
-def create_advanced_search_algorithm(algorithm_type, scoring_function, **kwargs):
+def create_advanced_search_algorithm(algorithm_type, scoring_function, output_dir, **kwargs):
     """Factory function to create the appropriate advanced search algorithm."""
     if algorithm_type == 'gradient':
         return GradientBasedSearch(scoring_function, **kwargs)
