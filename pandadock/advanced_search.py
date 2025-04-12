@@ -1725,17 +1725,17 @@ class HybridSearch(DockingSearch):
         
         return optimized_pose, optimized_score
 
-def create_advanced_search_algorithm(algorithm_type, scoring_function, output_dir, **kwargs):
+def create_advanced_search_algorithm(algorithm_type, scoring_function, **kwargs):
     """Factory function to create the appropriate advanced search algorithm."""
     if algorithm_type == 'gradient':
-        return GradientBasedSearch(scoring_function, output_dir, **kwargs)
+        return GradientBasedSearch(scoring_function, **kwargs)
     elif algorithm_type == 'replica-exchange':
-        return ReplicaExchangeDocking(scoring_function, output_dir, **kwargs)
+        return ReplicaExchangeDocking(scoring_function, **kwargs)
     elif algorithm_type == 'ml-guided':
-        return MLGuidedSearch(scoring_function, output_dir, **kwargs)
+        return MLGuidedSearch(scoring_function, **kwargs)
     elif algorithm_type == 'fragment-based':
-        return FragmentBasedDocking(scoring_function, output_dir, **kwargs)
+        return FragmentBasedDocking(scoring_function, **kwargs)
     elif algorithm_type == 'hybrid':
-        return HybridSearch(scoring_function, output_dir, **kwargs)
+        return HybridSearch(scoring_function, **kwargs)
     else:
         raise ValueError(f"Unknown advanced algorithm type: {algorithm_type}")
