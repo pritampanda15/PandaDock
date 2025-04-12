@@ -72,8 +72,8 @@ def create_initial_files(output_dir, args):
     """
     # Create directory structure
     output_dir = Path(output_dir)
-    for subdir in ["logs", "intermediate", "poses"]:
-        os.makedirs(output_dir / subdir, exist_ok=True)
+    #for subdir in ["logs", "intermediate", "poses"]:
+        #os.makedirs(output_dir / subdir, exist_ok=True)
     
     # Get logger
     logger = setup_logging(output_dir)
