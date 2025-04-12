@@ -62,7 +62,8 @@ class PANDADOCKAlgorithm(DockingSearch):
         self.md_steps = md_steps
         self.minimize_steps = minimize_steps
         self.use_grid = use_grid
-    
+        self.output_dir = output_dir
+                     
     def search(self, protein, ligand):
         """
         Perform PANDADOCK-based search.
