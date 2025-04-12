@@ -1,4 +1,3 @@
-# advanced_search.py
 """
 Advanced search algorithms for PandaDock.
 This module provides sophisticated search methods beyond the standard genetic
@@ -35,6 +34,8 @@ class GradientBasedSearch(DockingSearch):
             Step size for gradient calculation (default is 0.1).
         convergence_threshold : float, optional
             Threshold to determine convergence (default is 0.01).
+        output_dir : str, optional
+            Directory to save output files.
         """
 
         super().__init__(scoring_function, max_iterations, output_dir)
@@ -327,6 +328,7 @@ class GradientBasedSearch(DockingSearch):
         
         return all_results
 
+
 class ReplicaExchangeDocking(DockingSearch):
     """
     Replica Exchange Monte Carlo for enhanced sampling of docking poses.
@@ -569,19 +571,37 @@ class ReplicaExchangeDocking(DockingSearch):
         print(f"Replica exchange search completed in {elapsed_time:.2f} seconds")
         
         return all_poses
-        
+
+
 class MLGuidedSearch(DockingSearch):
     """
     Machine learning guided search that uses a surrogate model to guide docking.
     """
     
     def __init__(self, scoring_function, max_iterations=100, 
-                 surrogate_model_type='rf', exploitation_factor=0.8):
-        super().__init__(scoring_function, max_iterations)
+                 surrogate_model_type='rf', exploitation_factor=0.8, output_dir=None):
+        """
+        Initialize ML-guided search algorithm.
+        
+        Parameters:
+        -----------
+        scoring_function : ScoringFunction
+            Scoring function to evaluate poses
+        max_iterations : int
+            Maximum number of iterations
+        surrogate_model_type : str
+            Type of surrogate model ('rf', 'gp', or 'nn')
+        exploitation_factor : float
+            Factor controlling exploitation vs exploration (0.0-1.0)
+        output_dir : str, optional
+            Directory to save output files
+        """
+        super().__init__(scoring_function, max_iterations, output_dir)
         self.surrogate_model_type = surrogate_model_type
         self.exploitation_factor = exploitation_factor
         self.ml_model = None
         self.feature_scaler = None
+        self.output_dir = output_dir
         
     def _extract_features(self, protein, pose):
         """
@@ -988,6 +1008,7 @@ class MLGuidedSearch(DockingSearch):
         print(f"Best score: {all_poses[0][1]:.4f}")
         
         return all_poses
+
 
 class FragmentBasedDocking(DockingSearch):
     """
@@ -1557,6 +1578,8 @@ class HybridSearch(DockingSearch):
             Probability of crossover (0.0 to 1.0)
         top_n_for_local : int
             Number of top GA solutions to optimize with L-BFGS
+        output_dir : str, optional
+            Directory to save output files
         """
         super().__init__(scoring_function, ga_iterations + lbfgs_iterations, output_dir)
         self.ga_iterations = ga_iterations
@@ -1724,6 +1747,7 @@ class HybridSearch(DockingSearch):
         optimized_score = self.scoring_function.score(protein, optimized_pose)
         
         return optimized_pose, optimized_score
+
 
 def create_advanced_search_algorithm(algorithm_type, scoring_function, **kwargs):
     """Factory function to create the appropriate advanced search algorithm."""
