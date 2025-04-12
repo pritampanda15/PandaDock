@@ -981,16 +981,54 @@ def main():
                     if args.analyze_interactions:
                         logger.info("Analyzing protein-ligand interactions...")
                         update_status(output_dir, status="analyzing_interactions")
-                        fingerprinter = InteractionFingerprinter(
-                            interaction_types=args.interaction_types
-                        )
-                        # Analyze top poses (up to 5)
-                        poses_to_analyze = min(5, len(all_results))
-                        for i, (pose, score) in enumerate(all_results[:poses_to_analyze]):
-                            logger.info(f"\nInteractions for pose {i+1} (score: {score:.2f}):")
-                            key_interactions = fingerprinter.analyze_key_interactions(protein, pose)
-                            for interaction in key_interactions:
-                                logger.info(f"  {interaction}")
+                        
+                        # Create a file for interaction results
+                        interaction_file = os.path.join(output_dir, "interaction_analysis.txt")
+                        
+                        with open(interaction_file, 'w') as f:
+                            f.write("========================================\n")
+                            f.write(" Protein-Ligand Interaction Analysis\n")
+                            f.write("========================================\n\n")
+                            
+                            fingerprinter = InteractionFingerprinter(
+                                interaction_types=args.interaction_types
+                            )
+                            
+                            # Analyze top poses (up to 5)
+                            poses_to_analyze = min(5, len(all_results))
+                            
+                            f.write(f"Analyzing top {poses_to_analyze} poses:\n\n")
+                            
+                            for i, (pose, score) in enumerate(all_results[:poses_to_analyze]):
+                                f.write(f"Pose {i+1} (Score: {score:.2f})\n")
+                                f.write("----------------------------\n")
+                                
+                                key_interactions = fingerprinter.analyze_key_interactions(protein, pose)
+                                for interaction in key_interactions:
+                                    f.write(f"  {interaction}\n")
+                                
+                                f.write("\n")  # Add space between poses
+                                
+                                # Also log to console
+                                logger.info(f"\nInteractions for pose {i+1} (score: {score:.2f}):")
+                                for interaction in key_interactions:
+                                    logger.info(f"  {interaction}")
+                        
+                        logger.info(f"\nInteraction analysis saved to: {interaction_file}")
+        
+                        #if args.analyze_interactions:
+                         #   logger.info("Analyzing protein-ligand interactions...")
+                         #   update_status(output_dir, status="analyzing_interactions")
+                          #  fingerprinter = InteractionFingerprinter(
+                          #      interaction_types=args.interaction_types
+                          #  )
+                            # Analyze top poses (up to 5)
+                          #  poses_to_analyze = min(5, len(all_results))
+                          #  for i, (pose, score) in enumerate(all_results[:poses_to_analyze]):
+                          #      logger.info(f"\nInteractions for pose {i+1} (score: {score:.2f}):")
+                          #      key_interactions = fingerprinter.analyze_key_interactions(protein, pose)
+                          #      for interaction in key_interactions:
+                          #          logger.info(f"  {interaction}")
                     
                     # Binding mode classification
                     if args.classify_modes or args.discover_modes:
