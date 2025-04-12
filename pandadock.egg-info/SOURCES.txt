@@ -15,6 +15,7 @@ pandadock/integration.py
 pandadock/ligand.py
 pandadock/main.py
 pandadock/main_integration.py
+pandadock/pandadock.py
 pandadock/parallel_search.py
 pandadock/physics.py
 pandadock/preparation.py

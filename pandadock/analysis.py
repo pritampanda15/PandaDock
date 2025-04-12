@@ -4,19 +4,6 @@ Advanced pose clustering and analysis tools for PandaDock.
 This module provides methods for clustering docking results, analyzing binding modes,
 generating interaction fingerprints, and creating detailed reports.
 """
-
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.cluster.hierarchy import linkage, fcluster
-from sklearn.cluster import DBSCAN
-from .utils import calculate_rmsd
-
-# analysis.py
-"""
-Advanced pose clustering and analysis tools for PandaDock.
-This module provides methods for clustering docking results and analyzing binding modes.
-"""
-
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.cluster.hierarchy import linkage, fcluster

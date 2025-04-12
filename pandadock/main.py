@@ -16,6 +16,7 @@ from .search import RandomSearch, GeneticAlgorithm
 from .utils import save_docking_results
 from .preparation import prepare_protein, prepare_ligand
 from .reporting import DockingReporter
+import matplotlib
 import matplotlib.pyplot as plt
 from .utils import setup_logging
 from .validation import validate_against_reference
@@ -29,7 +30,9 @@ from .main_integration import (
     get_algorithm_type_from_args,
     get_algorithm_kwargs_from_args
 )
-
+from .analysis import (PoseClusterer, 
+                        BindingModeClassifier, EnergyDecomposition,
+                        DockingReportGenerator, InteractionFingerprinter)
 
 import logging
 
@@ -423,7 +426,7 @@ def add_analysis_options(parser):
     
     # Interaction analysis
     analysis.add_argument('--analyze-interactions', action='store_true',
-                         help='Generate interaction fingerlogging.infos and analysis')
+                         help='Generate interaction fingerprints and analysis')
     analysis.add_argument('--interaction-types', nargs='+',
                         choices=['hbond', 'hydrophobic', 'ionic', 'aromatic', 'halogen'],
                         default=['hbond', 'hydrophobic', 'ionic'],
@@ -986,14 +989,14 @@ def main():
                     # Interaction analysis
                     if args.analyze_interactions:
                         logging.info("Analyzing protein-ligand interactions...")
-                        fingerlogging.infoer = InteractionFingerlogging.infoer(
+                        fingerprinter = InteractionFingerprinter.InteractionFingerprinter(
                             interaction_types=args.interaction_types
                         )
                         # Analyze top poses (up to 5)
                         poses_to_analyze = min(5, len(all_results))
                         for i, (pose, score) in enumerate(all_results[:poses_to_analyze]):
                             logging.info(f"\nInteractions for pose {i+1} (score: {score:.2f}):")
-                            key_interactions = fingerlogging.infoer.analyze_key_interactions(protein, pose)
+                            key_interactions = fingerprinter.analyze_key_interactions(protein, pose)
                             for interaction in key_interactions:
                                 logging.info(f"  {interaction}")
                     
