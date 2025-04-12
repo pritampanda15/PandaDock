@@ -3,6 +3,33 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 import os
+import logging
+
+
+def setup_logging(output_dir=None):
+    """Configure logging system for PandaDock."""
+    logger = logging.getLogger("pandadock")
+    
+    # Only configure if not already configured
+    if not logger.handlers:
+        # Basic configuration
+        logger.setLevel(logging.INFO)
+        
+        # Add console handler
+        console = logging.StreamHandler()
+        console.setFormatter(logging.Formatter("%(levelname)s - %(message)s"))
+        logger.addHandler(console)
+        
+        # Add file handler if output directory is provided
+        if output_dir:
+            logs_dir = Path(output_dir) / "logs"
+            os.makedirs(logs_dir, exist_ok=True)
+            
+            file_handler = logging.FileHandler(logs_dir / "pandadock.log")
+            file_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+            logger.addHandler(file_handler)
+    
+    return logger
 
 def save_docking_results(results, output_dir='docking_results', flexible_residues=None):
     """

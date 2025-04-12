@@ -1,12 +1,12 @@
-# scoring.py
+# scoring_physics_improved.py
 import numpy as np
 from scipy.spatial.distance import cdist
 
 class ScoringFunction:
-    """Base class for scoring functions."""
+    """Base class for scoring functions with physics-based calculations."""
     
     def __init__(self):
-        # Atomic parameters
+        # Basic atomic parameters
         self.vdw_radii = {
             'H': 1.2, 'C': 1.7, 'N': 1.55, 'O': 1.52, 'S': 1.8,
             'P': 1.8, 'F': 1.47, 'Cl': 1.75, 'Br': 1.85, 'I': 1.98
@@ -15,456 +15,18 @@ class ScoringFunction:
             'H': 0.1, 'C': 0.2, 'N': 0.15, 'O': 0.15, 'S': 0.2,
             'P': 0.2, 'F': 0.15, 'Cl': 0.2, 'Br': 0.2, 'I': 0.2
         }
-    
-    def score(self, protein, ligand):
-        """
-        Calculate binding score between protein and ligand.
         
-        Parameters:
-        -----------
-        protein : Protein
-            Protein object
-        ligand : Ligand
-            Ligand object
-        
-        Returns:
-        --------
-        float
-            Binding score (lower is better)
-        """
-        raise NotImplementedError("Subclasses must implement this method")
-
-
-class VdwScoringFunction(ScoringFunction):
-    """Simple van der Waals scoring function."""
-    
-    def score(self, protein, ligand):
-        """Calculate van der Waals interaction score."""
-        # If active site is defined, only consider those atoms
-        if protein.active_site and 'atoms' in protein.active_site:
-            protein_atoms = protein.active_site['atoms']
-        else:
-            protein_atoms = protein.atoms
-        
-        score = 0.0
-        for p_atom in protein_atoms:
-            p_coords = p_atom['coords']
-            p_symbol = p_atom.get('element', p_atom.get('name', 'C'))[0]
-            
-            for l_atom in ligand.atoms:
-                l_coords = l_atom['coords']
-                l_symbol = l_atom.get('symbol', 'C')
-                
-                # Calculate distance
-                distance = np.linalg.norm(p_coords - l_coords)
-                
-                # Get VDW parameters
-                p_radius = self.vdw_radii.get(p_symbol, 1.7)
-                l_radius = self.vdw_radii.get(l_symbol, 1.7)
-                optimal_dist = p_radius + l_radius
-                
-                # Simple Lennard-Jones-like potential
-                if distance < 0.1:  # Avoid division by zero
-                    score += 1000
-                else:
-                    # Simplified 6-12 potential
-                    ratio = optimal_dist / distance
-                    vdw_energy = (ratio**12 - 2 * ratio**6)
-                    score += vdw_energy
-        
-        return score
-
-
-class HBondScoringFunction(ScoringFunction):
-    """Hydrogen bond scoring function."""
-    
-    def __init__(self):
-        super().__init__()
-        # Define H-bond donors and acceptors by atom type
-        self.donors = ['N', 'O']  # Simplified; should include -NH, -OH groups
-        self.acceptors = ['N', 'O']  # Simplified
-    
-    def score(self, protein, ligand):
-        """Calculate hydrogen bond score."""
-        # Get protein atoms
-        if protein.active_site and 'atoms' in protein.active_site:
-            protein_atoms = protein.active_site['atoms']
-        else:
-            protein_atoms = protein.atoms
-        
-        score = 0.0
-        for p_atom in protein_atoms:
-            p_coords = p_atom['coords']
-            p_name = p_atom.get('name', '')[0]
-            
-            for l_atom in ligand.atoms:
-                l_coords = l_atom['coords']
-                l_symbol = l_atom.get('symbol', '')
-                
-                # Calculate distance
-                distance = np.linalg.norm(p_coords - l_coords)
-                
-                # Check if H-bond is possible
-                if distance < 3.5:  # Maximum H-bond distance
-                    # Protein donor - Ligand acceptor
-                    if p_name in self.donors and l_symbol in self.acceptors:
-                        # Ideal H-bond distance ~2.8-3.0 Å
-                        hbond_score = 1.0 - abs(distance - 2.9) / 1.0
-                        if hbond_score > 0:
-                            score -= hbond_score * 5.0  # H-bonds are favorable
-                    
-                    # Ligand donor - Protein acceptor
-                    if l_symbol in self.donors and p_name in self.acceptors:
-                        hbond_score = 1.0 - abs(distance - 2.9) / 1.0
-                        if hbond_score > 0:
-                            score -= hbond_score * 5.0
-        
-        return score
-
-
-class CompositeScoringFunction(ScoringFunction):
-    """Composite scoring function combining multiple terms."""
-    
-    def __init__(self):
-        super().__init__()
-        self.vdw_scorer = VdwScoringFunction()
-        self.hbond_scorer = HBondScoringFunction()
-        
-        # Weights for different scoring terms
-        self.weights = {
-            'vdw': 1.0,
-            'hbond': 2.0,
-            'clash': 10.0
-        }
-    
-    def score(self, protein, ligand):
-        """Calculate composite score."""
-        # Calculate individual terms
-        vdw_score = self.vdw_scorer.score(protein, ligand)
-        hbond_score = self.hbond_scorer.score(protein, ligand)
-        
-        # Calculate clash score (severe steric clashes)
-        clash_score = self._calculate_clashes(protein, ligand)
-        
-        # Combine scores
-        total_score = (
-            self.weights['vdw'] * vdw_score +
-            self.weights['hbond'] * hbond_score +
-            self.weights['clash'] * clash_score
-        )
-        
-        return total_score
-    
-    def _calculate_clashes(self, protein, ligand):
-        """Calculate severe steric clashes."""
-        # Get protein atoms
-        if protein.active_site and 'atoms' in protein.active_site:
-            protein_atoms = protein.active_site['atoms']
-        else:
-            protein_atoms = protein.atoms
-        
-        clash_score = 0.0
-        for p_atom in protein_atoms:
-            p_coords = p_atom['coords']
-            p_symbol = p_atom.get('element', p_atom.get('name', 'C'))[0]
-            
-            for l_atom in ligand.atoms:
-                l_coords = l_atom['coords']
-                l_symbol = l_atom.get('symbol', 'C')
-                
-                # Calculate distance
-                distance = np.linalg.norm(p_coords - l_coords)
-                
-                # Get VDW parameters
-                p_radius = self.vdw_radii.get(p_symbol, 1.7)
-                l_radius = self.vdw_radii.get(l_symbol, 1.7)
-                min_allowed = (p_radius + l_radius) * 0.7  # Allow some overlap
-                
-                # Penalize severe clashes
-                if distance < min_allowed:
-                    clash_factor = (min_allowed - distance) / min_allowed
-                    clash_score += clash_factor ** 2  # Quadratic penalty
-        
-        return clash_score
-
-
-class EnhancedScoringFunction(CompositeScoringFunction):
-    """
-    Enhanced scoring function with additional interaction terms for more reliable docking.
-    Incorporates electrostatics, desolvation, and hydrophobic effects.
-    """
-    
-    def __init__(self):
-        super().__init__()
-        
-        # Atom type parameters
+        # Physics-based parameters
+        # Adjusted atom charges for better electrostatics
         self.atom_charges = {
-            'H': 0.0, 'C': 0.0, 'N': -0.5, 'O': -0.5, 'S': -0.2,
-            'P': 0.5, 'F': -0.25, 'Cl': -0.1, 'Br': -0.1, 'I': -0.1
+            'H': 0.0, 'C': 0.0, 'N': -0.4, 'O': -0.4, 'S': -0.15,
+            'P': 0.4, 'F': -0.2, 'Cl': -0.08, 'Br': -0.08, 'I': -0.08
         }
         
-        # Solvation parameters
+        # Recalibrated solvation parameters (reduced magnitude)
         self.atom_solvation = {
-            'H': 0.0, 'C': 0.4, 'N': -0.2, 'O': -0.3, 'S': 0.6,
-            'P': -0.3, 'F': 0.1, 'Cl': 0.5, 'Br': 0.5, 'I': 0.5
-        }
-        
-        # Hydrophobic atom types
-        self.hydrophobic_types = ['C', 'S', 'Cl', 'Br', 'I']
-        
-        # Distance cutoffs
-        self.elec_cutoff = 12.0  # Å for electrostatics
-        self.desolv_cutoff = 8.0  # Å for desolvation
-        self.hydrophobic_cutoff = 4.5  # Å for hydrophobic interactions
-        
-        # Adjust weights for different terms
-        self.weights = {
-            'vdw': 1.0,
-            'hbond': 2.5,
-            'elec': 1.5,
-            'desolv': 1.0,
-            'hydrophobic': 1.0,
-            'clash': 10.0,
-            'entropy': 0.5
-        }
-    
-    def score(self, protein, ligand):
-        """Calculate enhanced composite score."""
-        # Calculate base terms
-        vdw_score = self.vdw_scorer.score(protein, ligand)
-        hbond_score = self.hbond_scorer.score(protein, ligand)
-        clash_score = self._calculate_clashes(protein, ligand)
-        
-        # Calculate additional terms
-        elec_score = self._calculate_electrostatics(protein, ligand)
-        desolv_score = self._calculate_desolvation(protein, ligand)
-        hydrophobic_score = self._calculate_hydrophobic(protein, ligand)
-        entropy_score = self._calculate_entropy(ligand)
-        
-        # Combine scores
-        total_score = (
-            self.weights['vdw'] * vdw_score +
-            self.weights['hbond'] * hbond_score +
-            self.weights['elec'] * elec_score +
-            self.weights['desolv'] * desolv_score +
-            self.weights['hydrophobic'] * hydrophobic_score +
-            self.weights['clash'] * clash_score +
-            self.weights['entropy'] * entropy_score
-        )
-        
-        return total_score
-    
-    def _calculate_electrostatics(self, protein, ligand):
-        """
-        Calculate electrostatic interactions using a distance-dependent dielectric.
-        
-        Returns:
-        --------
-        float
-            Electrostatic interaction score
-        """
-        # Get protein atoms
-        if protein.active_site and 'atoms' in protein.active_site:
-            protein_atoms = protein.active_site['atoms']
-        else:
-            protein_atoms = protein.atoms
-        
-        elec_score = 0.0
-        
-        for p_atom in protein_atoms:
-            p_coords = p_atom['coords']
-            p_symbol = p_atom.get('element', p_atom.get('name', 'C'))[0]
-            p_charge = self.atom_charges.get(p_symbol, 0.0)
-            
-            for l_atom in ligand.atoms:
-                l_coords = l_atom['coords']
-                l_symbol = l_atom.get('symbol', 'C')
-                l_charge = self.atom_charges.get(l_symbol, 0.0)
-                
-                # Skip if both charges are zero
-                if abs(p_charge * l_charge) < 1e-6:
-                    continue
-                
-                # Calculate distance
-                distance = np.linalg.norm(p_coords - l_coords)
-                
-                # Skip if beyond cutoff
-                if distance > self.elec_cutoff:
-                    continue
-                
-                # Distance-dependent dielectric constant
-                dielectric = 4.0 * distance
-                
-                # Coulomb's law with distance-dependent dielectric
-                if distance < 0.1:  # Avoid division by zero
-                    elec_energy = 0.0
-                else:
-                    elec_energy = 332.0 * p_charge * l_charge / (dielectric * distance)
-                
-                elec_score += elec_energy
-        
-        return elec_score
-    
-    def _calculate_desolvation(self, protein, ligand):
-        """
-        Calculate desolvation effects using atomic solvation parameters.
-        
-        Returns:
-        --------
-        float
-            Desolvation score
-        """
-        # Get protein atoms
-        if protein.active_site and 'atoms' in protein.active_site:
-            protein_atoms = protein.active_site['atoms']
-        else:
-            protein_atoms = protein.atoms
-        
-        desolv_score = 0.0
-        
-        for p_atom in protein_atoms:
-            p_coords = p_atom['coords']
-            p_symbol = p_atom.get('element', p_atom.get('name', 'C'))[0]
-            p_solvation = self.atom_solvation.get(p_symbol, 0.0)
-            
-            for l_atom in ligand.atoms:
-                l_coords = l_atom['coords']
-                l_symbol = l_atom.get('symbol', 'C')
-                l_solvation = self.atom_solvation.get(l_symbol, 0.0)
-                
-                # Calculate distance
-                distance = np.linalg.norm(p_coords - l_coords)
-                
-                # Skip if beyond cutoff
-                if distance > self.desolv_cutoff:
-                    continue
-                
-                # Gaussian-like desolvation effect
-                desolv_energy = p_solvation * l_solvation * np.exp(-(distance**2) / 7.5)
-                desolv_score += desolv_energy
-        
-        return desolv_score
-    
-    def _calculate_hydrophobic(self, protein, ligand):
-        """
-        Calculate hydrophobic interactions.
-        
-        Returns:
-        --------
-        float
-            Hydrophobic interaction score
-        """
-        # Get protein atoms
-        if protein.active_site and 'atoms' in protein.active_site:
-            protein_atoms = protein.active_site['atoms']
-        else:
-            protein_atoms = protein.atoms
-        
-        hydrophobic_score = 0.0
-        
-        # Identify hydrophobic atoms
-        p_hydrophobic = [atom for atom in protein_atoms 
-                        if atom.get('element', atom.get('name', ''))[0] in self.hydrophobic_types]
-        
-        l_hydrophobic = [atom for atom in ligand.atoms 
-                        if atom.get('symbol', '') in self.hydrophobic_types]
-        
-        for p_atom in p_hydrophobic:
-            p_coords = p_atom['coords']
-            
-            for l_atom in l_hydrophobic:
-                l_coords = l_atom['coords']
-                
-                # Calculate distance
-                distance = np.linalg.norm(p_coords - l_coords)
-                
-                # Skip if beyond cutoff
-                if distance > self.hydrophobic_cutoff:
-                    continue
-                
-                # Linear hydrophobic interaction term
-                if distance < 0.5:  # Avoid unrealistic close contacts
-                    contact_score = 0.0
-                else:
-                    # Stronger interaction for closer contact
-                    contact_score = (self.hydrophobic_cutoff - distance) / self.hydrophobic_cutoff
-                
-                hydrophobic_score -= contact_score  # Negative since it's favorable
-        
-        return hydrophobic_score
-    
-    def _calculate_entropy(self, ligand):
-        """
-        Estimate entropy penalty based on ligand flexibility.
-        
-        Returns:
-        --------
-        float
-            Entropy score
-        """
-        # Simple entropy term based on rotatable bonds
-        if hasattr(ligand, 'rotatable_bonds'):
-            n_rotatable = len(ligand.rotatable_bonds)
-            entropy_penalty = 0.5 * n_rotatable
-        else:
-            # Fallback if rotatable bonds not defined
-            entropy_penalty = 0.0
-        
-        return entropy_penalty
-
-# Add this class after your existing scoring function classes
-class TetheredScoringFunction:
-    """
-    A scoring function wrapper that adds a penalty term based on RMSD from a reference position.
-    """
-    
-    def __init__(self, base_scoring_function, reference_ligand, weight=10.0, max_penalty=100.0):
-        self.base_scoring_function = base_scoring_function
-        self.reference_coordinates = reference_ligand.xyz.copy()
-        self.weight = weight
-        self.max_penalty = max_penalty
-        
-    def score(self, protein, ligand):
-        # Get the base score
-        base_score = self.base_scoring_function.score(protein, ligand)
-        
-        # Calculate RMSD from reference
-        rmsd = self._calculate_rmsd(ligand.xyz)
-        
-        # Apply RMSD penalty, capped at max_penalty
-        rmsd_penalty = min(self.weight * rmsd, self.max_penalty)
-        
-        # Return combined score
-        return base_score + rmsd_penalty
-    
-    def _calculate_rmsd(self, coordinates):
-        # Ensure same number of atoms
-        if len(coordinates) != len(self.reference_coordinates):
-            raise ValueError(f"Coordinate mismatch: reference has {len(self.reference_coordinates)} atoms, but current pose has {len(coordinates)} atoms")
-        
-        # Calculate squared differences
-        squared_diff = np.sum((coordinates - self.reference_coordinates) ** 2, axis=1)
-        
-        # Return RMSD
-        return np.sqrt(np.mean(squared_diff))
-    
-class PhysicsBasedScoringFunction(EnhancedScoringFunction):
-    """
-    Physics-based scoring function using calibrated energy terms and parameters.
-    Implements a comprehensive free energy model for protein-ligand binding.
-    """
-    
-    def __init__(self):
-        super().__init__()
-        
-        # Override with physics-based calibrated weights
-        self.weights = {
-            'vdw': 0.1662,           # Van der Waals weight
-            'hbond': 0.1209,         # Hydrogen bond weight
-            'elec': 0.1406,          # Electrostatic weight 
-            'desolv': 0.1322,        # Desolvation weight
-            'entropy': 0.2983,       # Torsional entropy weight
-            'clash': 1.0             # Keep clash detection
+            'H': 0.0, 'C': 0.4, 'N': -1.5, 'O': -1.5, 'S': 0.4,
+            'P': -0.2, 'F': 0.1, 'Cl': 0.3, 'Br': 0.3, 'I': 0.3
         }
         
         # Extended atom type parameters for more precise interactions
@@ -537,25 +99,26 @@ class PhysicsBasedScoringFunction(EnhancedScoringFunction):
         self.hbond_donor_types = {'N', 'NA', 'O', 'OA', 'N.3', 'N.am', 'O.3'}
         self.hbond_acceptor_types = {'O', 'OA', 'N', 'NA', 'SA', 'O.2', 'O.3', 'N.2'}
         
-        # Update hydrophobic types
+        # Hydrophobic atom types
         self.hydrophobic_types = ['C', 'A', 'F', 'Cl', 'Br', 'I', 'C.3', 'C.2', 'C.ar']
         
-        # Atomic solvation parameters (kcal/mol·Å²)
+        # Recalibrated atomic solvation parameters (kcal/mol·Å²)
+        # Significantly reduced magnitudes to prevent solvation from dominating
         self.atom_solvation_params = {
-            'C': 12.77,
-            'A': 12.77,  # Aromatic carbon
-            'N': -17.40,
-            'NA': -17.40,
-            'O': -17.40,
-            'OA': -17.40,
-            'S': -8.31,
-            'SA': -8.31,
-            'H': 0.0,
-            'F': -6.60,
-            'Cl': -0.72,
-            'Br': -0.85,
-            'I': -0.88,
-            'P': -6.70,
+            'C': 0.4,    # Reduced from 12.77
+            'A': 0.4,    # Reduced from 12.77
+            'N': -1.5,   # Less negative from -17.40
+            'NA': -1.5,  # Less negative
+            'O': -1.5,   # Less negative from -17.40
+            'OA': -1.5,  # Less negative
+            'S': -0.8,   # Less negative from -8.31
+            'SA': -0.8,  # Less negative
+            'H': 0.0,    # Unchanged
+            'F': -0.5,   # Less negative from -6.60
+            'Cl': -0.1,  # Slightly adjusted from -0.72
+            'Br': -0.1,  # Slightly adjusted from -0.85
+            'I': -0.1,   # Slightly adjusted from -0.88
+            'P': -0.7,   # Less negative from -6.70
         }
         
         # Atom volume parameters (Å³)
@@ -577,7 +140,7 @@ class PhysicsBasedScoringFunction(EnhancedScoringFunction):
         }
         
         # Constants for desolvation
-        self.solpar = 0.01097   # kcal/mol per Å²
+        self.solpar = 0.005   # Reduced from 0.01097 kcal/mol per Å²
         self.solvation_k = 3.5  # Å, solvation radius
         
         # Distance cutoffs
@@ -585,7 +148,26 @@ class PhysicsBasedScoringFunction(EnhancedScoringFunction):
         self.hbond_cutoff = 4.0  # Å for hydrogen bonds
         self.elec_cutoff = 20.0  # Å for electrostatics
         self.desolv_cutoff = 8.0  # Å for desolvation
+        self.hydrophobic_cutoff = 4.5  # Å for hydrophobic interactions
+    
+    def score(self, protein, ligand):
+        """
+        Calculate binding score between protein and ligand.
         
+        Parameters:
+        -----------
+        protein : Protein
+            Protein object
+        ligand : Ligand
+            Ligand object
+        
+        Returns:
+        --------
+        float
+            Binding score (lower is better)
+        """
+        raise NotImplementedError("Subclasses must implement this method")
+    
     def _get_atom_type(self, atom, default='C'):
         """Determine the atom type for an atom based on available information."""
         # Try to get atom type from atom data
@@ -610,34 +192,6 @@ class PhysicsBasedScoringFunction(EnhancedScoringFunction):
         
         # Default fallback
         return default
-    
-    def score(self, protein, ligand):
-        """Calculate comprehensive physics-based binding score."""
-        # Get protein and ligand atoms
-        if protein.active_site and 'atoms' in protein.active_site:
-            protein_atoms = protein.active_site['atoms']
-        else:
-            protein_atoms = protein.atoms
-            
-        ligand_atoms = ligand.atoms
-        
-        # Calculate all energy terms
-        vdw_energy = self._calculate_vdw_physics(protein_atoms, ligand_atoms)
-        hbond_energy = self._calculate_hbond_physics(protein_atoms, ligand_atoms, protein, ligand)
-        elec_energy = self._calculate_electrostatics_physics(protein_atoms, ligand_atoms)
-        desolv_energy = self._calculate_desolvation_physics(protein_atoms, ligand_atoms)
-        entropy_energy = self._calculate_entropy(ligand)
-        
-        # Combine scores with calibrated weights
-        total_score = (
-            self.weights['vdw'] * vdw_energy +
-            self.weights['hbond'] * hbond_energy +
-            self.weights['elec'] * elec_energy +
-            self.weights['desolv'] * desolv_energy +
-            self.weights['entropy'] * entropy_energy
-        )
-        
-        return total_score
     
     def _calculate_vdw_physics(self, protein_atoms, ligand_atoms):
         """
@@ -674,16 +228,16 @@ class PhysicsBasedScoringFunction(EnhancedScoringFunction):
                 # Calculate ratio for efficiency
                 ratio = r_eq / distance
                 
-                # Use modified potential with smoothing at close distances
-                if distance >= 0.5 * r_eq:
+                # Use modified potential with smoother transition for close distances
+                if distance >= 0.7 * r_eq:  # Increased from 0.5 for smoother behavior
                     # Regular 12-6 Lennard-Jones
                     vdw_term = epsilon * ((ratio**12) - 2.0 * (ratio**6))
-                    vdw_term = min(max(vdw_term, -50.0), 50.0)
+                    vdw_term = min(max(vdw_term, -50.0), 50.0)  # Clip extreme values
                 else:
-                    # Smoothed function for very close distances
-                    smoothed_ratio = 0.5 * r_eq / distance
-                    vdw_term = epsilon * ((smoothed_ratio**12) - 2.0 * (smoothed_ratio**6))
-                    vdw_term = min(max(vdw_term, -50.0), 50.0)
+                    # Linear repulsion function for very close distances
+                    # This prevents explosion of energy at close contacts
+                    rep_factor = 50.0 * (0.7 * r_eq - distance) / (0.7 * r_eq)
+                    vdw_term = min(rep_factor, 50.0)  # Cap at 50.0
                 
                 vdw_energy += vdw_term
         
@@ -729,13 +283,19 @@ class PhysicsBasedScoringFunction(EnhancedScoringFunction):
                     r_eq = params['r_eq']
                     epsilon = params['epsilon']
                     
-                    # 12-10 potential
+                    # 12-10 potential with smoother distance dependence
                     if distance < 0.1:
                         distance = 0.1
                     
-                    # Calculate 12-10 energy term (ideal at r_eq)
-                    ratio = r_eq / distance
-                    hbond_term = epsilon * ((ratio**12) - 2.0 * (ratio**10))
+                    # Calculate distance from optimal H-bond length
+                    dist_diff = abs(distance - r_eq)
+                    
+                    # Gaussian-like function with optimal value at r_eq
+                    # This is smoother than the 12-10 potential and better represents H-bond energetics
+                    if dist_diff <= 0.8:  # H-bonds only contribute significantly within ~0.8Å of optimal
+                        hbond_term = -epsilon * np.exp(-(dist_diff**2) / 0.3)  
+                    else:
+                        hbond_term = 0.0  # Negligible contribution beyond cutoff
                     
                     # Apply angular factor (simplified)
                     angle_factor = self._calculate_hbond_angle_factor(p_atom, l_atom, protein, ligand)
@@ -754,11 +314,13 @@ class PhysicsBasedScoringFunction(EnhancedScoringFunction):
                     r_eq = params['r_eq']
                     epsilon = params['epsilon']
                     
-                    if distance < 0.1:
-                        distance = 0.1
+                    # Gaussian-like function
+                    dist_diff = abs(distance - r_eq)
                     
-                    ratio = r_eq / distance
-                    hbond_term = epsilon * ((ratio**12) - 2.0 * (ratio**10))
+                    if dist_diff <= 0.8:
+                        hbond_term = -epsilon * np.exp(-(dist_diff**2) / 0.3)
+                    else:
+                        hbond_term = 0.0
                     
                     angle_factor = self._calculate_hbond_angle_factor(l_atom, p_atom, ligand, protein)
                     hbond_energy += hbond_term * angle_factor
@@ -785,15 +347,15 @@ class PhysicsBasedScoringFunction(EnhancedScoringFunction):
             
             # For simplicity, we'll use a default angle factor
             # In a real implementation, you'd use bonding information to calculate precise angles
-            return 0.5  # Default 50% effectiveness
+            return 0.7  # Increased from 0.5 for stronger H-bond contributions
             
         except Exception as e:
-            return 0.25  # Fallback if calculation fails
+            return 0.3  # Increased from 0.25 for fallback
     
     def _calculate_electrostatics_physics(self, protein_atoms, ligand_atoms):
         """
         Calculate electrostatic interactions using Coulomb's law with
-        distance-dependent dielectric.
+        improved distance-dependent dielectric model.
         """
         elec_energy = 0.0
         coulomb_constant = 332.0  # Convert to kcal/mol
@@ -827,19 +389,25 @@ class PhysicsBasedScoringFunction(EnhancedScoringFunction):
                 if distance < 0.1:
                     distance = 0.1
                 
-                # Calculate distance-dependent dielectric
-                # Uses ε(r) = 4r model
-                dielectric = 4.0 * distance
+                # Calculate improved distance-dependent dielectric
+                # Increased from 4.0 * distance to 6.0 * distance to reduce electrostatic penalties
+                dielectric = 6.0 * distance
                 
-                # Calculate Coulomb energy
-                elec_term = coulomb_constant * p_charge * l_charge / (dielectric * distance)
+                # Calculate Coulomb energy with Debye-Hückel-like screening
+                # This adds a distance-dependent screening term that attenuates long-range interactions
+                screening_factor = np.exp(-distance / 10.0)  # 10Å screening length
+                elec_term = coulomb_constant * p_charge * l_charge * screening_factor / (dielectric * distance)
+                
+                # Scale down extreme electrostatic interactions
+                elec_term = np.sign(elec_term) * min(abs(elec_term), 10.0)
+                
                 elec_energy += elec_term
         
         return elec_energy
     
     def _calculate_desolvation_physics(self, protein_atoms, ligand_atoms):
         """
-        Calculate desolvation energy using atomic solvation and volume parameters.
+        Calculate desolvation energy using recalibrated atomic solvation and volume parameters.
         """
         desolv_energy = 0.0
         sigma = self.solvation_k  # Solvation radius in Å
@@ -871,10 +439,255 @@ class PhysicsBasedScoringFunction(EnhancedScoringFunction):
                 desolv_term = (self.solpar * p_solv * l_vol + 
                               self.solpar * l_solv * p_vol) * exp_term
                 
+                # Apply a scaling factor to further reduce extreme desolvation values
+                desolv_term = np.sign(desolv_term) * min(abs(desolv_term), 5.0)
+                
                 desolv_energy += desolv_term
         
         return desolv_energy
     
-        # Forward any other methods to the base scoring function
+    def _calculate_hydrophobic_physics(self, protein_atoms, ligand_atoms):
+        """
+        Calculate hydrophobic interactions using physics-based approach.
+        """
+        hydrophobic_score = 0.0
+        
+        # Identify hydrophobic atoms
+        p_hydrophobic = [atom for atom in protein_atoms 
+                        if self._get_atom_type(atom) in self.hydrophobic_types]
+        
+        l_hydrophobic = [atom for atom in ligand_atoms 
+                        if self._get_atom_type(atom) in self.hydrophobic_types]
+        
+        for p_atom in p_hydrophobic:
+            p_coords = p_atom['coords']
+            
+            for l_atom in l_hydrophobic:
+                l_coords = l_atom['coords']
+                
+                # Calculate distance
+                distance = np.linalg.norm(p_coords - l_coords)
+                
+                # Skip if beyond cutoff
+                if distance > self.hydrophobic_cutoff:
+                    continue
+                
+                # Linear hydrophobic interaction term with smoother transition
+                if distance < 0.5:  # Avoid unrealistic close contacts
+                    contact_score = 0.0
+                else:
+                    # Stronger interaction for closer contact with smoothing
+                    direct_factor = (self.hydrophobic_cutoff - distance) / self.hydrophobic_cutoff
+                    # Apply sigmoidal scaling for smoother transition
+                    contact_score = direct_factor / (1.0 + np.exp(-(direct_factor*10 - 5)))
+                
+                hydrophobic_score -= contact_score  # Negative since it's favorable
+        
+        return hydrophobic_score
+    
+    def _calculate_entropy(self, ligand):
+        """
+        Estimate entropy penalty based on ligand flexibility using physics-based approach.
+        """
+        # Detailed entropy term based on rotatable bonds and molecule size
+        if hasattr(ligand, 'rotatable_bonds'):
+            n_rotatable = len(ligand.rotatable_bonds)
+            # Scale based on number of atoms (larger molecules have more internal modes)
+            n_atoms = len(ligand.atoms)
+            # Physics-based relationship between conformational entropy and rotatable bonds
+            entropy_penalty = 0.5 * n_rotatable * (1.0 + 0.05 * n_atoms)
+        else:
+            # Rough estimate based on number of atoms if rotatable bonds not defined
+            n_atoms = len(ligand.atoms)
+            entropy_penalty = 0.1 * n_atoms
+        
+        return entropy_penalty
+
+
+class VdwScoringFunction(ScoringFunction):
+    """Simple van der Waals scoring function using physics-based approach."""
+    
+    def score(self, protein, ligand):
+        """Calculate physics-based van der Waals interaction score."""
+        # If active site is defined, only consider those atoms
+        if protein.active_site and 'atoms' in protein.active_site:
+            protein_atoms = protein.active_site['atoms']
+        else:
+            protein_atoms = protein.atoms
+        
+        # Use the physics-based VDW calculation
+        vdw_score = self._calculate_vdw_physics(protein_atoms, ligand.atoms)
+        
+        return vdw_score
+
+
+class HBondScoringFunction(ScoringFunction):
+    """Hydrogen bond scoring function using physics-based approach."""
+    
+    def score(self, protein, ligand):
+        """Calculate physics-based hydrogen bond score."""
+        # Get protein atoms
+        if protein.active_site and 'atoms' in protein.active_site:
+            protein_atoms = protein.active_site['atoms']
+        else:
+            protein_atoms = protein.atoms
+        
+        # Use the physics-based H-bond calculation
+        hbond_score = self._calculate_hbond_physics(protein_atoms, ligand.atoms, protein, ligand)
+        
+        return hbond_score
+
+
+class CompositeScoringFunction(ScoringFunction):
+    """Composite scoring function using physics-based approaches."""
+    
+    def __init__(self):
+        super().__init__()
+        
+        # Calibrated weights
+        self.weights = {
+            'vdw': 1.0,
+            'hbond': 2.0,
+            'clash': 10.0
+        }
+    
+    def score(self, protein, ligand):
+        """Calculate composite score using physics-based methods."""
+        # Get active site atoms
+        if protein.active_site and 'atoms' in protein.active_site:
+            protein_atoms = protein.active_site['atoms']
+        else:
+            protein_atoms = protein.atoms
+        
+        # Calculate individual terms using physics-based methods
+        vdw_score = self._calculate_vdw_physics(protein_atoms, ligand.atoms)
+        hbond_score = self._calculate_hbond_physics(protein_atoms, ligand.atoms, protein, ligand)
+        clash_score = self._calculate_clashes_physics(protein_atoms, ligand.atoms)
+        
+        # Combine scores
+        total_score = (
+            self.weights['vdw'] * vdw_score +
+            self.weights['hbond'] * hbond_score +
+            self.weights['clash'] * clash_score
+        )
+        
+        return total_score
+    
+    def _calculate_clashes_physics(self, protein_atoms, ligand_atoms):
+        """Calculate severe steric clashes using physics-based approach."""
+        clash_score = 0.0
+        
+        for p_atom in protein_atoms:
+            p_type = self._get_atom_type(p_atom)
+            p_coords = p_atom['coords']
+            p_radius = self.vdw_params.get(p_type, self.vdw_params['C'])['r_eq'] / 2.0
+            
+            for l_atom in ligand_atoms:
+                l_type = self._get_atom_type(l_atom)
+                l_coords = l_atom['coords']
+                l_radius = self.vdw_params.get(l_type, self.vdw_params['C'])['r_eq'] / 2.0
+                
+                # Calculate distance
+                distance = np.linalg.norm(p_coords - l_coords)
+                
+                # Calculate minimum allowed distance with physics-based parameters
+                min_allowed = (p_radius + l_radius) * 0.7  # Allow some overlap
+                
+                # Penalize severe clashes with smoother transition
+                if distance < min_allowed:
+                    # Use exponential repulsion for more realistic physics
+                    clash_factor = np.exp((min_allowed - distance) / min_allowed) - 1.0
+                    clash_score += clash_factor ** 2  # Quadratic penalty
+        
+        return clash_score
+
+
+class EnhancedScoringFunction(CompositeScoringFunction):
+    """
+    Enhanced scoring function with all physics-based interaction terms.
+    """
+    
+    def __init__(self):
+        super().__init__()
+        
+        # Improved physics-based calibrated weights for better balance
+        self.weights = {
+            'vdw': 0.3,           # Increased from 0.1662
+            'hbond': 0.2,         # Increased from 0.1209
+            'elec': 0.2,          # Increased from 0.1406
+            'desolv': 0.05,       # Decreased from 0.1322 to reduce domination
+            'hydrophobic': 0.2,   # Increased from 0.1418  
+            'clash': 1.0,         # Kept the same
+            'entropy': 0.25       # Slightly decreased from 0.2983
+        }
+    
+    def score(self, protein, ligand):
+        """Calculate full physics-based composite score."""
+        # Get active site atoms
+        if protein.active_site and 'atoms' in protein.active_site:
+            protein_atoms = protein.active_site['atoms']
+        else:
+            protein_atoms = protein.atoms
+        
+        # Calculate all energy terms using improved physics-based methods
+        vdw_score = self._calculate_vdw_physics(protein_atoms, ligand.atoms)
+        hbond_score = self._calculate_hbond_physics(protein_atoms, ligand.atoms, protein, ligand)
+        elec_score = self._calculate_electrostatics_physics(protein_atoms, ligand.atoms)
+        desolv_score = self._calculate_desolvation_physics(protein_atoms, ligand.atoms)
+        hydrophobic_score = self._calculate_hydrophobic_physics(protein_atoms, ligand.atoms)
+        clash_score = self._calculate_clashes_physics(protein_atoms, ligand.atoms)
+        entropy_score = self._calculate_entropy(ligand)
+        
+        # Combine scores with improved physics-based weights
+        total_score = (
+            self.weights['vdw'] * vdw_score +
+            self.weights['hbond'] * hbond_score +
+            self.weights['elec'] * elec_score +
+            self.weights['desolv'] * desolv_score +
+            self.weights['hydrophobic'] * hydrophobic_score +
+            self.weights['clash'] * clash_score +
+            self.weights['entropy'] * entropy_score
+        )
+        
+        return total_score
+
+
+class TetheredScoringFunction:
+    """
+    A scoring function wrapper that adds a penalty term based on RMSD from a reference position.
+    Uses physics-based scoring for the base calculation.
+    """
+    
+    def __init__(self, base_scoring_function, reference_ligand, weight=10.0, max_penalty=100.0):
+        self.base_scoring_function = base_scoring_function
+        self.reference_coordinates = reference_ligand.xyz.copy()
+        self.weight = weight
+        self.max_penalty = max_penalty
+        
+    def score(self, protein, ligand):
+        # Get the base score using physics-based methods
+        base_score = self.base_scoring_function.score(protein, ligand)
+        
+        # Calculate RMSD from reference
+        rmsd = self._calculate_rmsd(ligand.xyz)
+        
+        # Apply RMSD penalty, capped at max_penalty
+        rmsd_penalty = min(self.weight * rmsd, self.max_penalty)
+        
+        # Return combined score
+        return base_score + rmsd_penalty
+    
+    def _calculate_rmsd(self, coordinates):
+        # Ensure same number of atoms
+        if len(coordinates) != len(self.reference_coordinates):
+            raise ValueError(f"Coordinate mismatch: reference has {len(self.reference_coordinates)} atoms, but current pose has {len(coordinates)} atoms")
+        
+        # Calculate squared differences
+        squared_diff = np.sum((coordinates - self.reference_coordinates) ** 2, axis=1)
+        
+        # Return RMSD
+        return np.sqrt(np.mean(squared_diff))
+    
+    # Forward methods to base scoring function
     def __getattr__(self, name):
         return getattr(self.base_scoring_function, name)
