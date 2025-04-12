@@ -576,13 +576,13 @@ class MLGuidedSearch(DockingSearch):
     """
     
     def __init__(self, scoring_function, max_iterations=100, 
-                 surrogate_model_type='rf', exploitation_factor=0.8, output_dir=None):
-        super().__init__(scoring_function, max_iterations, output_dir)
+                 surrogate_model_type='rf', exploitation_factor=0.8):
+        super().__init__(scoring_function, max_iterations)
         self.surrogate_model_type = surrogate_model_type
         self.exploitation_factor = exploitation_factor
         self.ml_model = None
         self.feature_scaler = None
-        self.output_dir = output_dir
+        
     def _extract_features(self, protein, pose):
         """
         Extract features from a protein-ligand pose for ML prediction.
