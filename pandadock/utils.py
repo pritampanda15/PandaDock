@@ -8,6 +8,7 @@ import json
 import logging
 from pathlib import Path
 from datetime import datetime
+import numpy as np
 
 def setup_logging(output_dir=None, log_name="pandadock", log_level=logging.INFO):
     """
