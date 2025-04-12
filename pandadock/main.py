@@ -5,6 +5,19 @@ Main entry script for PandaDock with GPU/CPU hardware acceleration.
 import argparse
 import os
 import time
+import sys
+import json
+import numpy as np
+from datetime import datetime
+from pathlib import Path
+import argparse
+import shutil
+import copy
+import matplotlib.pyplot as plt
+import requests
+import pkg_resources
+from packaging import version
+import logging
 import json
 from datetime import datetime
 from pathlib import Path
@@ -16,7 +29,6 @@ from .search import RandomSearch, GeneticAlgorithm
 from .utils import save_docking_results
 from .preparation import prepare_protein, prepare_ligand
 from .reporting import DockingReporter
-import matplotlib
 import matplotlib.pyplot as plt
 from .utils import setup_logging
 from .validation import validate_against_reference
@@ -30,11 +42,13 @@ from .main_integration import (
     get_algorithm_type_from_args,
     get_algorithm_kwargs_from_args
 )
-from .analysis import (PoseClusterer, 
-                        BindingModeClassifier, EnergyDecomposition,
-                        DockingReportGenerator, InteractionFingerprinter)
 
-import logging
+from . import __version__
+
+__all__ = ['__version__', 'add_hardware_options', 'configure_hardware', 'setup_hardware_acceleration', 
+           'create_optimized_scoring_function', 'create_optimized_search_algorithm', 
+           'get_scoring_type_from_args', 'get_algorithm_type_from_args', 'get_algorithm_kwargs_from_args']
+
 
 # Configure logging globally
 logging.basicConfig(
@@ -960,7 +974,7 @@ def main():
             
             # Only perform analysis if we have results
             if all_results:
-                from .analysis import (PoseClusterer, InteractionFingerprinter as InteractionFingerprinter, 
+                from .analysis import (PoseClusterer, InteractionFingerprinter, 
                                     BindingModeClassifier, EnergyDecomposition,
                                     DockingReportGenerator)
                 
@@ -985,11 +999,19 @@ def main():
                     for i, cluster in enumerate(clustering_results['clusters']):
                         logging.info(f"Cluster {i+1}: {len(cluster['members'])} poses, "
                             f"best score: {cluster['best_score']:.2f}")
-                    
+                    logging.info("Clustering complete.")  
+                
+                # Analysis of top poses
+                if all_results:            
+                    # Energy decomposition
+                    if args.energy_decomposition:
+                        logging.info("Analyzing energy decomposition...")
+                        energy_decomposition = EnergyDecomposition(scoring_function)
+                        energy_decomposition.analyze_energy_decomposition(poses, scores)
                     # Interaction analysis
                     if args.analyze_interactions:
                         logging.info("Analyzing protein-ligand interactions...")
-                        fingerprinter = InteractionFingerprinter.InteractionFingerprinter(
+                        fingerprinter = InteractionFingerprinter(
                             interaction_types=args.interaction_types
                         )
                         # Analyze top poses (up to 5)
@@ -999,7 +1021,43 @@ def main():
                             key_interactions = fingerprinter.analyze_key_interactions(protein, pose)
                             for interaction in key_interactions:
                                 logging.info(f"  {interaction}")
-                    
+                    # Interaction analysis report
+                    if args.analyze_interactions:
+                        logging.info("Analyzing protein-ligand interactions...")
+                        
+                        # Create a file for interaction results
+                        interaction_file = os.path.join(output_dir, "interaction_analysis.txt")
+                        
+                        with open(interaction_file, 'w') as f:
+                            f.write("========================================\n")
+                            f.write(" Protein-Ligand Interaction Analysis\n")
+                            f.write("========================================\n\n")
+                            
+                            fingerprinter = InteractionFingerprinter(
+                                interaction_types=args.interaction_types
+                            )
+                            
+                            # Analyze top poses (up to 5)
+                            poses_to_analyze = min(5, len(all_results))
+                            
+                            f.write(f"Analyzing top {poses_to_analyze} poses:\n\n")
+                            
+                            for i, (pose, score) in enumerate(all_results[:poses_to_analyze]):
+                                f.write(f"Pose {i+1} (Score: {score:.2f})\n")
+                                f.write("----------------------------\n")
+                                
+                                key_interactions = fingerprinter.analyze_key_interactions(protein, pose)
+                                for interaction in key_interactions:
+                                    f.write(f"  {interaction}\n")
+                                
+                                f.write("\n")  # Add space between poses
+                                
+                                # Also log to console
+                                logging.info(f"\nInteractions for pose {i+1} (score: {score:.2f}):")
+                                for interaction in key_interactions:
+                                    logging.info(f"  {interaction}")
+                        
+                        logging.info(f"\nInteraction analysis saved to: {interaction_file}")
                     # Binding mode classification
                     if args.classify_modes or args.discover_modes:
                         logging.info("Analyzing binding modes...")
