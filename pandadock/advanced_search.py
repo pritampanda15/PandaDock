@@ -21,7 +21,7 @@ class GradientBasedSearch(DockingSearch):
     """
     
     def __init__(self, scoring_function, max_iterations=100, 
-                 gradient_step=0.1, convergence_threshold=0.01):
+                 gradient_step=0.1, convergence_threshold=0.01, output_dir=None):
         """
         Initialize the gradient-based search algorithm.
 
@@ -37,7 +37,7 @@ class GradientBasedSearch(DockingSearch):
             Threshold to determine convergence (default is 0.01).
         """
 
-        super().__init__(scoring_function, max_iterations)
+        super().__init__(scoring_function, max_iterations, output_dir)
         self.gradient_step = gradient_step
         self.convergence_threshold = convergence_threshold
         
@@ -333,8 +333,8 @@ class ReplicaExchangeDocking(DockingSearch):
     """
     
     def __init__(self, scoring_function, n_replicas=4, 
-                 temperatures=None, exchange_steps=10, steps_per_exchange=100):
-        super().__init__(scoring_function, steps_per_exchange * exchange_steps)
+                 temperatures=None, exchange_steps=10, steps_per_exchange=100, output_dir=None):
+        super().__init__(scoring_function, steps_per_exchange * exchange_steps, output_dir)
         self.n_replicas = n_replicas
         
         # Set up temperatures if not provided
@@ -575,8 +575,8 @@ class MLGuidedSearch(DockingSearch):
     """
     
     def __init__(self, scoring_function, max_iterations=100, 
-                 surrogate_model_type='rf', exploitation_factor=0.8):
-        super().__init__(scoring_function, max_iterations)
+                 surrogate_model_type='rf', exploitation_factor=0.8, output_dir=None):
+        super().__init__(scoring_function, max_iterations, output_dir)
         self.surrogate_model_type = surrogate_model_type
         self.exploitation_factor = exploitation_factor
         self.ml_model = None
@@ -994,8 +994,8 @@ class FragmentBasedDocking(DockingSearch):
     """
     
     def __init__(self, scoring_function, fragment_min_size=5, 
-                 growth_steps=3, poses_per_fragment=10):
-        super().__init__(scoring_function, poses_per_fragment * growth_steps)
+                 growth_steps=3, poses_per_fragment=10, output_dir=None):
+        super().__init__(scoring_function, poses_per_fragment * growth_steps, output_dir)
         self.fragment_min_size = fragment_min_size
         self.growth_steps = growth_steps
         self.poses_per_fragment = poses_per_fragment
@@ -1536,7 +1536,7 @@ class HybridSearch(DockingSearch):
     
     def __init__(self, scoring_function, ga_iterations=50, lbfgs_iterations=50, 
                  population_size=100, mutation_rate=0.2, crossover_rate=0.8,
-                 top_n_for_local=10):
+                 top_n_for_local=10, output_dir=None):
         """
         Initialize hybrid search algorithm.
         
@@ -1557,7 +1557,7 @@ class HybridSearch(DockingSearch):
         top_n_for_local : int
             Number of top GA solutions to optimize with L-BFGS
         """
-        super().__init__(scoring_function, ga_iterations + lbfgs_iterations)
+        super().__init__(scoring_function, ga_iterations + lbfgs_iterations, output_dir)
         self.ga_iterations = ga_iterations
         self.lbfgs_iterations = lbfgs_iterations
         self.population_size = population_size
