@@ -40,6 +40,7 @@ class GradientBasedSearch(DockingSearch):
         super().__init__(scoring_function, max_iterations, output_dir)
         self.gradient_step = gradient_step
         self.convergence_threshold = convergence_threshold
+        self.output_dir = output_dir             
         
     def _calculate_gradient(self, protein, pose, delta=0.1):
         """
@@ -336,7 +337,7 @@ class ReplicaExchangeDocking(DockingSearch):
                  temperatures=None, exchange_steps=10, steps_per_exchange=100, output_dir=None):
         super().__init__(scoring_function, steps_per_exchange * exchange_steps, output_dir)
         self.n_replicas = n_replicas
-        
+        self.output_dir = output_dir
         # Set up temperatures if not provided
         if temperatures is None:
             # Geometric progression of temperatures
@@ -581,7 +582,7 @@ class MLGuidedSearch(DockingSearch):
         self.exploitation_factor = exploitation_factor
         self.ml_model = None
         self.feature_scaler = None
-    
+        self.output_dir = output_dir
     def _extract_features(self, protein, pose):
         """
         Extract features from a protein-ligand pose for ML prediction.
@@ -999,7 +1000,7 @@ class FragmentBasedDocking(DockingSearch):
         self.fragment_min_size = fragment_min_size
         self.growth_steps = growth_steps
         self.poses_per_fragment = poses_per_fragment
-    
+        self.output_dir = output_dir
     def _decompose_ligand(self, ligand):
         """
         Decompose ligand into fragments for incremental docking.
@@ -1564,7 +1565,7 @@ class HybridSearch(DockingSearch):
         self.mutation_rate = mutation_rate
         self.crossover_rate = crossover_rate
         self.top_n_for_local = top_n_for_local
-        
+        self.output_dir = output_dir
         # Import necessary modules
         from .search import GeneticAlgorithm
         self.ga = GeneticAlgorithm(
