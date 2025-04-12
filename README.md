@@ -6,7 +6,7 @@ PandaDock is a Python-based molecular docking tool that combines traditional doc
 **Note to users: Please always have a look into the GitHub repo as PandaDock is continiously developed based on the user requirements. And please always update to the latest version for better results and performance. 
 
 
-![PandaDock Logo](logo/pandadock-logo.svg)
+![PandaDock Logo](https://github.com/pritampanda15/PandaDock/blob/main/logo/pandadock-logo.svg)
 
 ## Features
 
