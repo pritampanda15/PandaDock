@@ -1,23 +1,47 @@
-# utils.py
-import numpy as np
-import matplotlib.pyplot as plt
-from pathlib import Path
+"""
+Utility functions for PandaDock.
+This module provides logging, file management, and other utility functions.
+"""
+
 import os
+import json
 import logging
+from pathlib import Path
+from datetime import datetime
 
-
-def setup_logging(output_dir=None):
-    """Configure logging system for PandaDock."""
-    logger = logging.getLogger("pandadock")
+def setup_logging(output_dir=None, log_name="pandadock", log_level=logging.INFO):
+    """
+    Configure logging system for PandaDock.
+    
+    Parameters:
+    -----------
+    output_dir : str or Path, optional
+        Output directory where log files will be saved
+    log_name : str, optional
+        Name for the logger and log file (default: 'pandadock')
+    log_level : int, optional
+        Logging level (default: logging.INFO)
+    
+    Returns:
+    --------
+    logging.Logger
+        Configured logger object
+    """
+    # Get or create logger
+    logger = logging.getLogger(log_name)
     
     # Only configure if not already configured
     if not logger.handlers:
-        # Basic configuration
-        logger.setLevel(logging.INFO)
+        # Set level
+        logger.setLevel(log_level)
+        
+        # Create formatters
+        file_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+        console_formatter = logging.Formatter("%(levelname)s - %(message)s")
         
         # Add console handler
         console = logging.StreamHandler()
-        console.setFormatter(logging.Formatter("%(levelname)s - %(message)s"))
+        console.setFormatter(console_formatter)
         logger.addHandler(console)
         
         # Add file handler if output directory is provided
@@ -25,11 +49,241 @@ def setup_logging(output_dir=None):
             logs_dir = Path(output_dir) / "logs"
             os.makedirs(logs_dir, exist_ok=True)
             
-            file_handler = logging.FileHandler(logs_dir / "pandadock.log")
-            file_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+            file_handler = logging.FileHandler(logs_dir / f"{log_name}.log")
+            file_handler.setFormatter(file_formatter)
             logger.addHandler(file_handler)
+            
+            # Log file location
+            logger.info(f"Log file created at: {logs_dir / f'{log_name}.log'}")
     
     return logger
+
+def create_initial_files(output_dir, args):
+    """
+    Create initial files to confirm program is running.
+    
+    Parameters:
+    -----------
+    output_dir : str or Path
+        Output directory for docking results
+    args : argparse.Namespace
+        Command-line arguments
+    """
+    # Create directory structure
+    output_dir = Path(output_dir)
+    for subdir in ["logs", "intermediate", "poses"]:
+        os.makedirs(output_dir / subdir, exist_ok=True)
+    
+    # Get logger
+    logger = setup_logging(output_dir)
+    logger.info(f"Creating initial files in {output_dir}")
+    
+    # Create a status file
+    status = {
+        "start_time": datetime.now().isoformat(),
+        "protein": str(args.protein),
+        "ligand": str(args.ligand),
+        "algorithm": args.algorithm,
+        "status": "running",
+        "progress": 0.0,
+        "total_iterations": getattr(args, 'iterations', 1000),
+        "current_iteration": 0,
+        "top_score": None
+    }
+    
+    status_path = output_dir / "status.json"
+    with open(status_path, 'w') as f:
+        json.dump(status, f, indent=2)
+    logger.info(f"Status file created at {status_path}")
+    
+    # Create a README file
+    readme_path = output_dir / "README.txt"
+    with open(readme_path, 'w') as f:
+        f.write("=" * 50 + "\n")
+        f.write("PandaDock Molecular Docking\n")
+        f.write("=" * 50 + "\n\n")
+        f.write(f"Run started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        f.write("Input Files:\n")
+        f.write(f"  Protein: {args.protein}\n")
+        f.write(f"  Ligand: {args.ligand}\n\n")
+        f.write("Parameters:\n")
+        f.write(f"  Algorithm: {args.algorithm}\n")
+        
+        # Add common parameters
+        if hasattr(args, 'iterations'):
+            f.write(f"  Iterations: {args.iterations}\n")
+        if hasattr(args, 'population_size'):
+            f.write(f"  Population Size: {args.population_size}\n")
+        if hasattr(args, 'physics_based') and args.physics_based:
+            f.write(f"  Scoring: Physics-based\n")
+        elif hasattr(args, 'enhanced_scoring') and args.enhanced_scoring:
+            f.write(f"  Scoring: Enhanced\n")
+        else:
+            f.write(f"  Scoring: Standard\n")
+            
+        # Add hardware info
+        f.write("\nHardware:\n")
+        if hasattr(args, 'use_gpu') and args.use_gpu:
+            f.write(f"  Using GPU acceleration\n")
+        if hasattr(args, 'cpu_workers'):
+            f.write(f"  CPU Workers: {args.cpu_workers}\n")
+        
+    logger.info(f"README file created at {readme_path}")
+
+def save_intermediate_result(pose, score, iteration, output_dir, total_iterations=None):
+    """
+    Save an intermediate result during docking.
+    
+    Parameters:
+    -----------
+    pose : Ligand
+        Ligand pose to save
+    score : float
+        Docking score
+    iteration : int
+        Current iteration number
+    output_dir : str or Path
+        Output directory for docking results
+    total_iterations : int, optional
+        Total number of iterations (for progress calculation)
+    """
+    output_dir = Path(output_dir)
+    intermediate_dir = output_dir / "intermediate"
+    os.makedirs(intermediate_dir, exist_ok=True)
+    
+    # Save only every 10th pose or best poses to avoid too many files
+    is_milestone = (iteration % 10 == 0)
+    
+    # Get logger
+    logger = logging.getLogger("pandadock")
+    
+    # Update status file
+    status_path = output_dir / "status.json"
+    try:
+        with open(status_path, 'r') as f:
+            status = json.load(f)
+        
+        # Update basic info
+        status["current_iteration"] = iteration
+        status["last_update"] = datetime.now().isoformat()
+        
+        # Calculate progress
+        if total_iterations is None:
+            total_iterations = status.get("total_iterations", 100)
+        status["progress"] = min(1.0, iteration / total_iterations)
+        
+        # Track best score
+        if status["top_score"] is None or score < status["top_score"]:
+            status["top_score"] = score
+            is_milestone = True  # Always save best poses
+            
+        # Update status file
+        with open(status_path, 'w') as f:
+            json.dump(status, f, indent=2)
+            
+    except Exception as e:
+        logger.warning(f"Could not update status file: {e}")
+    
+    # Save PDB file for milestone or best poses
+    if is_milestone:
+        pdb_path = intermediate_dir / f"pose_iter_{iteration}_score_{score:.2f}.pdb"
+        try:
+            with open(pdb_path, 'w') as f:
+                f.write(f"REMARK   1 Iteration: {iteration}, Score: {score:.4f}\n")
+                
+                # Write atoms
+                for j, atom in enumerate(pose.atoms):
+                    coords = atom['coords']
+                    symbol = atom.get('symbol', 'C')
+                    
+                    # PDB ATOM format
+                    f.write(f"HETATM{j+1:5d} {symbol:<4}{'':<1}{'LIG':<3} {'A':1}{1:4d}    "
+                           f"{coords[0]:8.3f}{coords[1]:8.3f}{coords[2]:8.3f}"
+                           f"{1.0:6.2f}{0.0:6.2f}          {symbol:>2}\n")
+                
+            logger.debug(f"Saved intermediate pose at iteration {iteration} to {pdb_path}")
+        except Exception as e:
+            logger.warning(f"Could not save intermediate pose: {e}")
+
+def update_status(output_dir, **kwargs):
+    """
+    Update the status.json file with new information.
+    
+    Parameters:
+    -----------
+    output_dir : str or Path
+        Output directory for docking results
+    **kwargs : dict
+        Key-value pairs to update in the status file
+    """
+    output_dir = Path(output_dir)
+    status_path = output_dir / "status.json"
+    
+    # Get logger
+    logger = logging.getLogger("pandadock")
+    
+    try:
+        # Read current status
+        if status_path.exists():
+            with open(status_path, 'r') as f:
+                status = json.load(f)
+        else:
+            status = {"start_time": datetime.now().isoformat()}
+        
+        # Update with new values
+        status.update(kwargs)
+        status["last_update"] = datetime.now().isoformat()
+        
+        # Write updated status
+        with open(status_path, 'w') as f:
+            json.dump(status, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Could not update status file: {e}")
+
+def extract_base_filename(file_path):
+    """
+    Extract base filename without extension.
+    
+    Parameters:
+    -----------
+    file_path : str
+        Path to file
+    
+    Returns:
+    --------
+    str
+        Base filename without extension
+    """
+    return Path(file_path).stem
+
+def create_descriptive_output_dir(args):
+    """
+    Create a more descriptive output directory name based on inputs.
+    
+    Parameters:
+    -----------
+    args : argparse.Namespace
+        Command-line arguments
+    
+    Returns:
+    --------
+    str
+        Descriptive output directory name
+    """
+    # Extract base filenames
+    protein_base = extract_base_filename(args.protein)
+    ligand_base = extract_base_filename(args.ligand)
+    
+    # Get algorithm name
+    algo_name = args.algorithm
+    
+    # Create readable timestamp
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    
+    # Build output directory name
+    output_dir = f"{args.output}_{protein_base}_{ligand_base}_{algo_name}_{timestamp}"
+    
+    return output_dir
 
 def save_docking_results(results, output_dir='docking_results', flexible_residues=None):
     """

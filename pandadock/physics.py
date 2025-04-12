@@ -913,9 +913,30 @@ class MonteCarloSampling:
                 accepted += 1
                 
                 # Update best pose if needed
-                if current_score < best_score:
-                    best_pose = copy.deepcopy(current_pose)
-                    best_score = current_score
+                # Insert after accepting a pose or updating the best pose:
+            if current_score < best_score:
+                best_pose = copy.deepcopy(current_pose)
+                best_score = current_score
+                
+                # Add the progress tracking code:
+                if self.output_dir:
+                    from .utils import save_intermediate_result, update_status
+                    
+                    save_intermediate_result(
+                        best_pose,
+                        best_score,
+                        step + 1,  # Current step
+                        self.output_dir,
+                        self.n_steps
+                    )
+                    
+                    update_status(
+                        self.output_dir,
+                        current_step=step + 1,
+                        temperature=temperature,
+                        best_score=best_score,
+                        acceptance_ratio=accepted/(step+1)
+                    )
                 
                 # Add to collection (limit to 100 poses)
                 if len(collected_poses) < 100:

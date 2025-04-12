@@ -19,11 +19,15 @@ class DockingSearch:
         max_iterations : int
             Maximum number of iterations
         """
+        from .utils import setup_logging
+    
         self.scoring_function = scoring_function
         self.max_iterations = max_iterations
         self.output_dir = output_dir
-        logger = setup_logging(output_dir)
-        self.logger = logger
+    
+    # Set up logger
+        self.logger = setup_logging(output_dir)
+
     
     def search(self, protein, ligand):
         """
@@ -1276,7 +1280,32 @@ class RandomSearch(DockingSearch):
             score = self.scoring_function.score(protein, pose)
             
             # Store pose
+            # After storing a pose in RandomSearch.search:
             best_poses.append((pose, score))
+
+            # Insert the progress tracking code if this is a better score:
+            if self.output_dir and (len(best_poses) == 1 or score < min(p[1] for p in best_poses[:-1])):
+                from .utils import save_intermediate_result, update_status
+                
+                # Save current best pose if it's better than previous ones
+                best_score = min(p[1] for p in best_poses)
+                best_pose = next(p[0] for p in best_poses if p[1] == best_score)
+                
+                save_intermediate_result(
+                    best_pose,
+                    best_score,
+                    i + 1,  # Current iteration
+                    self.output_dir,
+                    self.max_iterations
+                )
+                
+                # Update status
+                update_status(
+                    self.output_dir,
+                    current_iteration=i + 1,
+                    best_score=best_score,
+                    total_poses=len(best_poses)
+                )
             
             if (i + 1) % 100 == 0:
                 print(f"Completed {i + 1} iterations")
@@ -1555,8 +1584,30 @@ class GeneticAlgorithm(DockingSearch):
             population = combined[:self.population_size]
             
             # Update best solution
+            # After this line in GeneticAlgorithm.search:
             if population[0][1] < best_poses[-1][1]:
                 best_poses.append(population[0])
+
+            # Insert the progress tracking code:
+            if self.output_dir:
+                from .utils import save_intermediate_result, update_status
+                
+                # Save current best pose
+                save_intermediate_result(
+                    population[0][0],  # Current best pose
+                    population[0][1],  # Current best score
+                    generation + 1,    # Current iteration
+                    self.output_dir, 
+                    self.max_iterations
+                )
+                
+                # Update status
+                update_status(
+                    self.output_dir,
+                    current_iteration=generation + 1,
+                    best_score=population[0][1],
+                    generation=generation + 1
+                )
             
             print(f"Generation {generation + 1}, best score: {population[0][1]}")
             

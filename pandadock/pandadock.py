@@ -28,7 +28,7 @@ class PANDADOCKAlgorithm(DockingSearch):
                  high_temp=1000, target_temp=300, 
                  num_conformers=10, num_orientations=10,
                  md_steps=1000, minimize_steps=200, 
-                 use_grid=True):
+                 use_grid=True, output_dir=None):
         """
         Initialize PANDADOCK algorithm.
         
@@ -53,7 +53,7 @@ class PANDADOCKAlgorithm(DockingSearch):
         use_grid : bool
             Whether to use grid-based energy calculations
         """
-        super().__init__(scoring_function, max_iterations)
+        super().__init__(scoring_function, max_iterations, output_dir)
         
         self.high_temp = high_temp
         self.target_temp = target_temp
@@ -275,7 +275,28 @@ class PANDADOCKAlgorithm(DockingSearch):
         for step in range(self.md_steps):
             # Get current temperature
             temp = temp_schedule[step]
-            
+            # Find the main loop where progress is measured and add:
+            if self.output_dir:
+                from .utils import save_intermediate_result, update_status
+                
+                # For MD steps, you might want to save periodically rather than every step
+                if step % 10 == 0:  # Save every 10 steps
+                    save_intermediate_result(
+                        current_pose,
+                        current_score,
+                        step,
+                        self.output_dir,
+                        self.md_steps
+                    )
+                    # Update status for progress tracking
+                    update_status(
+                        self.output_dir,
+                        current_md_step=step,
+                        temperature=temp,
+                        current_score=current_score,
+                        progress=step/self.md_steps
+                    )
+
             # Create a candidate pose with small random movement
             candidate = copy.deepcopy(current_pose)
             
