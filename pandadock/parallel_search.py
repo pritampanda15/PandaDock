@@ -25,7 +25,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
     
     def __init__(self, scoring_function, max_iterations=100, population_size=50, 
                  mutation_rate=0.2, crossover_rate=0.8, tournament_size=3, 
-                 n_processes=None, batch_size=None, process_pool=None):
+                 n_processes=None, batch_size=None, process_pool=None, output_dir=None):
         """
         Initialize the parallel genetic algorithm.
         
@@ -53,7 +53,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
             An existing process pool to use. If None, creates a new one.
         """
         super().__init__(scoring_function, max_iterations, population_size, mutation_rate)
-        
+        self.output_dir = output_dir
         self.crossover_rate = crossover_rate
         self.tournament_size = tournament_size
         
@@ -395,7 +395,7 @@ class ParallelRandomSearch(RandomSearch):
     """
     
     def __init__(self, scoring_function, max_iterations=1000, n_processes=None, 
-                 batch_size=None, process_pool=None):
+                 batch_size=None, process_pool=None,output_dir=None):
         """
         Initialize the parallel random search.
         
@@ -415,7 +415,7 @@ class ParallelRandomSearch(RandomSearch):
             An existing process pool to use. If None, creates a new one.
         """
         super().__init__(scoring_function, max_iterations)
-        
+        self.output_dir = output_dir
         # Set up parallelization
         if n_processes is None:
             self.n_processes = mp.cpu_count()
