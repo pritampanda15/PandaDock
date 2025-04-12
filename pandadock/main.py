@@ -960,7 +960,7 @@ def main():
             
             # Only perform analysis if we have results
             if all_results:
-                from .analysis import (PoseClusterer, InteractionFingerprinter, 
+                from .analysis import (PoseClusterer, InteractionFingerprinter as InteractionFingerprinter, 
                                     BindingModeClassifier, EnergyDecomposition,
                                     DockingReportGenerator)
                 
