@@ -5,11 +5,11 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="pandadock",
-    version="1.3.4",
+    version="1.3.5",
     author="Dr. Pritam Kumar Panda",
     author_email="pritam@stanford.edu",
     description="A GPU-accelerated molecular docking tool for computational drug discovery",
-    long_description=long_description,
+    long_description="file:README.md",
     long_description_content_type="text/markdown",
     project_urls={
         "Bug Tracker": "https://github.com/pritampanda15/PandaDock/issues",

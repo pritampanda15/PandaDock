@@ -18,4 +18,4 @@ from .validation import validate_docking, calculate_ensemble_rmsd
 # Import batch screening module
 from . import batch_screening
 
-__version__ = '1.3.4'
+__version__ = '1.3.5'
