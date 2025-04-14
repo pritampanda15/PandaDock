@@ -6,6 +6,7 @@ replica exchange methods, and machine learning guided approaches.
 """
 
 import numpy as np
+import os
 import copy
 import time
 import random
@@ -142,6 +143,12 @@ class GradientBasedSearch(DockingSearch):
         print(f"Starting gradient-based search with max {self.max_iterations} iterations")
         start_time = time.time()
         
+        # Set up intermediate results directory if output_dir is specified
+        if self.output_dir:
+            gradient_dir = os.path.join(self.output_dir, "intermediate", "gradient_based")
+            os.makedirs(gradient_dir, exist_ok=True)
+
+
         # Create multiple starting poses to avoid local minima
         n_starting_poses = 10
         starting_poses = []
@@ -195,6 +202,13 @@ class GradientBasedSearch(DockingSearch):
         for i, start_pose in enumerate(starting_poses):
             print(f"Optimizing starting pose {i+1}/{n_starting_poses}")
             
+
+            # Create optimization tracking directory
+            if self.output_dir:
+                opt_dir = os.path.join(gradient_dir, f"pose_{i+1}_optimization")
+                os.makedirs(opt_dir, exist_ok=True)
+
+
             # Get initial pose parameters
             centroid = np.mean(start_pose.xyz, axis=0)
             initial_params = np.zeros(6)  # [tx, ty, tz, rx, ry, rz]
@@ -203,6 +217,55 @@ class GradientBasedSearch(DockingSearch):
             # Make a copy for optimization
             pose = copy.deepcopy(start_pose)
             
+            # Define callback function to track progress
+            iteration_count = [0]  # Using a list to allow modification in nested function
+            
+            def callback(params):
+                # Create a test pose with current parameters
+                test_pose = copy.deepcopy(start_pose)
+                
+                # Extract translation and rotation
+                translation = params[:3] - centroid
+                rotation_vec = params[3:6]
+                
+                # Apply translation
+                test_pose.translate(translation)
+                
+                # Apply rotation if rotation vector is not zero
+                rot_magnitude = np.linalg.norm(rotation_vec)
+                if rot_magnitude > 1e-6:
+                    # Normalize rotation vector
+                    axis = rotation_vec / rot_magnitude
+                    
+                    # Create rotation matrix
+                    rotation = Rotation.from_rotvec(axis * rot_magnitude)
+                    rotation_matrix = rotation.as_matrix()
+                    
+                    # Apply rotation around center of mass
+                    new_centroid = np.mean(test_pose.xyz, axis=0)
+                    test_pose.translate(-new_centroid)
+                    test_pose.rotate(rotation_matrix)
+                    test_pose.translate(new_centroid)
+                
+                # Evaluate score
+                current_score = self.scoring_function.score(protein, test_pose)
+                
+                # Save intermediate pose if output_dir is specified and every few iterations
+                if self.output_dir and (iteration_count[0] % 5 == 0 or iteration_count[0] == 0):
+                    self._save_pose_to_pdb(
+                        test_pose,
+                        os.path.join(opt_dir, f"iter_{iteration_count[0]}_score_{current_score:.2f}.pdb"),
+                        score=current_score,
+                        remark=f"Gradient optimization iteration {iteration_count[0]}"
+                    )
+                
+                # Increment iteration counter
+                iteration_count[0] += 1
+                
+                # Print progress occasionally
+                if iteration_count[0] % 5 == 0:
+                    print(f"  Iteration {iteration_count[0]}, score: {current_score:.4f}")
+
             # Define objective function for L-BFGS-B
             def objective(params):
                 # Create a new pose for evaluation

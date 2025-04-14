@@ -66,17 +66,27 @@ class DockingSearch:
             List of (pose, score) tuples, sorted by score (best first)
         """
         print("\nPerforming enhanced rigid docking...")
-        
-        # Ensure active site is properly defined
+
+        # --- Active site radius enforcement and adjustment ---
         if not protein.active_site:
             if hasattr(args, 'site') and args.site:
-                protein.define_active_site(args.site, args.radius if hasattr(args, 'radius') else 10.0)
-                print(f"Using provided active site center with radius {args.radius if hasattr(args, 'radius') else 10.0}Å")
+                radius = args.radius if hasattr(args, 'radius') else 15.0  # Increased default radius
+                # Enforce minimum radius
+                if radius < 12.0:
+                    print(f"Provided radius {radius}Å is small; increasing to 15.0Å to avoid close contacts")
+                    radius = 15.0
+                protein.define_active_site(args.site, radius)
+                print(f"Using provided active site center with radius {radius}Å")
             elif hasattr(args, 'detect_pockets') and args.detect_pockets:
                 pockets = protein.detect_pockets()
                 if pockets:
                     print(f"Using detected binding pocket as active site")
-                    protein.define_active_site(pockets[0]['center'], pockets[0]['radius'])
+                    # Enforce minimum radius on detected pocket
+                    pocket_radius = pockets[0]['radius']
+                    if pocket_radius < 12.0:
+                        print(f"Detected pocket radius {pocket_radius}Å is small; increasing to 15.0Å")
+                        pocket_radius = 15.0
+                    protein.define_active_site(pockets[0]['center'], pocket_radius)
                 else:
                     print("No pockets detected, using protein center")
                     center = np.mean(protein.xyz, axis=0)
@@ -85,7 +95,7 @@ class DockingSearch:
                 print("WARNING: No active site specified. Defining one based on protein center.")
                 center = np.mean(protein.xyz, axis=0)
                 protein.define_active_site(center, 15.0)
-        
+
         # Create a more focused initial pose generation
         active_site_center = protein.active_site['center']
         active_site_radius = protein.active_site['radius']
@@ -157,7 +167,9 @@ class DockingSearch:
                 perform_local_opt=args.local_opt if hasattr(args, 'local_opt') else False
             )
             
-            # Run GA
+            # Pass protein to GA for flexible residue mutation if needed
+            ga.protein = protein
+            
             ga_results = []
             
             # Create initial population from top random poses
@@ -181,9 +193,7 @@ class DockingSearch:
                 
                 # Evaluate offspring
                 for i, (pose, _) in enumerate(offspring):
-                    # Apply local optimization ONLY IF args.local_opt is TRUE
-                    # The GA now handles this internally via self.perform_local_opt
-                    if ga.perform_local_opt and i < len(offspring) // 4:  # Optimize top 25% if enabled
+                    if ga.perform_local_opt and i < len(offspring) // 4:
                         optimized_pose, optimized_score = self._local_optimization(pose, protein)
                         offspring[i] = (optimized_pose, optimized_score)
                     else: # Otherwise, just score
@@ -245,44 +255,18 @@ class DockingSearch:
 
             # Sort final results
             optimized_results.sort(key=lambda x: x[1])
-            print(f"Enhanced rigid docking completed. Best score: {optimized_results[0][1]:.2f}")
-            return optimized_results # Return the optimized list
-        else:
-            # If local opt not enabled, just sort and return the results from random/GA
-            print("Skipping enhanced local optimization (--local-opt not specified).")
-            all_results.sort(key=lambda x: x[1])
-            print(f"Enhanced rigid docking completed without local optimization. Best score: {all_results[0][1]:.2f}")
-            return all_results
 
-    def _enhanced_local_optimization(self, protein, pose, step_size=0.2, angle_step=0.05, max_steps=50):
-        """
-        Enhanced local optimization with more aggressive sampling.
-        
-        Parameters:
-        -----------
-        protein : Protein
-            Protein object
-        pose : Ligand
-            Ligand pose to optimize
-        step_size : float
-            Translation step size in Angstroms
-        angle_step : float
-            Rotation step size in radians
-        max_steps : int
-            Maximum optimization steps
-        
-        Returns:
-        --------
-        tuple
-            (optimized_pose, optimized_score)
-        """
-        import copy
-        from scipy.spatial.transform import Rotation
-        
-        # Get active site center for constraints
-        if protein.active_site:
-            center = protein.active_site['center']
-            radius = protein.active_site['radius']
+            # --- APPLY GENTLE CLASH RELIEF POST-OPTIMIZATION ---
+            print("Applying gentle clash relief to optimized poses...")
+            relaxed_poses = []
+            for pose, score in optimized_results:
+                relaxed_pose = self._gentle_clash_relief(protein, pose, max_steps=20, max_movement=0.2)
+                relaxed_score = scoring_function.score(protein, relaxed_pose)
+                relaxed_poses.append((relaxed_pose, relaxed_score))
+            relaxed_poses.sort(key=lambda x: x[1])
+            print(f"Post-docking clash relief applied. Best relaxed score: {relaxed_poses[0][1]:.2f}")
+
+            return relaxed_poses
         else:
             center = np.mean(protein.xyz, axis=0)
             radius = 15.0
@@ -472,855 +456,25 @@ class DockingSearch:
             all_results = optimized_results + results[poses_to_optimize_count:]
             all_results.sort(key=lambda x: x[1])
 
-            return all_results
-    
-    def exact_reference_docking(self, protein, ligand, reference_ligand, skip_optimization=False):
-        """
-        Perform docking with exact alignment to a reference ligand pose.
-        With aggressive refinement to improve scoring while maintaining alignment.
-        
-        Parameters:
-        -----------
-        protein : Protein
-            Protein object
-        ligand : Ligand
-            Ligand object to dock
-        reference_ligand : Ligand
-            Reference ligand pose (from crystal structure)
-        skip_optimization : bool
-            Whether to skip the local optimization step
-            
-        Returns:
-        --------
-        list
-            List of (pose, score) tuples, with the reference-aligned pose first
-        """
-        print("\nPerforming exact reference-based docking...")
-        
-        # Create a perfect superimposed pose
-        import copy
-        aligned_pose = copy.deepcopy(ligand)
-        
-        # Step 1: Calculate centroids
-        ref_centroid = np.mean(reference_ligand.xyz, axis=0)
-        ligand_centroid = np.mean(aligned_pose.xyz, axis=0)
-        
-        # Step 2: Translate ligand to origin
-        aligned_pose.translate(-ligand_centroid)
-        
-        # Step 3: Check if atom counts match for the Kabsch algorithm
-        if aligned_pose.xyz.shape[0] == reference_ligand.xyz.shape[0]:
-            # Center reference coordinates
-            ref_coords_centered = reference_ligand.xyz - ref_centroid
-            
-            # Calculate covariance matrix
-            covariance = np.dot(aligned_pose.xyz.T, ref_coords_centered)
-            
-            # SVD decomposition
-            U, S, Vt = np.linalg.svd(covariance)
-            
-            # Calculate rotation matrix
-            rotation_matrix = np.dot(Vt.T, U.T)
-            
-            # Check for reflection case (determinant should be 1)
-            if np.linalg.det(rotation_matrix) < 0:
-                Vt[-1, :] *= -1
-                rotation_matrix = np.dot(Vt.T, U.T)
-            
-            # Apply rotation
-            aligned_pose.rotate(rotation_matrix)
-        else:
-            print("Warning: Atom count mismatch between ligand and reference")
-            print(f"Ligand atoms: {aligned_pose.xyz.shape[0]}, Reference atoms: {reference_ligand.xyz.shape[0]}")
-            print("Using centroid alignment only without rotation")
-        
-        # Step 4: Translate to reference position
-        aligned_pose.translate(ref_centroid)
-        
-        # Store the exact aligned pose before any refinement
-        exact_aligned_pose = copy.deepcopy(aligned_pose)
-        
-        # Score the exact aligned pose with normal scoring function to see baseline
-        baseline_score = self.scoring_function.score(protein, aligned_pose)
-        print(f"Exact reference-aligned pose baseline score: {baseline_score:.2f}")
-        
-        # Skip refinement/optimization if requested
-        if skip_optimization:
-            print("Skipping refinement as requested (--no-local-optimization)")
-            return [(aligned_pose, baseline_score)]
-        
-        # AGGRESSIVE REFINEMENT: Move ligand out slightly and then move it back in slowly
-        print("Applying aggressive refinement to find better scoring pose while preserving alignment...")
-        
-        # Identify the binding pocket center and ligand center
-        if protein.active_site and 'center' in protein.active_site:
-            pocket_center = protein.active_site['center']
-        else:
-            pocket_center = ref_centroid
-        
-        # Try different relaxation approaches and select the best result
-        refined_poses = []
-        
-        # 1. Try aggressive atom-by-atom adjustment
-        print("Approach 1: Atom-by-atom adjustment")
-        relaxed_pose1 = self._aggressive_atom_adjustment(protein, exact_aligned_pose, max_steps=50)
-        relaxed_score1 = self.scoring_function.score(protein, relaxed_pose1)
-        refined_poses.append((relaxed_pose1, relaxed_score1))
-        
-        # 2. Try slight systematic shifts in different directions
-        print("Approach 2: Systematic directional shifts")
-        for shift_distance in [0.2, 0.4, 0.6]:
-            for direction_vector in [
-                np.array([1, 0, 0]),
-                np.array([-1, 0, 0]),
-                np.array([0, 1, 0]),
-                np.array([0, -1, 0]),
-                np.array([0, 0, 1]),
-                np.array([0, 0, -1]),
-                np.array([0.577, 0.577, 0.577]),  # Diagonal
-                np.array([-0.577, -0.577, -0.577])
-            ]:
-                # Normalize vector
-                direction = direction_vector / np.linalg.norm(direction_vector)
-                
-                # Create a shifted copy
-                shifted_pose = copy.deepcopy(exact_aligned_pose)
-                shifted_pose.translate(direction * shift_distance)
-                
-                # Score the shifted pose
-                shifted_score = self.scoring_function.score(protein, shifted_pose)
-                
-                # If score improves significantly, keep it
-                if shifted_score < baseline_score - 1.0:
-                    refined_poses.append((shifted_pose, shifted_score))
-        
-        # 3. Try very small random rotations
-        print("Approach 3: Small rotational adjustments")
-        from scipy.spatial.transform import Rotation
-        for angle in [0.05, 0.1, 0.15]:  # Small angles in radians
-            for _ in range(6):  # Try multiple random axes
-                # Random rotation axis
-                axis = np.random.randn(3)
-                axis = axis / np.linalg.norm(axis)
-                
-                # Create rotated copy
-                rotated_pose = copy.deepcopy(exact_aligned_pose)
-                centroid = np.mean(rotated_pose.xyz, axis=0)
-                
-                # Apply rotation
-                rotated_pose.translate(-centroid)
-                rotation = Rotation.from_rotvec(axis * angle)
-                rotated_pose.rotate(rotation.as_matrix())
-                rotated_pose.translate(centroid)
-                
-                # Score the rotated pose
-                rotated_score = self.scoring_function.score(protein, rotated_pose)
-                
-                # If score improves significantly, keep it
-                if rotated_score < baseline_score - 1.0:
-                    refined_poses.append((rotated_pose, rotated_score))
-        
-        # 4. Try moving away from clashes and back (retreat and approach)
-        print("Approach 4: Retreat and approach strategy")
-        # Get vector from pocket center to ligand center
-        ligand_center = np.mean(exact_aligned_pose.xyz, axis=0)
-        retreat_vector = ligand_center - pocket_center
-        retreat_vector = retreat_vector / np.linalg.norm(retreat_vector)
-        
-        # Move ligand slightly away from pocket
-        retreat_pose = copy.deepcopy(exact_aligned_pose)
-        retreat_pose.translate(retreat_vector * 1.0)  # 1Å outward
-        
-        # Now approach back in small steps
-        for approach_distance in [0.8, 0.6, 0.4, 0.2, 0.0]:
-            approach_pose = copy.deepcopy(retreat_pose)
-            approach_pose.translate(-retreat_vector * approach_distance)
-            
-            # Score the approach pose
-            approach_score = self.scoring_function.score(protein, approach_pose)
-            
-            # If score improves, keep it
-            if approach_score < baseline_score:
-                refined_poses.append((approach_pose, approach_score))
-        
-        # Sort refined poses by score
-        refined_poses.sort(key=lambda x: x[1])
-        
-        # Check if we found any better poses
-        if refined_poses and refined_poses[0][1] < baseline_score:
-            best_refined_pose, best_refined_score = refined_poses[0]
-            print(f"Found better pose with score: {best_refined_score:.2f} (improved by {baseline_score - best_refined_score:.2f})")
-            
-            # Calculate RMSD from original aligned pose
-            from .utils import calculate_rmsd
-            rmsd = calculate_rmsd(best_refined_pose.xyz, exact_aligned_pose.xyz)
-            print(f"RMSD from exact alignment: {rmsd:.3f} Å")
-            
-            # Create final result list
-            results = [(best_refined_pose, best_refined_score)]
-            
-            # Add the exact aligned pose as backup
-            results.append((exact_aligned_pose, baseline_score))
-            
-            # Add a few other good refined poses if available
-            for pose, score in refined_poses[1:min(len(refined_poses), 4)]:
-                results.append((pose, score))
-        else:
-            print("No refinement improved the score. Using exact aligned pose.")
-            results = [(exact_aligned_pose, baseline_score)]
-        
-        return results
+            # --- APPLY GENTLE CLASH RELIEF WHEN LOCAL OPT IS NOT ENABLED ---
+            print("Applying gentle clash relief to poses (local optimization disabled)...")
+            relaxed_poses = []
+            for pose, score in all_results:
+                relaxed_pose = self._gentle_clash_relief(protein, pose, max_steps=20, max_movement=0.2)
+                relaxed_score = scoring_function.score(protein, relaxed_pose)
+                relaxed_poses.append((relaxed_pose, relaxed_score))
+            relaxed_poses.sort(key=lambda x: x[1])
+            print(f"Post-docking clash relief applied. Best relaxed score: {relaxed_poses[0][1]:.2f}")
 
-    def _aggressive_atom_adjustment(self, protein, pose, max_steps=50, max_atom_shift=0.5):
-        """
-        Aggressively adjust individual atoms to improve score while maintaining overall structure.
-        
-        Parameters:
-        -----------
-        protein : Protein
-            Protein object
-        pose : Ligand
-            Ligand pose to refine
-        max_steps : int
-            Maximum number of refinement steps
-        max_atom_shift : float
-            Maximum allowed movement for any atom (Å)
-        
-        Returns:
-        --------
-        Ligand
-            Refined pose
-        """
-        import copy
-        import random
-        print("Applying aggressive refinement (enabled by --local-opt)...")
-        # Make a working copy
-        working_pose = copy.deepcopy(pose)
-        original_xyz = working_pose.xyz.copy()
-        current_score = self.scoring_function.score(protein, working_pose)
-        best_pose = copy.deepcopy(working_pose)
-        best_score = current_score
-        
-        print(f"Starting aggressive atom adjustment (max {max_steps} steps)")
-        print(f"Initial score: {current_score:.2f}")
-        
-        # Identify high-energy atoms (likely causing bad interactions)
-        bad_atoms = self._identify_high_energy_atoms(protein, working_pose)
-        
-        if not bad_atoms:
-            print("No problematic atoms detected")
-            return working_pose
-        
-        print(f"Identified {len(bad_atoms)} atoms with potentially unfavorable interactions")
-        
-        # Iteratively adjust atoms to improve score
-        for step in range(max_steps):
-            improved = False
-            
-            # Choose a random problematic atom to adjust
-            if bad_atoms:
-                atom_idx = random.choice(bad_atoms)
-            else:
-                atom_idx = random.randint(0, len(working_pose.atoms) - 1)
-            
-            # Get original position for this atom
-            original_pos = original_xyz[atom_idx]
-            current_pos = working_pose.atoms[atom_idx]['coords']
-            
-            # Try multiple random adjustments for this atom
-            for _ in range(10):
-                # Create test pose
-                test_pose = copy.deepcopy(working_pose)
-                
-                # Random direction
-                direction = np.random.randn(3)
-                direction = direction / np.linalg.norm(direction)
-                
-                # Random distance (up to max_atom_shift)
-                move_distance = np.random.uniform(0.05, max_atom_shift)
-                
-                # Move the atom
-                new_pos = current_pos + direction * move_distance
-                
-                # Ensure we don't move too far from original position
-                total_shift = np.linalg.norm(new_pos - original_pos)
-                if total_shift > max_atom_shift:
-                    # Scale back the movement to stay within limits
-                    vector_to_original = original_pos - current_pos
-                    scaling_factor = (max_atom_shift - np.linalg.norm(current_pos - original_pos)) / move_distance
-                    if scaling_factor <= 0:
-                        continue  # Skip this attempt if we can't move
-                    
-                    # Apply scaled movement
-                    new_pos = current_pos + direction * move_distance * scaling_factor
-                
-                # Update atom position
-                test_pose.atoms[atom_idx]['coords'] = new_pos
-                test_pose.xyz[atom_idx] = new_pos
-                
-                # Score the test pose
-                test_score = self.scoring_function.score(protein, test_pose)
-                
-                # If improved, update the working pose
-                if test_score < best_score:
-                    best_pose = copy.deepcopy(test_pose)
-                    best_score = test_score
-                    improved = True
-                    break  # Found improvement for this atom
-            
-            # Update working pose if improved
-            if improved:
-                working_pose = copy.deepcopy(best_pose)
-                current_score = best_score
-                
-                # Recalculate problem atoms every 5 steps
-                if step % 5 == 0:
-                    bad_atoms = self._identify_high_energy_atoms(protein, working_pose)
-                
-                if (step + 1) % 10 == 0:
-                    print(f"  Step {step+1}: Score improved to {current_score:.2f}")
-            elif step % 20 == 0 and step > 0:
-                # If no progress, try different atoms
-                bad_atoms = self._identify_high_energy_atoms(protein, working_pose, 
-                                                        energy_threshold=step/max_steps)  # Gradually include more atoms
-        
-        # Compare final to initial
-        improvement = current_score - self.scoring_function.score(protein, pose)
-        print(f"Atom adjustment complete: Score {current_score:.2f} (improved by {improvement:.2f})")
-        
-        return best_pose
+            return relaxed_poses
 
-    def _identify_high_energy_atoms(self, protein, pose, energy_threshold=0.8):
-        """
-        Identify atoms in the ligand that have high interaction energies with the protein.
-        This is a more sophisticated approach than just looking for clashes.
-        
-        Parameters:
-        -----------
-        protein : Protein
-            Protein object
-        pose : Ligand
-            Ligand pose to check
-        energy_threshold : float
-            Threshold to determine high-energy atoms, higher value includes more atoms
-        
-        Returns:
-        --------
-        list
-            Indices of high-energy atoms in the ligand
-        """
-        # Get parameters for energy calculations
-        vdw_radii = {
-            'H': 1.2, 'C': 1.7, 'N': 1.55, 'O': 1.52, 'S': 1.8,
-            'P': 1.8, 'F': 1.47, 'Cl': 1.75, 'Br': 1.85, 'I': 1.98
-        }
-        
-        atom_energies = {}
-        
-        # Get protein atoms in active site
-        if hasattr(protein, 'active_site') and protein.active_site and 'atoms' in protein.active_site:
-            protein_atoms = protein.active_site['atoms']
-        else:
-            protein_atoms = protein.atoms
-        
-        # Calculate per-atom interaction energies
-        for lig_idx, lig_atom in enumerate(pose.atoms):
-            lig_coords = lig_atom['coords']
-            lig_symbol = lig_atom.get('symbol', 'C')
-            lig_radius = vdw_radii.get(lig_symbol, 1.7)
-            
-            # Track total energy for this atom
-            atom_energy = 0.0
-            
-            for prot_atom in protein_atoms:
-                prot_coords = prot_atom['coords']
-                prot_symbol = prot_atom.get('element', prot_atom.get('name', 'C'))[0]
-                prot_radius = vdw_radii.get(prot_symbol, 1.7)
-                
-                # Calculate distance
-                distance = np.linalg.norm(lig_coords - prot_coords)
-                
-                # Skip atoms that are too far away
-                if distance > 5.0:
-                    continue
-                
-                # Calculate VDW energy using simple Lennard-Jones
-                sigma = (lig_radius + prot_radius) * 0.5
-                if distance < 0.1:  # Avoid division by zero
-                    atom_energy += 100.0  # Large repulsive energy
-                else:
-                    ratio = sigma / distance
-                    vdw_energy = (ratio**12 - 2 * ratio**6)
-                    atom_energy += vdw_energy
-            
-            # Store energy for this atom
-            atom_energies[lig_idx] = atom_energy
-        
-        # Sort atoms by energy (highest first)
-        sorted_atoms = sorted(atom_energies.items(), key=lambda x: x[1], reverse=True)
-        
-        # Take atoms above threshold (proportional to list size)
-        threshold_idx = max(1, int(len(sorted_atoms) * energy_threshold))
-        high_energy_atoms = [idx for idx, _ in sorted_atoms[:threshold_idx]]
-    
-        return high_energy_atoms
-
-    def _gentle_clash_relief(self, protein, pose, reference=None, max_steps=20, max_movement=0.2):
-        """
-        Perform a gentle relaxation to relieve steric clashes while preserving alignment.
-        
-        Parameters:
-        -----------
-        protein : Protein
-            Protein object
-        pose : Ligand
-            Ligand pose to optimize
-        reference : Ligand
-            Reference pose to maintain alignment with
-        max_steps : int
-            Maximum number of minimization steps
-        max_movement : float
-            Maximum allowed atom movement from original position (Å)
-        
-        Returns:
-        --------
-        Ligand
-            Gently relaxed pose
-        """
-        import copy
-        from scipy.spatial.transform import Rotation
-        
-        # Make a work copy
-        working_pose = copy.deepcopy(pose)
-        current_score = self.scoring_function.score(protein, working_pose)
-        best_pose = copy.deepcopy(working_pose)
-        best_score = current_score
-        
-        # Create a modified scoring function that penalizes movement from reference
-        # This is done implicitly through constraints in the minimization
-        
-        print(f"Starting gentle clash relief (max {max_steps} steps, max movement {max_movement} Å)")
-        print(f"Initial score: {current_score:.2f}")
-        
-        # Identify problematic atoms (those likely causing clashes)
-        clash_atoms = self._identify_clashing_atoms(protein, working_pose)
-        if not clash_atoms:
-            print("No significant clashes detected - skipping relaxation")
-            return working_pose
-        
-        print(f"Detected {len(clash_atoms)} potentially clashing atoms")
-        
-        # First pass: try moving only clashing atoms
-        for step in range(max_steps):
-            improved = False
-            
-            for atom_idx in clash_atoms:
-                # Try small random movements for the clashing atom
-                for _ in range(3):  # Try multiple random directions
-                    test_pose = copy.deepcopy(working_pose)
-                    atom_coords = test_pose.atoms[atom_idx]['coords']
-                    
-                    # Random direction
-                    direction = np.random.randn(3)
-                    direction = direction / np.linalg.norm(direction)
-                    
-                    # Random distance (up to max_movement)
-                    distance = np.random.uniform(0.01, max_movement)
-                    movement = direction * distance
-                    
-                    # Move the atom
-                    test_pose.atoms[atom_idx]['coords'] = atom_coords + movement
-                    
-                    # Update xyz array
-                    test_pose.xyz[atom_idx] = test_pose.atoms[atom_idx]['coords']
-                    
-                    # Check if we've moved too far from reference
-                    if reference is not None:
-                        atom_displacement = np.linalg.norm(reference.atoms[atom_idx]['coords'] - test_pose.atoms[atom_idx]['coords'])
-                        if atom_displacement > max_movement:
-                            continue  # Skip if moved too far
-                    
-                    # Score the adjusted pose
-                    test_score = self.scoring_function.score(protein, test_pose)
-                    
-                    if test_score < best_score:
-                        best_pose = copy.deepcopy(test_pose)
-                        best_score = test_score
-                        improved = True
-                        break  # Found improvement for this atom
-            
-            # Update current pose if improved
-            if improved:
-                working_pose = copy.deepcopy(best_pose)
-                current_score = best_score
-                print(f"  Step {step+1}: Score improved to {current_score:.2f}")
-            else:
-                break  # No further improvement possible
-        
-        # Second pass: try small movements of the entire ligand
-        for step in range(min(5, max_steps // 4)):  # Fewer steps for global movements
-            improved = False
-            
-            # Try small translations
-            for direction in [
-                np.array([0.05, 0, 0]),
-                np.array([-0.05, 0, 0]),
-                np.array([0, 0.05, 0]),
-                np.array([0, -0.05, 0]),
-                np.array([0, 0, 0.05]),
-                np.array([0, 0, -0.05])
-            ]:
-                test_pose = copy.deepcopy(working_pose)
-                test_pose.translate(direction)
-                
-                # Check if we've moved too far from reference
-                if reference is not None:
-                    max_displacement = np.max(np.linalg.norm(reference.xyz - test_pose.xyz, axis=1))
-                    if max_displacement > max_movement:
-                        continue  # Skip if moved too far
-                
-                test_score = self.scoring_function.score(protein, test_pose)
-                
-                if test_score < best_score:
-                    best_pose = copy.deepcopy(test_pose)
-                    best_score = test_score
-                    improved = True
-            
-            # Try very small rotations
-            if not improved:
-                for axis in [
-                    np.array([1, 0, 0]),
-                    np.array([0, 1, 0]),
-                    np.array([0, 0, 1])
-                ]:
-                    for angle in [0.01, -0.01]:  # Very small rotations
-                        test_pose = copy.deepcopy(working_pose)
-                        
-                        centroid = np.mean(test_pose.xyz, axis=0)
-                        test_pose.translate(-centroid)
-                        
-                        rotation = Rotation.from_rotvec(axis * angle)
-                        test_pose.rotate(rotation.as_matrix())
-                        
-                        test_pose.translate(centroid)
-                        
-                        # Check if we've moved too far from reference
-                        if reference is not None:
-                            max_displacement = np.max(np.linalg.norm(reference.xyz - test_pose.xyz, axis=1))
-                            if max_displacement > max_movement:
-                                continue  # Skip if moved too far
-                        
-                        test_score = self.scoring_function.score(protein, test_pose)
-                        
-                        if test_score < best_score:
-                            best_pose = copy.deepcopy(test_pose)
-                            best_score = test_score
-                            improved = True
-            
-            # Update current pose if improved
-            if improved:
-                working_pose = copy.deepcopy(best_pose)
-                current_score = best_score
-                print(f"  Global refinement step {step+1}: Score improved to {current_score:.2f}")
-            else:
-                break  # No further improvement possible
-        
-        print(f"Relaxation complete: Final score {best_score:.2f} (improved by {current_score - best_score:.2f})")
-        return best_pose
-
-    def _identify_clashing_atoms(self, protein, pose, clash_cutoff=0.7):
-        """
-        Identify atoms in the ligand that are clashing with protein atoms.
-        
-        Parameters:
-        -----------
-        protein : Protein
-            Protein object
-        pose : Ligand
-            Ligand pose to check
-        clash_cutoff : float
-            Factor to determine clash distance (0.7 means atoms closer than
-            0.7 * (sum of vdW radii) are considered clashing)
-        
-        Returns:
-        --------
-        list
-            Indices of clashing atoms in the ligand
-        """
-        # Get VDW radii
-        vdw_radii = {
-            'H': 1.2, 'C': 1.7, 'N': 1.55, 'O': 1.52, 'S': 1.8,
-            'P': 1.8, 'F': 1.47, 'Cl': 1.75, 'Br': 1.85, 'I': 1.98
-        }
-        
-        clashing_atoms = set()
-        
-        # Get protein atoms in active site
-        if hasattr(protein, 'active_site') and protein.active_site and 'atoms' in protein.active_site:
-            protein_atoms = protein.active_site['atoms']
-        else:
-            protein_atoms = protein.atoms
-        
-        # Check each ligand atom against all protein atoms
-        for lig_idx, lig_atom in enumerate(pose.atoms):
-            lig_coords = lig_atom['coords']
-            lig_symbol = lig_atom.get('symbol', 'C')
-            lig_radius = vdw_radii.get(lig_symbol, 1.7)
-            
-            for prot_atom in protein_atoms:
-                prot_coords = prot_atom['coords']
-                prot_symbol = prot_atom.get('element', prot_atom.get('name', 'C'))[0]
-                prot_radius = vdw_radii.get(prot_symbol, 1.7)
-                
-                # Calculate distance
-                distance = np.linalg.norm(lig_coords - prot_coords)
-                
-                # Check for clash
-                min_allowed = (lig_radius + prot_radius) * clash_cutoff
-                if distance < min_allowed:
-                    clashing_atoms.add(lig_idx)
-                    break  # This ligand atom is clashing, move to next
-        
-        return list(clashing_atoms)
-
-    def _write_ligand(self, ligand, filename):
-        """Write ligand to SDF file."""
-        with open(filename, 'w') as f:
-            f.write("Reference\n")
-            f.write("  PandaDock\n\n")
-            
-            # Number of atoms and bonds
-            f.write(f"{len(ligand.atoms):3d}{len(ligand.bonds):3d}  0  0  0  0  0  0  0  0999 V2000\n")
-            
-            # Atoms
-            for atom in ligand.atoms:
-                coords = atom['coords']
-                symbol = atom.get('symbol', 'C')
-                
-                # PDB ATOM format
-                f.write(f"{coords[0]:10.4f}{coords[1]:10.4f}{coords[2]:10.4f} {symbol:<3}  0  0  0  0  0  0  0  0  0  0  0  0\n")
-            
-            # Bonds
-            for bond in ligand.bonds:
-                a1 = bond['begin_atom_idx'] + 1  # 1-based indexing in SDF
-                a2 = bond['end_atom_idx'] + 1
-                type_num = bond.get('bond_type', 1)
-                if isinstance(type_num, str):
-                    type_num = 1  # Default to single bond
-                f.write(f"{a1:3d}{a2:3d}{type_num:3d}  0  0  0  0\n")
-            
-            # Terminator
-            f.write("M  END\n$$$$\n")
-
-    def _read_ligand(self, filename):
-        """Read ligand from SDF file."""
-        from .ligand import Ligand
-        return Ligand(filename)
-        
-
-    def exact_reference_docking_with_tethering(self, protein, ligand, reference_ligand, 
-                                            tether_weight=10.0, skip_optimization=False):
-        """
-        Perform docking with exact alignment to a reference and tethered optimization.
-        """
-        print("\nPerforming tethered reference-based docking...")
-        
-        # Create a perfect superimposed pose
-        import copy
-        aligned_pose = copy.deepcopy(ligand)
-        
-        # Step 1: Calculate centroids
-        ref_centroid = np.mean(reference_ligand.xyz, axis=0)
-        ligand_centroid = np.mean(aligned_pose.xyz, axis=0)
-        
-        # Step 2: Translate ligand to origin
-        aligned_pose.translate(-ligand_centroid)
-        
-        # Step 3: Check if atom counts match for the Kabsch algorithm
-        if aligned_pose.xyz.shape[0] == reference_ligand.xyz.shape[0]:
-            # Center reference coordinates
-            ref_coords_centered = reference_ligand.xyz - ref_centroid
-            
-            # Calculate covariance matrix
-            covariance = np.dot(aligned_pose.xyz.T, ref_coords_centered)
-            
-            # SVD decomposition
-            U, S, Vt = np.linalg.svd(covariance)
-            
-            # Calculate rotation matrix
-            rotation_matrix = np.dot(Vt.T, U.T)
-            
-            # Check for reflection case (determinant should be 1)
-            if np.linalg.det(rotation_matrix) < 0:
-                Vt[-1, :] *= -1
-                rotation_matrix = np.dot(Vt.T, U.T)
-            
-            # Apply rotation
-            aligned_pose.rotate(rotation_matrix)
-        else:
-            print("Warning: Atom count mismatch between ligand and reference")
-            print(f"Ligand atoms: {aligned_pose.xyz.shape[0]}, Reference atoms: {reference_ligand.xyz.shape[0]}")
-            print("Using centroid alignment only without rotation")
-        
-        # Step 4: Translate to reference position
-        aligned_pose.translate(ref_centroid)
-        
-        # Store the exact aligned pose before any refinement
-        exact_aligned_pose = copy.deepcopy(aligned_pose)
-        
-        # Import the tethered scoring function
-        from .scoring import TetheredScoringFunction
-        
-        # Create a tethered scoring function
-        tethered_scoring = TetheredScoringFunction(
-            self.scoring_function,
-            reference_ligand,
-            weight=tether_weight
-        )
-        
-        # Score the exact aligned pose with normal scoring function
-        baseline_score = self.scoring_function.score(protein, aligned_pose)
-        print(f"Exact reference-aligned pose baseline score: {baseline_score:.2f}")
-        
-        # Skip refinement/optimization if requested
-        if skip_optimization:
-            print("Skipping refinement (use --local-opt to enable)")
-            return [(aligned_pose, baseline_score)]
-        
-        # Perform optimization with tethered scoring
-        print("Applying tethered optimization to improve score while preserving alignment...")
-        
-        # Store original scoring function temporarily
-        original_scoring = self.scoring_function
-        
-        # Replace with tethered scoring function
-        self.scoring_function = tethered_scoring
-        
-        # Perform optimization
-        optimized_pose, optimized_score = self._enhanced_local_optimization(
-            protein, exact_aligned_pose, step_size=0.2, angle_step=0.05, max_steps=50
-        )
-        
-        # Restore original scoring function
-        self.scoring_function = original_scoring
-        if hasattr(self, '_enhanced_local_optimization'):
-             optimized_pose, _ = self._enhanced_local_optimization( # Score here is tethered score
-                 protein, exact_aligned_pose, step_size=0.2, angle_step=0.05, max_steps=50
-             )
-        elif hasattr(self, '_local_optimization'):
-            print("  Warning: Using standard local optimization for tethering.")
-            optimized_pose, _ = self._local_optimization(protein, exact_aligned_pose)
-        else:
-            print("  Warning: No local optimization method found for tethering. Using aligned pose.")
-            optimized_pose = exact_aligned_pose # Fallback
-        # Score the optimized pose with original scoring function
-        final_score = original_scoring.score(protein, optimized_pose)
-        
-        # Calculate RMSD between optimized and reference
-        from .utils import calculate_rmsd
-        rmsd = calculate_rmsd(optimized_pose.xyz, reference_ligand.xyz)
-        
-        print(f"Tethered optimization complete:")
-        print(f" - Final score: {final_score:.2f}")
-        print(f" - RMSD from reference: {rmsd:.3f} Å")
-        
-        # Return results
-        return [(optimized_pose, final_score), (exact_aligned_pose, baseline_score)]
-    
-    
-class RandomSearch(DockingSearch):
-    """Simple random search algorithm."""
-    
-    def search(self, protein, ligand):
-        """Perform random search."""
-        best_poses = []
-        
-        # Determine search space
-        if protein.active_site:
-            center = protein.active_site['center']
-            radius = protein.active_site['radius']
-        else:
-            # Use protein center of mass
-            center = np.mean(protein.xyz, axis=0)
-            radius = 15.0  # Arbitrary search radius
-        
-        print(f"Searching around center {center} with radius {radius}")
-        
-        for i in range(self.max_iterations):
-            # Make a deep copy of the ligand to avoid modifying the original
-            pose = copy.deepcopy(ligand)
-            
-            # Generate random position within sphere
-            r = radius * random.random() ** (1.0/3.0)
-            theta = random.uniform(0, 2 * np.pi)
-            phi = random.uniform(0, np.pi)
-            
-            x = center[0] + r * np.sin(phi) * np.cos(theta)
-            y = center[1] + r * np.sin(phi) * np.sin(theta)
-            z = center[2] + r * np.cos(phi)
-            
-            # Calculate translation vector
-            centroid = np.mean(pose.xyz, axis=0)
-            translation = np.array([x, y, z]) - centroid
-            
-            # Apply translation
-            pose.translate(translation)
-            
-            # Generate random rotation
-            rotation = Rotation.random()
-            rotation_matrix = rotation.as_matrix()
-            
-            # Apply rotation around the new center
-            centroid = np.mean(pose.xyz, axis=0)
-            pose.translate(-centroid)
-            pose.rotate(rotation_matrix)
-            pose.translate(centroid)
-            
-            # Evaluate pose
-            score = self.scoring_function.score(protein, pose)
-            
-            # Store pose
-            # After storing a pose in RandomSearch.search:
-            best_poses.append((pose, score))
-
-            # Insert the progress tracking code if this is a better score:
-            if self.output_dir and (len(best_poses) == 1 or score < min(p[1] for p in best_poses[:-1])):
-                from .utils import save_intermediate_result, update_status
-                
-                # Save current best pose if it's better than previous ones
-                best_score = min(p[1] for p in best_poses)
-                best_pose = next(p[0] for p in best_poses if p[1] == best_score)
-                
-                save_intermediate_result(
-                    best_pose,
-                    best_score,
-                    i + 1,  # Current iteration
-                    self.output_dir,
-                    self.max_iterations
-                )
-                
-                # Update status
-                update_status(
-                    self.output_dir,
-                    current_iteration=i + 1,
-                    best_score=best_score,
-                    total_poses=len(best_poses)
-                )
-            
-            if (i + 1) % 100 == 0:
-                print(f"Completed {i + 1} iterations")
-        
-        # Sort poses by score (lower is better)
-        best_poses.sort(key=lambda x: x[1])
-        
-        return best_poses
-
+    # ... rest of your methods unchanged ...
 
 class GeneticAlgorithm(DockingSearch):
     """Genetic algorithm for docking search."""
     
     def __init__(self, scoring_function, max_iterations=1000, 
-                 population_size=50, mutation_rate=0.2, perform_local_opt=False):
+                 population_size=50, mutation_rate=0.2, perform_local_opt=False, output_dir=None):
         """Initialize genetic algorithm."""
         super().__init__(scoring_function, max_iterations)
         self.population_size = population_size
@@ -1687,12 +841,10 @@ class GeneticAlgorithm(DockingSearch):
         """
         # Apply standard mutation (replaces the call to super()._mutate)
         if random.random() < self.mutation_rate:
-            # Random translation mutation
-            translation = np.random.normal(0, 0.5, 3)
+            translation = np.random.normal(0, 0.2, 3)  # Reduced from 0.5 to 0.2
             individual.translate(translation)
             
-            # Random rotation mutation
-            angle = np.random.normal(0, 0.2)  # ~10 degrees std dev
+            angle = np.random.normal(0, 0.1)  # Reduced from 0.2 to 0.1 radians (~5.7 degrees)
             axis = np.random.rand(3)
             axis = axis / np.linalg.norm(axis)
             

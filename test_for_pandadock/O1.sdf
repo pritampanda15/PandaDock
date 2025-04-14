@@ -1,0 +1,239 @@
+1
+ OpenBabel03302508113D
+
+ 43 45  0  0  0  0  0  0  0  0999 V2000
+    2.1811    0.1190   -0.0985 C   0  0  0  0  0  0  0  0  0  0  0  0
+    2.6820    1.3283    0.3496 C   0  0  0  0  0  0  0  0  0  0  0  0
+    4.0535    1.5606    0.4025 C   0  0  0  0  0  0  0  0  0  0  0  0
+    4.9260    0.5600   -0.0034 C   0  0  0  0  0  0  0  0  0  0  0  0
+    4.4401   -0.6594   -0.4555 C   0  0  0  0  0  0  0  0  0  0  0  0
+    3.0644   -0.8679   -0.4984 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -0.0857    1.6244   -1.6703 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -0.9991    2.6661   -1.7023 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -0.8349    3.7679   -2.5360 C   0  0  0  0  0  0  0  0  0  0  0  0
+    0.2773    3.8596   -3.3582 C   0  0  0  0  0  0  0  0  0  0  0  0
+    1.2096    2.8341   -3.3360 C   0  0  0  0  0  0  0  0  0  0  0  0
+    1.0197    1.7351   -2.5021 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -0.2777    0.5235   -0.8291 N   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.4845   -0.0665   -0.5459 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.2538   -1.0842    0.4031 C   0  0  0  0  0  0  0  0  0  0  0  0
+    0.1290   -1.1327    0.6144 C   0  0  0  0  0  0  0  0  0  0  0  0
+    0.7148   -0.1284   -0.1362 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -2.8294    0.2850   -1.1634 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -2.1816   -1.9040    1.0301 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -3.3852   -1.7964    0.8289 O   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.6343   -2.7804    1.8633 O   0  0  0  0  0  0  0  0  0  0  0  0
+   -2.4707   -3.6515    2.6237 C   0  0  0  0  0  0  0  0  0  0  0  0
+    6.6372    0.8342    0.0577 Cl  0  0  0  0  0  0  0  0  0  0  0  0
+   -2.6874   -3.0482    4.0124 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -3.3929   -3.9768    4.8199 O   0  0  0  0  0  0  0  0  0  0  0  0
+    2.0082    2.1105    0.6707 H   0  0  0  0  0  0  0  0  0  0  0  0
+    4.4229    2.5117    0.7594 H   0  0  0  0  0  0  0  0  0  0  0  0
+    5.1137   -1.4436   -0.7731 H   0  0  0  0  0  0  0  0  0  0  0  0
+    2.6930   -1.8202   -0.8512 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.8662    2.6498   -1.0614 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.5737    4.5564   -2.5338 H   0  0  0  0  0  0  0  0  0  0  0  0
+    0.4155    4.7150   -4.0071 H   0  0  0  0  0  0  0  0  0  0  0  0
+    2.0809    2.8866   -3.9747 H   0  0  0  0  0  0  0  0  0  0  0  0
+    1.7536    0.9458   -2.5507 H   0  0  0  0  0  0  0  0  0  0  0  0
+    0.6513   -1.8249    1.2608 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -3.4498   -0.6059   -1.2541 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -3.3625    1.0025   -0.5402 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -2.7211    0.6848   -2.1709 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.9720   -4.6182    2.6919 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -3.4256   -3.8216    2.1207 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -3.2474   -2.1113    3.9136 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.7172   -2.8228    4.4663 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -3.6193   -3.5973    5.6657 H   0  0  0  0  0  0  0  0  0  0  0  0
+  1  2  1  0  0  0  0
+  1  6  2  0  0  0  0
+  2  3  2  0  0  0  0
+  2 26  1  0  0  0  0
+  3  4  1  0  0  0  0
+  3 27  1  0  0  0  0
+  4  5  2  0  0  0  0
+  4 23  1  0  0  0  0
+  5  6  1  0  0  0  0
+  5 28  1  0  0  0  0
+  6 29  1  0  0  0  0
+  7  8  2  0  0  0  0
+  7 13  1  0  0  0  0
+  8  9  1  0  0  0  0
+  8 30  1  0  0  0  0
+  9 10  2  0  0  0  0
+  9 31  1  0  0  0  0
+ 10 11  1  0  0  0  0
+ 10 32  1  0  0  0  0
+ 11 12  2  0  0  0  0
+ 11 33  1  0  0  0  0
+ 12  7  1  0  0  0  0
+ 12 34  1  0  0  0  0
+ 13 14  1  0  0  0  0
+ 13 17  1  0  0  0  0
+ 14 15  2  0  0  0  0
+ 14 18  1  0  0  0  0
+ 15 16  1  0  0  0  0
+ 15 19  1  0  0  0  0
+ 16 17  2  0  0  0  0
+ 16 35  1  0  0  0  0
+ 17  1  1  0  0  0  0
+ 18 36  1  0  0  0  0
+ 18 37  1  0  0  0  0
+ 18 38  1  0  0  0  0
+ 19 20  2  0  0  0  0
+ 19 21  1  0  0  0  0
+ 21 22  1  0  0  0  0
+ 22 24  1  0  0  0  0
+ 22 39  1  0  0  0  0
+ 22 40  1  0  0  0  0
+ 24 25  1  0  0  0  0
+ 24 41  1  0  0  0  0
+ 24 42  1  0  0  0  0
+ 25 43  1  0  0  0  0
+M  END
+>  <Name>
+1
+
+>  <Clean Energy>
+40.7332
+
+>  <NumberOfStereoisomers>
+1
+
+>  <PartialChargeMethod>
+CFF
+
+>  <StereoisomerIndex>
+1
+
+>  <UseResidueTemplateCharge>
+True
+
+>  <Forcefield>
+CHARMm
+
+>  <ForcefieldBase>
+CHARMm
+
+>  <ForcefieldFFML>
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE ffml SYSTEM "Ffml.dtd">
+<ffml version="1.0">
+<forcefield name="CHARMm" derivedFrom="CHARMm" base="CHARMm">
+<atomTypes>
+</atomTypes>
+<parameters>
+<bond atom1="C6RP" atom2="N5R">
+<quadratic
+refValue="1.368"
+forceConstant="394.267"/>
+</bond>
+<angle atom1="C6R" atom2="C6RP" atom3="N5R">
+<quadratic
+refValue="120"
+forceConstant="70"/>
+</angle>
+<angle atom1="C6RP" atom2="N5R" atom3="C5R">
+<quadratic
+refValue="116"
+forceConstant="70"/>
+</angle>
+<angle atom1="C6RP" atom2="N5R" atom3="C5RP">
+<quadratic
+refValue="115.333"
+forceConstant="70"/>
+</angle>
+<torsion atom1="C6R" atom2="C6RP" atom3="N5R" atom4="C5R">
+<multiplecos
+v1="0"
+v2="2.5"
+v3="0"
+v4="0"
+v5="0"
+v6="0"
+gamma1="0"
+gamma2="180"
+gamma3="0"
+gamma4="0"
+gamma5="0"
+gamma6="0"/>
+</torsion>
+<torsion atom1="C6R" atom2="C6RP" atom3="N5R" atom4="C5RP">
+<multiplecos
+v1="0"
+v2="2.5"
+v3="0"
+v4="0"
+v5="0"
+v6="0"
+gamma1="0"
+gamma2="180"
+gamma3="0"
+gamma4="0"
+gamma5="0"
+gamma6="0"/>
+</torsion>
+<improper atom1="N5R" atom2="C5R" atom3="C5RP" atom4="C6RP">
+<cos1
+refValue="0"
+forceConstant="59.6429"
+periodicity="0"/>
+</improper>
+</parameters>
+</forcefield>
+</ffml>
+
+>  <Initial Potential Energy>
+42.0117
+
+>  <Initial RMS Gradient>
+14.4461
+
+>  <Minimization Criteria>
+CONJUG> Minimization exiting with gradient tolerance ( 0.0100000) satisfied.
+
+>  <CHARMm Energy>
+27.2416
+
+>  <Improper Energy>
+0.0947
+
+>  <Hydrogen Bond Energy>
+0
+
+>  <Angle Energy>
+8.75698
+
+>  <Dihedral Energy>
+11.1836
+
+>  <Electrostatic Energy>
+-0.95926
+
+>  <Solvation Free Energy>
+0
+
+>  <Potential Energy>
+27.2416
+
+>  <Van der Waals Energy>
+6.58147
+
+>  <RMS Gradient>
+0.00979
+
+>  <Urey-Bradley Energy>
+0
+
+>  <Bond Energy>
+1.58412
+
+>  <REMARK99>
+REMARK  99  MacroMolecule created from Mol2 file
+REMARK  99  1
+REMARK  99  PROTEIN
+REMARK  99  USER_CHARGES
+REMARK  99
+REMARK  99
+
+$$$$

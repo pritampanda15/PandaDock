@@ -48,7 +48,7 @@ def main():
                         help='Output directory')
     parser.add_argument('-s', '--site', nargs=3, type=float, metavar=('X', 'Y', 'Z'),
                         help='Active site center coordinates')
-    parser.add_argument('-r', '--radius', type=float, default=10.0,
+    parser.add_argument('-r', '--radius', type=float, default=5.0,
                         help='Active site radius in Angstroms')
     parser.add_argument('-g', '--generations', type=int, default=50,
                         help='Number of generations for genetic algorithm')

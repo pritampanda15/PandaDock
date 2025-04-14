@@ -15,7 +15,7 @@ import traceback
 from .protein import Protein
 from .ligand import Ligand
 from .scoring import CompositeScoringFunction, EnhancedScoringFunction
-from .search import RandomSearch, GeneticAlgorithm
+from .search import DockingSearch, GeneticAlgorithm
 from .utils import (
     setup_logging,
     save_docking_results,
@@ -47,9 +47,10 @@ __all__ = ['__version__', 'add_hardware_options', 'configure_hardware',
 
 # Import physics-based algorithms
 try:
-    from .physics import (MMFFMinimization, GeneralizedBornSolvation, 
-                          MonteCarloSampling, PhysicsBasedScoring)
+    from .physics import (MMFFMinimization, GeneralizedBornSolvation,MonteCarloSampling, PhysicsBasedScoring)
+    
     PHYSICS_AVAILABLE = True
+    
 except ImportError:
     PHYSICS_AVAILABLE = False
     print("Warning: Physics-based modules not available. Some features will be disabled.")

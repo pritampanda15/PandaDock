@@ -26,7 +26,7 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
         Initialize the GPU-accelerated scoring function.
         """
         super().__init__()
-    
+
         # Add the van der Waals well depth parameters if not inherited
         if not hasattr(self, 'vdw_well_depth'):
             self.vdw_well_depth = {
@@ -166,7 +166,7 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             print(f"VDW: {vdw_score:.2f}, H-bond: {hbond_score:.2f}, Elec: {elec_score:.2f}, "
                  f"Desolv: {desolv_score:.2f}, Hydrophobic: {hydrophobic_score:.2f}, "
                  f"Clash: {clash_score:.2f}, Entropy: {entropy_score:.2f}")
-        
+        print(f"Score breakdown: VDW={vdw_score:.2f}, Elec={elec_score:.2f}, Desolv={desolv_score:.2f}, Hydroph={hydrophobic_score:.2f}, Clash={clash_score:.2f}, Entropy={entropy_score:.2f}, TOTAL={total_score:.2f}")
         return total_score
     
     def _calculate_vdw(self, protein, ligand):

@@ -1,0 +1,229 @@
+BB
+ OpenBabel03302508113D
+
+ 42 44  0  0  0  0  0  0  0  0999 V2000
+    2.0042    0.1894    0.2091 C   0  0  0  0  0  0  0  0  0  0  0  0
+    2.8868   -0.8655    0.0562 C   0  0  0  0  0  0  0  0  0  0  0  0
+    4.2640   -0.6635    0.1058 C   0  0  0  0  0  0  0  0  0  0  0  0
+    4.7535    0.6186    0.3155 C   0  0  0  0  0  0  0  0  0  0  0  0
+    3.8832    1.6875    0.4802 C   0  0  0  0  0  0  0  0  0  0  0  0
+    2.5103    1.4593    0.4280 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -0.1406    1.4370   -1.7050 C   0  0  0  0  0  0  0  0  0  0  0  0
+    0.9957    1.3644   -2.4972 C   0  0  0  0  0  0  0  0  0  0  0  0
+    1.2689    2.3078   -3.4831 C   0  0  0  0  0  0  0  0  0  0  0  0
+    0.3863    3.3523   -3.7104 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -0.7611    3.4368   -2.9371 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.0098    2.4881   -1.9499 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -0.4045    0.5018   -0.7001 N   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.6394   -0.0100   -0.3931 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.4858   -0.8725    0.7126 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -0.1173   -0.9049    1.0116 C   0  0  0  0  0  0  0  0  0  0  0  0
+    0.5346   -0.0441    0.1429 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -2.9394    0.2713   -1.1317 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -2.4727   -1.5741    1.3931 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -3.6577   -1.4794    1.0966 O   0  0  0  0  0  0  0  0  0  0  0  0
+   -2.0198   -2.3375    2.3795 O   0  0  0  0  0  0  0  0  0  0  0  0
+   -2.9659   -3.0998    3.1280 C   0  0  0  0  0  0  0  0  0  0  0  0
+    6.4664    0.8873    0.3722 Cl  0  0  0  0  0  0  0  0  0  0  0  0
+   -2.2193   -4.0476    4.0694 C   0  0  0  0  0  0  0  0  0  0  0  0
+    2.5137   -1.8664   -0.1111 H   0  0  0  0  0  0  0  0  0  0  0  0
+    4.9357   -1.5015   -0.0198 H   0  0  0  0  0  0  0  0  0  0  0  0
+    4.2569    2.6888    0.6461 H   0  0  0  0  0  0  0  0  0  0  0  0
+    1.8388    2.2963    0.5604 H   0  0  0  0  0  0  0  0  0  0  0  0
+    1.6993    0.5564   -2.3715 H   0  0  0  0  0  0  0  0  0  0  0  0
+    2.1674    2.2222   -4.0782 H   0  0  0  0  0  0  0  0  0  0  0  0
+    0.5900    4.0879   -4.4777 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.4598    4.2460   -3.0957 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.8937    2.6132   -1.3444 H   0  0  0  0  0  0  0  0  0  0  0  0
+    0.3491   -1.4912    1.7914 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -3.5824   -0.6078   -1.1206 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -2.7676    0.5069   -2.1812 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -3.4804    1.0899   -0.6576 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -3.5977   -2.4154    3.6970 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -3.6062   -3.6634    2.4456 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -2.9166   -4.6433    4.6585 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.5831   -4.7310    3.5069 H   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.5851   -3.4899    4.7587 H   0  0  0  0  0  0  0  0  0  0  0  0
+  1  2  1  0  0  0  0
+  1  6  2  0  0  0  0
+  2  3  2  0  0  0  0
+  2 25  1  0  0  0  0
+  3  4  1  0  0  0  0
+  3 26  1  0  0  0  0
+  4  5  2  0  0  0  0
+  4 23  1  0  0  0  0
+  5  6  1  0  0  0  0
+  5 27  1  0  0  0  0
+  6 28  1  0  0  0  0
+  7  8  2  0  0  0  0
+  7 13  1  0  0  0  0
+  8  9  1  0  0  0  0
+  8 29  1  0  0  0  0
+  9 10  2  0  0  0  0
+  9 30  1  0  0  0  0
+ 10 11  1  0  0  0  0
+ 10 31  1  0  0  0  0
+ 11 12  2  0  0  0  0
+ 11 32  1  0  0  0  0
+ 12  7  1  0  0  0  0
+ 12 33  1  0  0  0  0
+ 13 14  1  0  0  0  0
+ 13 17  1  0  0  0  0
+ 14 15  2  0  0  0  0
+ 14 18  1  0  0  0  0
+ 15 16  1  0  0  0  0
+ 15 19  1  0  0  0  0
+ 16 17  2  0  0  0  0
+ 16 34  1  0  0  0  0
+ 17  1  1  0  0  0  0
+ 18 35  1  0  0  0  0
+ 18 36  1  0  0  0  0
+ 18 37  1  0  0  0  0
+ 19 20  2  0  0  0  0
+ 19 21  1  0  0  0  0
+ 21 22  1  0  0  0  0
+ 22 24  1  0  0  0  0
+ 22 38  1  0  0  0  0
+ 22 39  1  0  0  0  0
+ 24 40  1  0  0  0  0
+ 24 41  1  0  0  0  0
+ 24 42  1  0  0  0  0
+M  END
+>  <Name>
+BB
+
+>  <Clean Energy>
+40.7332
+
+>  <NumberOfStereoisomers>
+1
+
+>  <PartialChargeMethod>
+CFF
+
+>  <StereoisomerIndex>
+1
+
+>  <UseResidueTemplateCharge>
+True
+
+>  <Forcefield>
+CHARMm
+
+>  <ForcefieldBase>
+CHARMm
+
+>  <ForcefieldFFML>
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE ffml SYSTEM "Ffml.dtd">
+<ffml version="1.0">
+<forcefield name="CHARMm" derivedFrom="CHARMm" base="CHARMm">
+<atomTypes>
+</atomTypes>
+<parameters>
+<bond atom1="C6RP" atom2="N5R">
+<quadratic
+refValue="1.368"
+forceConstant="394.267"/>
+</bond>
+<angle atom1="C6R" atom2="C6RP" atom3="N5R">
+<quadratic
+refValue="120"
+forceConstant="70"/>
+</angle>
+<angle atom1="C6RP" atom2="N5R" atom3="C5R">
+<quadratic
+refValue="116"
+forceConstant="70"/>
+</angle>
+<angle atom1="C6RP" atom2="N5R" atom3="C5RP">
+<quadratic
+refValue="115.333"
+forceConstant="70"/>
+</angle>
+<torsion atom1="C6R" atom2="C6RP" atom3="N5R" atom4="C5R">
+<multiplecos
+v1="0"
+v2="2.5"
+v3="0"
+v4="0"
+v5="0"
+v6="0"
+gamma1="0"
+gamma2="180"
+gamma3="0"
+gamma4="0"
+gamma5="0"
+gamma6="0"/>
+</torsion>
+<torsion atom1="C6R" atom2="C6RP" atom3="N5R" atom4="C5RP">
+<multiplecos
+v1="0"
+v2="2.5"
+v3="0"
+v4="0"
+v5="0"
+v6="0"
+gamma1="0"
+gamma2="180"
+gamma3="0"
+gamma4="0"
+gamma5="0"
+gamma6="0"/>
+</torsion>
+<improper atom1="N5R" atom2="C5R" atom3="C5RP" atom4="C6RP">
+<cos1
+refValue="0"
+forceConstant="59.6429"
+periodicity="0"/>
+</improper>
+</parameters>
+</forcefield>
+</ffml>
+
+>  <Initial Potential Energy>
+37.2943
+
+>  <Initial RMS Gradient>
+14.5958
+
+>  <Minimization Criteria>
+CONJUG> Minimization exiting with gradient tolerance ( 0.0100000) satisfied.
+
+>  <CHARMm Energy>
+25.7996
+
+>  <Improper Energy>
+0.06986
+
+>  <Hydrogen Bond Energy>
+0
+
+>  <Angle Energy>
+7.40872
+
+>  <Dihedral Energy>
+11.9588
+
+>  <Electrostatic Energy>
+-0.32061
+
+>  <Solvation Free Energy>
+0
+
+>  <Potential Energy>
+25.7996
+
+>  <Van der Waals Energy>
+5.21608
+
+>  <RMS Gradient>
+0.00947
+
+>  <Urey-Bradley Energy>
+0
+
+>  <Bond Energy>
+1.46675
+
+$$$$
