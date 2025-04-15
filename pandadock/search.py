@@ -281,14 +281,18 @@ class DockingSearch:
         best_pose = copy.deepcopy(current_pose)
         best_score = current_score
         
+       # Define default step size and angle step
+        step_size = 0.5  # Default step size for translations
+        angle_step = 0.1  # Default step size for rotations
+
         # Counters for monitoring progress
         step_count = 0
         no_improvement_count = 0
-        
+
         while step_count < self.max_steps and no_improvement_count < 10:
             step_count += 1
             improved = False
-            
+
             # Try translations in 6 directions
             directions = [
                 np.array([step_size, 0, 0]),
@@ -298,54 +302,54 @@ class DockingSearch:
                 np.array([0, 0, step_size]),
                 np.array([0, 0, -step_size])
             ]
-            
+
             # Test translations
             for direction in directions:
                 test_pose = copy.deepcopy(current_pose)
                 test_pose.translate(direction)
-                
+
                 # Ensure pose stays within active site
                 pose_center = np.mean(test_pose.xyz, axis=0)
                 if np.linalg.norm(pose_center - center) > radius:
                     continue
-                    
+
                 test_score = self.scoring_function.score(protein, test_pose)
-                
+
                 if test_score < best_score:
                     best_pose = copy.deepcopy(test_pose)
                     best_score = test_score
                     improved = True
-            
+
             # Try rotations around 3 primary axes
             axes = [
                 np.array([1, 0, 0]),   # X axis
                 np.array([0, 1, 0]),   # Y axis
                 np.array([0, 0, 1]),   # Z axis
             ]
-            
+
             # Test rotations
             for axis in axes:
                 for angle in [angle_step, -angle_step]:
                     test_pose = copy.deepcopy(current_pose)
                     pose_center = np.mean(test_pose.xyz, axis=0)
-                    
+
                     # Translate to origin, rotate, translate back
                     test_pose.translate(-pose_center)
-                    
+
                     # Create rotation matrix
                     rotation = Rotation.from_rotvec(axis * angle)
                     rotation_matrix = rotation.as_matrix()
-                    
+
                     test_pose.rotate(rotation_matrix)
                     test_pose.translate(pose_center)
-                    
+
                     test_score = self.scoring_function.score(protein, test_pose)
-                    
+
                     if test_score < best_score:
                         best_pose = copy.deepcopy(test_pose)
                         best_score = test_score
                         improved = True
-            
+
             # Update current pose if improved
             if improved:
                 current_pose = copy.deepcopy(best_pose)
@@ -353,7 +357,7 @@ class DockingSearch:
                 no_improvement_count = 0
             else:
                 no_improvement_count += 1
-            
+
             # Reduce step sizes as optimization progresses
             if step_count % 10 == 0 and step_count > 0:
                 step_size *= 0.8
