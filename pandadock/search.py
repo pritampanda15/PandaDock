@@ -470,14 +470,12 @@ class DockingSearch:
             relaxed_poses = []
             for pose, score in all_results:
                 relaxed_pose = self._gentle_clash_relief(protein, pose, max_steps=20, max_movement=0.2)
-                relaxed_score = scoring_function.score(protein, relaxed_pose)
+                relaxed_score = self.scoring_function.score(protein, relaxed_pose)
                 relaxed_poses.append((relaxed_pose, relaxed_score))
             relaxed_poses.sort(key=lambda x: x[1])
             print(f"Post-docking clash relief applied. Best relaxed score: {relaxed_poses[0][1]:.2f}")
 
             return relaxed_poses
-
-    # ... rest of your methods unchanged ...
 
 class GeneticAlgorithm(DockingSearch):
     """Genetic algorithm for docking search."""
