@@ -8,7 +8,10 @@ from .utils import setup_logging
 class DockingSearch:
     """Base class for docking search algorithms."""
     
-    def __init__(self, scoring_function, max_iterations=1000, output_dir=None):
+    def __init__(self, scoring_function, max_iterations=1000, step_size=0.5, max_steps=100, output_dir=None):
+
+
+    
         """
         Initialize search algorithm.
         
@@ -24,6 +27,8 @@ class DockingSearch:
         self.scoring_function = scoring_function
         self.max_iterations = max_iterations
         self.output_dir = output_dir
+        self.step_size = step_size
+        self.max_steps = max_steps
     
     # Set up logger
         self.logger = setup_logging(output_dir)
@@ -280,7 +285,7 @@ class DockingSearch:
         step_count = 0
         no_improvement_count = 0
         
-        while step_count < max_steps and no_improvement_count < 10:
+        while step_count < self.max_steps and no_improvement_count < 10:
             step_count += 1
             improved = False
             
