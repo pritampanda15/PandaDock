@@ -5,7 +5,6 @@ for computationally intensive calculations such as electrostatics and vdW intera
 """
 
 import numpy as np
-from pathlib import Path
 import time
 import warnings
 from .scoring import EnhancedScoringFunction
@@ -13,143 +12,56 @@ from .scoring import EnhancedScoringFunction
 
 class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
     """
-    Scoring function that leverages GPU acceleration for compute-intensive calculations.
-    
-    This class extends the EnhancedScoringFunction and overrides the most
-    computationally intensive methods with GPU-accelerated versions using PyTorch.
-    The implementation automatically falls back to CPU calculations when a GPU
-    is not available or when PyTorch is not installed.
+    GPU-accelerated scoring function that mirrors EnhancedScoringFunction logic,
+    using PyTorch or CuPy when available for performance.
     """
-    
+
     def __init__(self, device='cuda', precision='float32'):
-        """
-        Initialize the GPU-accelerated scoring function.
-        """
         super().__init__()
 
-        # Add the van der Waals well depth parameters if not inherited
-        if not hasattr(self, 'vdw_well_depth'):
-            self.vdw_well_depth = {
-                'C': 0.1094,
-                'N': 0.0784,
-                'O': 0.2100,
-                'S': 0.2500,
-                'P': 0.2000,
-                'F': 0.0610,
-                'Cl': 0.2650,
-                'Br': 0.3200,
-                'I': 0.4000,
-                'H': 0.0157
-            }
-    
         self.device_name = device
         self.precision = precision
         self.device = None
         self.torch_available = False
         self.cupy_available = False
         self._init_gpu()
-        
+
     def _init_gpu(self):
-        """Initialize GPU resources and check available hardware."""
-        # Try PyTorch first
         try:
             import torch
             self.torch_available = True
-            
-            # Check if CUDA is available and set device
+            self.torch = torch
+
             if self.device_name == 'cuda' and torch.cuda.is_available():
                 self.device = torch.device('cuda')
-                gpu_name = torch.cuda.get_device_name(0)
-                print(f"Using GPU: {gpu_name}")
-                
-                # Set default tensor type
-                if self.precision == 'float64':
-                    torch.set_default_tensor_type(torch.cuda.DoubleTensor)
-                else:
-                    torch.set_default_tensor_type(torch.cuda.FloatTensor)
+                print(f"Using GPU: {torch.cuda.get_device_name(0)}")
             else:
                 self.device = torch.device('cpu')
-                print("GPU not available or not requested. Using CPU via PyTorch.")
-                if self.precision == 'float64':
-                    torch.set_default_tensor_type(torch.DoubleTensor)
-                
-            # Test GPU with a small calculation
-            start = time.time()
-            a = torch.rand(1000, 1000, device=self.device)
-            b = torch.rand(1000, 1000, device=self.device)
-            c = torch.matmul(a, b)
-            torch.cuda.synchronize() if self.device.type == 'cuda' else None
-            end = time.time()
-            print(f"PyTorch GPU test completed in {end - start:.4f} seconds")
-            
+                print("GPU not available. Using CPU via PyTorch.")
+
         except ImportError:
-            print("PyTorch not available. Trying CuPy...")
-            
-            # If PyTorch is not available, try CuPy
             try:
                 import cupy as cp
                 self.cupy_available = True
-                
-                if self.device_name == 'cuda':
-                    try:
-                        # Get GPU info
-                        gpu_info = cp.cuda.runtime.getDeviceProperties(0)
-                        print(f"Using GPU via CuPy: {gpu_info['name'].decode()}")
-                    except:
-                        print("Using GPU via CuPy")
-                else:
-                    print("GPU not requested. Using CPU.")
-                
-                # Set precision
                 self.cp = cp
-                if self.precision == 'float64':
-                    self.cp_dtype = cp.float64
-                else:
-                    self.cp_dtype = cp.float32
-                
-                # Test GPU with a small calculation
-                start = time.time()
-                a = cp.random.rand(1000, 1000).astype(self.cp_dtype)
-                b = cp.random.rand(1000, 1000).astype(self.cp_dtype)
-                c = cp.matmul(a, b)
-                cp.cuda.stream.get_current_stream().synchronize()
-                end = time.time()
-                print(f"CuPy GPU test completed in {end - start:.4f} seconds")
-                
+                print("Using GPU via CuPy")
             except ImportError:
-                print("Neither PyTorch nor CuPy available. Falling back to CPU calculations.")
-                print("For better performance, install PyTorch or CuPy with GPU support.")
-    
+                print("Neither PyTorch nor CuPy available. Falling back to CPU.")
+
     def score(self, protein, ligand):
-        """
-        Calculate binding score using GPU acceleration when available.
-        
-        Parameters:
-        -----------
-        protein : Protein
-            Protein object
-        ligand : Ligand
-            Ligand object
-        
-        Returns:
-        --------
-        float
-            Binding score (lower is better)
-        """
-        start_time = time.time()
-        
-        # Calculate base terms
-        vdw_score = self._calculate_vdw(protein, ligand)
-        hbond_score = self._calculate_hbond(protein, ligand)
-        clash_score = self._calculate_clashes(protein, ligand)
-        
-        # Calculate additional terms
-        elec_score = self._calculate_electrostatics(protein, ligand)
-        desolv_score = self._calculate_desolvation(protein, ligand)
-        hydrophobic_score = self._calculate_hydrophobic(protein, ligand)
+        if protein.active_site and 'atoms' in protein.active_site:
+            protein_atoms = protein.active_site['atoms']
+        else:
+            protein_atoms = protein.atoms
+
+        vdw_score = self._calculate_vdw_physics(protein_atoms, ligand.atoms)
+        hbond_score = self._calculate_hbond_physics(protein_atoms, ligand.atoms, protein, ligand)
+        elec_score = self._calculate_electrostatics_physics(protein_atoms, ligand.atoms)
+        desolv_score = self._calculate_desolvation_physics(protein_atoms, ligand.atoms)
+        hydrophobic_score = self._calculate_hydrophobic_physics(protein_atoms, ligand.atoms)
+        clash_score = self._calculate_clashes_physics(protein_atoms, ligand.atoms)
         entropy_score = self._calculate_entropy(ligand)
-        
-        # Combine scores
+
         total_score = (
             self.weights['vdw'] * vdw_score +
             self.weights['hbond'] * hbond_score +
@@ -159,15 +71,32 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             self.weights['clash'] * clash_score +
             self.weights['entropy'] * entropy_score
         )
-        
-        end_time = time.time()
-        if hasattr(self, 'verbose') and self.verbose:
-            print(f"Scoring completed in {end_time - start_time:.4f} seconds")
-            print(f"VDW: {vdw_score:.2f}, H-bond: {hbond_score:.2f}, Elec: {elec_score:.2f}, "
-                 f"Desolv: {desolv_score:.2f}, Hydrophobic: {hydrophobic_score:.2f}, "
-                 f"Clash: {clash_score:.2f}, Entropy: {entropy_score:.2f}")
-        print(f"Score breakdown: VDW={vdw_score:.2f}, Elec={elec_score:.2f}, Desolv={desolv_score:.2f}, Hydroph={hydrophobic_score:.2f}, Clash={clash_score:.2f}, Entropy={entropy_score:.2f}, TOTAL={total_score:.2f}")
+
+        self.last_component_scores = {
+            'vdw': vdw_score,
+            'hbond': hbond_score,
+            'elec': elec_score,
+            'desolv': desolv_score,
+            'hydrophobic': hydrophobic_score,
+            'clash': clash_score,
+            'entropy': entropy_score,
+            'total': total_score
+        }
+
+        if getattr(self, 'debug', False):
+            self._print_score_breakdown(self.last_component_scores)
+
         return total_score
+
+    def get_component_scores(self):
+        return self.last_component_scores if hasattr(self, 'last_component_scores') else None
+
+    def _print_score_breakdown(self, scores):
+        print("\n----- GPU SCORING BREAKDOWN -----")
+        for key in ['vdw', 'hbond', 'elec', 'desolv', 'hydrophobic', 'clash', 'entropy']:
+            print(f"{key.capitalize():12}: {scores[key]:8.4f} × {self.weights[key]:.2f} = {scores[key] * self.weights[key]:.4f}")
+        print(f"TOTAL SCORE  : {scores['total']:.4f}")
+        print("-------------------------------\n")
     
     def _calculate_vdw(self, protein, ligand):
         """
