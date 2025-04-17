@@ -10,82 +10,39 @@ import random
 import time
 import multiprocessing as mp
 from pathlib import Path
-from scipy.spatial.transform import Rotation
 from scipy.spatial.transform import Rotation, Slerp
 
 from .search import GeneticAlgorithm, RandomSearch
-from .utils import is_within_grid
-from .utils import detect_steric_clash
+from .utils import is_within_grid, detect_steric_clash
 
 class ParallelGeneticAlgorithm(GeneticAlgorithm):
-    """
-    Parallel implementation of genetic algorithm for molecular docking.
-    
-    This class extends the standard GeneticAlgorithm to parallelize the evaluation
-    of poses, which is typically the most time-consuming part of the search process.
-    """
-    
     def __init__(self, scoring_function, max_iterations=100, population_size=50, 
                  mutation_rate=0.2, crossover_rate=0.8, tournament_size=3, 
-                 n_processes=None, batch_size=None, process_pool=None, output_dir=None):
-        """
-        Initialize the parallel genetic algorithm.
-        
-        Parameters:
-        -----------
-        scoring_function : ScoringFunction
-            Scoring function to evaluate poses
-        max_iterations : int
-            Maximum number of generations
-        population_size : int
-            Size of the population
-        mutation_rate : float
-            Probability of mutation (0.0 to 1.0)
-        crossover_rate : float
-            Probability of crossover (0.0 to 1.0)
-        tournament_size : int
-            Size of tournament for selection
-        n_processes : int
-            Number of processes to use for parallelization.
-            If None, uses all available CPU cores.
-        batch_size : int
-            Size of batches for parallel evaluation.
-            If None, determines automatically based on population size and CPU count.
-        process_pool : multiprocessing.Pool
-            An existing process pool to use. If None, creates a new one.
-        """
+                 n_processes=None, batch_size=None, process_pool=None, 
+                 output_dir=None, perform_local_opt=False):
         super().__init__(scoring_function, max_iterations, population_size, mutation_rate)
         self.output_dir = output_dir
         self.crossover_rate = crossover_rate
         self.tournament_size = tournament_size
-        
-        # Set up parallelization parameters (but don't use for now due to pickling issues)
+        self.perform_local_opt = perform_local_opt
+
         if n_processes is None:
             self.n_processes = mp.cpu_count()
         else:
             self.n_processes = n_processes
-        
-        # Determine batch size
+
         if batch_size is None:
-            # Set batch size to balance parallelism and overhead
             self.batch_size = max(1, self.population_size // (self.n_processes * 2))
         else:
             self.batch_size = batch_size
-        
-        # Store process pool but don't use it (due to pickling issues)
+
         self.process_pool = process_pool
-        self.own_pool = False  # Flag to track if we created our own pool
-        
-        # Performance metrics
+        self.own_pool = False
+
         self.eval_time = 0.0
         self.total_time = 0.0
         self.best_score = float('inf')
         self.best_pose = None
-    
-        # Set up grid center and radius
-        self.grid_center = None
-        self.grid_radius = None
-        
 
         self.grid_center = np.array([0.0, 0.0, 0.0])
         self.grid_radius = 10.0
@@ -624,45 +581,23 @@ class ParallelRandomSearch(RandomSearch):
     """
     
     def __init__(self, scoring_function, max_iterations=100, n_processes=None, 
-                 batch_size=None, process_pool=None,output_dir=None):
-        """
-        Initialize the parallel random search.
-        
-        Parameters:
-        -----------
-        scoring_function : ScoringFunction
-            Scoring function to evaluate poses
-        max_iterations : int
-            Maximum number of iterations
-        n_processes : int
-            Number of processes to use for parallelization.
-            If None, uses all available CPU cores.
-        batch_size : int
-            Size of batches for parallel evaluation.
-            If None, determines automatically based on iterations and CPU count.
-        process_pool : multiprocessing.Pool
-            An existing process pool to use. If None, creates a new one.
-        """
+                 batch_size=None, process_pool=None, output_dir=None):
         super().__init__(scoring_function, max_iterations)
         self.output_dir = output_dir
-        # Set up parallelization
+
         if n_processes is None:
             self.n_processes = mp.cpu_count()
         else:
             self.n_processes = n_processes
-        
-        # Determine batch size
+
         if batch_size is None:
-            # Set batch size to balance parallelism and overhead
             self.batch_size = max(10, self.max_iterations // (self.n_processes * 5))
         else:
             self.batch_size = batch_size
-        
-        # Store process pool
+
         self.process_pool = process_pool
-        self.own_pool = False  # Flag to track if we created our own pool
-        
-        # Performance metrics
+        self.own_pool = False
+
         self.eval_time = 0.0
         self.total_time = 0.0
     

@@ -322,6 +322,9 @@ def get_algorithm_kwargs_from_args(args):
         
         if hasattr(args, 'mutation_rate'):
             algorithm_kwargs['mutation_rate'] = getattr(args, 'mutation_rate', 0.2)
+
+        if hasattr(args, 'local_opt'):
+            algorithm_kwargs['perform_local_opt'] = args.local_opt
         
     elif algorithm_type == 'monte-carlo':
         # Monte Carlo specific parameters
