@@ -601,6 +601,15 @@ class CompositeScoringFunction(ScoringFunction):
         
         return clash_score
 
+    def _calculate_clashes(self, protein, ligand, cutoff=1.6):
+        clash_energy = 0.0
+        for p_atom in protein.atoms:
+            for l_atom in ligand.atoms:
+                if 'coords' in p_atom and 'coords' in l_atom:
+                    dist = np.linalg.norm(p_atom['coords'] - l_atom['coords'])
+                    if dist < cutoff:
+                        clash_energy += (cutoff - dist)**2
+        return clash_energy
 
 class EnhancedScoringFunction(CompositeScoringFunction):
     """
@@ -650,7 +659,15 @@ class EnhancedScoringFunction(CompositeScoringFunction):
         )
         
         return total_score
-
+    def _calculate_clashes(self, protein, ligand, cutoff=1.6):
+        clash_energy = 0.0
+        for p_atom in protein.atoms:
+            for l_atom in ligand.atoms:
+                if 'coords' in p_atom and 'coords' in l_atom:
+                    dist = np.linalg.norm(p_atom['coords'] - l_atom['coords'])
+                    if dist < cutoff:
+                        clash_energy += (cutoff - dist)**2
+        return clash_energy
 
 class TetheredScoringFunction:
     """
@@ -673,7 +690,8 @@ class TetheredScoringFunction:
         
         # Apply RMSD penalty, capped at max_penalty
         rmsd_penalty = min(self.weight * rmsd, self.max_penalty)
-        
+        score += self.weights['clash'] * self._calculate_clashes(protein, ligand)
+
         # Return combined score
         return base_score + rmsd_penalty
     

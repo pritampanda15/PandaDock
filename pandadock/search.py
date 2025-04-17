@@ -8,7 +8,7 @@ from .utils import setup_logging
 class DockingSearch:
     """Base class for docking search algorithms."""
     
-    def __init__(self, scoring_function, max_iterations=1000, output_dir=None):
+    def __init__(self, scoring_function, max_iterations=100, output_dir=None):
         """
         Initialize search algorithm.
         
@@ -1358,6 +1358,12 @@ class GeneticAlgorithm(DockingSearch):
         
         print(f"Starting local optimization from score: {current_score:.2f}")
         
+        # Constrain optimization to the grid
+        if np.linalg.norm(np.mean(pose.xyz, axis=0) - self.grid_center) > self.grid_radius:
+            print("Optimized pose outside grid. Reverting...")
+            return pose, self.scoring_function.score(protein, pose)
+        
+        # Perform optimization
         for step in range(max_steps):
             improved = False
             

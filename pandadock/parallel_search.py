@@ -14,7 +14,8 @@ from scipy.spatial.transform import Rotation
 from scipy.spatial.transform import Rotation, Slerp
 
 from .search import GeneticAlgorithm, RandomSearch
-
+from .utils import is_within_grid
+from .utils import detect_steric_clash
 
 class ParallelGeneticAlgorithm(GeneticAlgorithm):
     """
@@ -81,6 +82,14 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         self.best_score = float('inf')
         self.best_pose = None
     
+        # Set up grid center and radius
+        self.grid_center = None
+        self.grid_radius = None
+        
+
+        self.grid_center = np.array([0.0, 0.0, 0.0])
+        self.grid_radius = 10.0
+
     def initialize_population(self, protein, ligand):
         """
         Initialize random population for genetic algorithm.
@@ -203,8 +212,9 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
                         child1, child2 = copy.deepcopy(parent1), copy.deepcopy(parent2)
                     
                     # Mutation
-                    self._mutate(child1)
-                    self._mutate(child2)
+                    # Mutation
+                    self._mutate(child1, copy.deepcopy(parent1))
+                    self._mutate(child2, copy.deepcopy(parent2))
                     
                     offspring.append((child1, None))
                     offspring.append((child2, None))
@@ -236,13 +246,13 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
             
             # Apply local search to the best individual occasionally
             if hasattr(self, '_local_optimization') and generation % 5 == 0:
-                print("Applying local optimization to best individual...")
+                #print("Applying local optimization to best individual...")
                 best_pose, best_score = self._local_optimization(evaluated_population[0][0], protein)
                 
                 if best_score < self.best_score:
                     self.best_pose = best_pose
                     self.best_score = best_score
-                    print(f"Improved score after optimization: {self.best_score:.4f}")
+                    #print(f"Improved score after optimization: {self.best_score:.4f}")
                     
                     # Replace best individual in population
                     evaluated_population[0] = (best_pose, best_score)
@@ -259,7 +269,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         
         # Return results
         return all_individuals
-    
+
     def _evaluate_population(self, protein, population):
         """
         Evaluate population sequentially to avoid multiprocessing issues.
@@ -286,7 +296,12 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
                 
             score = self.scoring_function.score(protein, pose)
             results.append((copy.deepcopy(pose), score))
-        
+
+            if detect_steric_clash(protein.atoms, pose.atoms):
+                score = float('inf')  # or apply a large clash penalty
+            else:
+                score = self.scoring_function.score(protein, pose)
+                
         return results
     
     def _selection(self, population):
@@ -375,11 +390,11 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         
         # Validate children
         if not self._validate_conformation(child1):
-            print("Child1 failed validation. Attempting repair...")
+            #print("Child1 failed validation. Attempting repair...")
             child1 = self._repair_conformation(child1)
         
         if not self._validate_conformation(child2):
-            print("Child2 failed validation. Attempting repair...")
+            #print("Child2 failed validation. Attempting repair...")
             child2 = self._repair_conformation(child2)
         
         return child1, child2
@@ -402,7 +417,8 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         for i in range(len(ligand.xyz)):
             for j in range(i + 1, len(ligand.xyz)):
                 distance = np.linalg.norm(ligand.xyz[i] - ligand.xyz[j])
-                if distance < 1.0:  # Threshold for atom overlap (in Å)
+                if distance < 1.2:  # Adjusted threshold for atom overlap (in Å)
+                    #print(f"Validation failed: Overlapping atoms at indices {i} and {j} (distance: {distance:.2f} Å)")
                     return False
         
         # Check for valid bond lengths
@@ -410,37 +426,137 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
             atom1 = ligand.xyz[bond['begin_atom_idx']]
             atom2 = ligand.xyz[bond['end_atom_idx']]
             bond_length = np.linalg.norm(atom1 - atom2)
-            if bond_length < 0.9 or bond_length > 1.6:  # Typical bond length range (in Å)
+            if bond_length < 0.9 or bond_length > 2.0:  # Adjusted bond length range (in Å)
+                #print(f"Validation failed: Invalid bond length ({bond_length:.2f} Å) between atoms {bond['begin_atom_idx']} and {bond['end_atom_idx']}")
                 return False
         
         return True
 
-    def _repair_conformation(self, ligand):
+    def _repair_conformation(self, ligand, max_attempts=5):
         """
         Attempt to repair an invalid ligand conformation.
-        
+
         Parameters:
         -----------
         ligand : Ligand
             Ligand to repair
-        
+        max_attempts : int
+            Maximum number of repair attempts
+
         Returns:
         --------
         Ligand
-            Repaired ligand
+            Repaired ligand or a new random pose if repair fails
         """
-        # Apply small random perturbations to atom positions
-        perturbation = np.random.normal(0, 0.1, ligand.xyz.shape)  # 0.1 Å standard deviation
-        ligand.xyz += perturbation
+        print("Attempting to repair ligand conformation...")
         
-        # Revalidate after repair
-        if self._validate_conformation(ligand):
-            return ligand
-        else:
-            print("Repair failed. Returning original ligand.")
-            return ligand
+        for attempt in range(max_attempts):
+            print(f"Repair attempt {attempt + 1}/{max_attempts}...")
+            
+            # Apply small random perturbations to atom positions
+            perturbation = np.random.normal(0, 0.2, ligand.xyz.shape)  # 0.2 Å standard deviation
+            ligand.xyz += perturbation
+            
+            # Revalidate after perturbation
+            if self._validate_conformation(ligand):
+                print("Repair successful after random perturbation.")
+                return ligand
+            
+            # Attempt to resolve steric clashes by energy minimization
+            try:
+                print("Applying energy minimization to repair ligand...")
+                ligand = self._minimize_energy(ligand, max_iterations=200)
+                if self._validate_conformation(ligand):
+                    print("Repair successful after energy minimization.")
+                    return ligand
+            except Exception as e:
+                print(f"Energy minimization failed: {e}")
+        
+        # If repair fails, generate a new random pose
+        print("Repair failed after maximum attempts. Generating a new random pose...")
+        return self._generate_random_pose(ligand, np.mean(ligand.xyz, axis=0), 15.0)  # Example radius
     
-    def _mutate(self, individual):
+    def _minimize_energy(self, ligand, max_iterations=100):
+        """
+        Perform energy minimization to resolve steric clashes and optimize ligand geometry.
+
+        Parameters:
+        -----------
+        ligand : Ligand
+            Ligand to minimize
+        max_iterations : int
+            Maximum number of optimization iterations
+
+        Returns:
+        --------
+        Ligand
+            Minimized ligand
+        """
+        from scipy.optimize import minimize
+
+        def energy_function(coords):
+            # Example energy function: penalize overlapping atoms and bond length deviations
+            coords = coords.reshape(ligand.xyz.shape)
+            energy = 0.0
+            
+            # Penalize overlapping atoms
+            for i in range(len(coords)):
+                for j in range(i + 1, len(coords)):
+                    distance = np.linalg.norm(coords[i] - coords[j])
+                    if distance < 1.2:  # Overlap threshold
+                        energy += (1.2 - distance) ** 2
+            
+            # Penalize invalid bond lengths
+            for bond in ligand.bonds:
+                atom1 = coords[bond['begin_atom_idx']]
+                atom2 = coords[bond['end_atom_idx']]
+                bond_length = np.linalg.norm(atom1 - atom2)
+                if bond_length < 0.9:
+                    energy += (0.9 - bond_length) ** 2
+                elif bond_length > 2.0:
+                    energy += (bond_length - 2.0) ** 2
+            
+            return energy
+
+        # Flatten coordinates for optimization
+        initial_coords = ligand.xyz.flatten()
+        result = minimize(energy_function, initial_coords, method='L-BFGS-B', options={'maxiter': max_iterations})
+        
+        # Update ligand coordinates with minimized values
+        ligand.xyz = result.x.reshape(ligand.xyz.shape)
+        return ligand
+    
+
+    def _generate_random_pose(self, ligand, center, radius):
+        while True:
+            r = radius * random.random() ** (1.0 / 3.0)
+            theta = random.uniform(0, 2 * np.pi)
+            phi = random.uniform(0, np.pi)
+
+            x = center[0] + r * np.sin(phi) * np.cos(theta)
+            y = center[1] + r * np.sin(phi) * np.sin(theta)
+            z = center[2] + r * np.cos(phi)
+
+            pose = copy.deepcopy(ligand)
+            centroid = np.mean(pose.xyz, axis=0)
+            translation = np.array([x, y, z]) - centroid
+            pose.translate(translation)
+
+            if is_within_grid(pose, center, radius):
+                return pose
+
+    import numpy as np
+
+    
+
+    # Apply translation and rotation as usual
+    ...
+    
+    ##############
+    # Mutation
+    ##############
+
+    def _mutate(self, individual, original_individual): # Add original_individual as parameter``
         """
         Mutate an individual with probability mutation_rate.
         
@@ -449,6 +565,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         individual : Ligand
             Individual to mutate
         """
+
         if random.random() >= self.mutation_rate:
             return  # No mutation
         
@@ -468,13 +585,36 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
             
             rotation = Rotation.from_rotvec(angle * axis)
             
-            # Apply rotation around the center of mass
             centroid = np.mean(individual.xyz, axis=0)
             individual.translate(-centroid)
             individual.rotate(rotation.as_matrix())
             individual.translate(centroid)
 
+        if not is_within_grid(individual, self.grid_center, self.grid_radius):
+            #print("Mutation out of bounds. Reverting...")
+            return copy.deepcopy(original_individual)
 
+        return individual
+                
+        
+    def _local_optimization(self, pose, protein):
+        """
+        Perform local optimization of pose using gradient descent with clash detection.
+        
+        Parameters:
+        -----------
+        pose : Ligand
+            Ligand pose to optimize
+        protein : Protein
+            Protein target
+        
+        Returns:
+        --------
+        tuple
+            (optimized_pose, optimized_score)
+        """
+        return super()._local_optimization(pose, protein)   
+    
 class ParallelRandomSearch(RandomSearch):
     """
     Parallel implementation of random search for molecular docking.
@@ -483,7 +623,7 @@ class ParallelRandomSearch(RandomSearch):
     of poses, which is typically the most time-consuming part of the search process.
     """
     
-    def __init__(self, scoring_function, max_iterations=1000, n_processes=None, 
+    def __init__(self, scoring_function, max_iterations=100, n_processes=None, 
                  batch_size=None, process_pool=None,output_dir=None):
         """
         Initialize the parallel random search.
@@ -587,28 +727,7 @@ class ParallelRandomSearch(RandomSearch):
         return results
     
     def _generate_random_pose(self, ligand, center, radius):
-        """
-        Generate a single random pose.
-        
-        Parameters:
-        -----------
-        ligand : Ligand
-            Template ligand
-        center : array-like
-            Center of search space
-        radius : float
-            Radius of search space
-        
-        Returns:
-        --------
-        Ligand
-            Random ligand pose
-        """
-        # Make a deep copy of the ligand
-        pose = copy.deepcopy(ligand)
-        
-        # Generate random position within sphere
-        r = radius * random.random() ** (1.0/3.0)
+        r = radius * random.random() ** (1.0 / 3.0)
         theta = random.uniform(0, 2 * np.pi)
         phi = random.uniform(0, np.pi)
         
@@ -616,21 +735,14 @@ class ParallelRandomSearch(RandomSearch):
         y = center[1] + r * np.sin(phi) * np.sin(theta)
         z = center[2] + r * np.cos(phi)
         
-        # Calculate translation vector
+        # Ensure the pose is within the grid
+        if np.linalg.norm([x - center[0], y - center[1], z - center[2]]) > radius:
+            print("Pose outside grid. Regenerating...")
+            return self._generate_random_pose(ligand, center, radius)
+        
+        # Apply translation and rotation as usual
+        pose = copy.deepcopy(ligand)
         centroid = np.mean(pose.xyz, axis=0)
         translation = np.array([x, y, z]) - centroid
-        
-        # Apply translation
         pose.translate(translation)
-        
-        # Generate random rotation
-        rotation = Rotation.random()
-        rotation_matrix = rotation.as_matrix()
-        
-        # Apply rotation around the new center
-        centroid = np.mean(pose.xyz, axis=0)
-        pose.translate(-centroid)
-        pose.rotate(rotation_matrix)
-        pose.translate(centroid)
-        
         return pose

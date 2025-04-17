@@ -58,6 +58,56 @@ def setup_logging(output_dir=None, log_name="pandadock", log_level=logging.INFO)
             logger.info(f"Log file created at: {logs_dir / f'{log_name}.log'}")
     
     return logger
+import numpy as np
+
+def is_within_grid(pose, grid_center, grid_radius):
+    """
+    Check if the centroid of the pose lies within the spherical grid boundary.
+    
+    Parameters:
+    -----------
+    pose : Ligand
+        Ligand pose with atomic coordinates in .xyz
+    grid_center : np.ndarray
+        3D center of the search grid
+    grid_radius : float
+        Radius of the grid sphere
+
+    Returns:
+    --------
+    bool
+        True if pose is inside grid, False otherwise
+    """
+    centroid = np.mean(pose.xyz, axis=0)
+    distance = np.linalg.norm(centroid - grid_center)
+    return distance <= grid_radius
+
+def detect_steric_clash(protein_atoms, ligand_atoms, threshold=1.6):
+    """
+    Check if any ligand atom is too close to a protein atom (steric clash).
+    
+    Parameters:
+    -----------
+    protein_atoms : list
+    ligand_atoms : list
+    threshold : float
+        Minimum allowed distance (Å) between non-bonded atoms
+    
+    Returns:
+    --------
+    bool
+        True if clash detected, False otherwise
+    """
+    for p in protein_atoms:
+        if 'coords' not in p:
+            continue
+        for l in ligand_atoms:
+            if 'coords' not in l:
+                continue
+            distance = np.linalg.norm(p['coords'] - l['coords'])
+            if distance < threshold:
+                return True
+    return False
 
 def create_initial_files(output_dir, args):
     """
