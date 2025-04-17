@@ -316,7 +316,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
     
     def _crossover_pair(self, parent1, parent2):
         """
-        Perform crossover between two parents.
+        Perform crossover between two parents using a more sophisticated approach.
         
         Parameters:
         -----------
@@ -338,18 +338,103 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         centroid1 = np.mean(parent1.xyz, axis=0)
         centroid2 = np.mean(parent2.xyz, axis=0)
         
-        # Intermediate point for crossover
-        midpoint = (centroid1 + centroid2) / 2.0
+        # Weighted centroid crossover
+        alpha = random.uniform(0.3, 0.7)  # Random weight for variability
+        new_centroid1 = alpha * centroid1 + (1 - alpha) * centroid2
+        new_centroid2 = (1 - alpha) * centroid1 + alpha * centroid2
         
-        # Apply to children (swap coordinates)
-        child1.translate(midpoint - centroid1)
-        child2.translate(midpoint - centroid2)
+        # Apply translation to children
+        child1.translate(new_centroid1 - centroid1)
+        child2.translate(new_centroid2 - centroid2)
         
-        # Random rotation recombination (create intermediate rotation)
-        # Interpolate rotation between parents to create children
-        # This is a simplified approach - more advanced methods could be used
+        # Fragment-based crossover
+        fragment_indices = random.sample(range(len(parent1.xyz)), len(parent1.xyz) // 2)
+        for idx in fragment_indices:
+            child1.xyz[idx], child2.xyz[idx] = child2.xyz[idx], child1.xyz[idx]
+        
+        # Rotation interpolation
+        rotation1 = Rotation.random()
+        rotation2 = Rotation.random()
+        interpolated_rotation = Rotation.slerp(rotation1, rotation2, alpha)
+        
+        # Apply interpolated rotation to children
+        centroid1 = np.mean(child1.xyz, axis=0)
+        centroid2 = np.mean(child2.xyz, axis=0)
+        
+        child1.translate(-centroid1)
+        child1.rotate(interpolated_rotation.as_matrix())
+        child1.translate(centroid1)
+        
+        child2.translate(-centroid2)
+        child2.rotate(interpolated_rotation.as_matrix())
+        child2.translate(centroid2)
+        
+        # Validate children
+        if not self._validate_conformation(child1):
+            print("Child1 failed validation. Attempting repair...")
+            child1 = self._repair_conformation(child1)
+        
+        if not self._validate_conformation(child2):
+            print("Child2 failed validation. Attempting repair...")
+            child2 = self._repair_conformation(child2)
         
         return child1, child2
+
+    def _validate_conformation(self, ligand):
+        """
+        Validate a ligand conformation to ensure no overlapping atoms or invalid bond lengths.
+        
+        Parameters:
+        -----------
+        ligand : Ligand
+            Ligand to validate
+        
+        Returns:
+        --------
+        bool
+            True if the conformation is valid, False otherwise
+        """
+        # Check for overlapping atoms
+        for i in range(len(ligand.xyz)):
+            for j in range(i + 1, len(ligand.xyz)):
+                distance = np.linalg.norm(ligand.xyz[i] - ligand.xyz[j])
+                if distance < 1.0:  # Threshold for atom overlap (in Å)
+                    return False
+        
+        # Check for valid bond lengths
+        for bond in ligand.bonds:
+            atom1 = ligand.xyz[bond['begin_atom_idx']]
+            atom2 = ligand.xyz[bond['end_atom_idx']]
+            bond_length = np.linalg.norm(atom1 - atom2)
+            if bond_length < 0.9 or bond_length > 1.6:  # Typical bond length range (in Å)
+                return False
+        
+        return True
+
+    def _repair_conformation(self, ligand):
+        """
+        Attempt to repair an invalid ligand conformation.
+        
+        Parameters:
+        -----------
+        ligand : Ligand
+            Ligand to repair
+        
+        Returns:
+        --------
+        Ligand
+            Repaired ligand
+        """
+        # Apply small random perturbations to atom positions
+        perturbation = np.random.normal(0, 0.1, ligand.xyz.shape)  # 0.1 Å standard deviation
+        ligand.xyz += perturbation
+        
+        # Revalidate after repair
+        if self._validate_conformation(ligand):
+            return ligand
+        else:
+            print("Repair failed. Returning original ligand.")
+            return ligand
     
     def _mutate(self, individual):
         """
