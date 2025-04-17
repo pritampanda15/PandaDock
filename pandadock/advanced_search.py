@@ -6,6 +6,8 @@ replica exchange methods, and machine learning guided approaches.
 """
 
 import numpy as np
+import os
+import sys
 import copy
 import time
 import random
@@ -142,6 +144,12 @@ class GradientBasedSearch(DockingSearch):
         print(f"Starting gradient-based search with max {self.max_iterations} iterations")
         start_time = time.time()
         
+        # Set up intermediate results directory if output_dir is specified
+        if self.output_dir:
+            gradient_dir = os.path.join(self.output_dir, "intermediate", "gradient_based")
+            os.makedirs(gradient_dir, exist_ok=True)
+
+
         # Create multiple starting poses to avoid local minima
         n_starting_poses = 10
         starting_poses = []
@@ -195,6 +203,13 @@ class GradientBasedSearch(DockingSearch):
         for i, start_pose in enumerate(starting_poses):
             print(f"Optimizing starting pose {i+1}/{n_starting_poses}")
             
+
+            # Create optimization tracking directory
+            if self.output_dir:
+                opt_dir = os.path.join(gradient_dir, f"pose_{i+1}_optimization")
+                os.makedirs(opt_dir, exist_ok=True)
+
+
             # Get initial pose parameters
             centroid = np.mean(start_pose.xyz, axis=0)
             initial_params = np.zeros(6)  # [tx, ty, tz, rx, ry, rz]
@@ -203,6 +218,100 @@ class GradientBasedSearch(DockingSearch):
             # Make a copy for optimization
             pose = copy.deepcopy(start_pose)
             
+            """
+            This code defines a callback function used to track the progress of an optimization process for refining a molecular pose. The callback function is invoked during each iteration of the optimization algorithm, allowing the program to evaluate and adjust the pose parameters iteratively.
+
+            ### Key Steps in the Code:
+
+            1. **Iteration Counter**: 
+            A list `iteration_count` is initialized with a single element `[0]`. This allows the counter to be modified within the nested `callback` function, as lists are mutable in Python.
+
+            2. **Pose Adjustment**:
+            - A deep copy of the starting pose (`start_pose`) is created to avoid modifying the original pose directly.
+            - The translation vector is calculated as the difference between the current parameters (`params[:3]`) and the centroid of the starting pose. This translation is applied to the copied pose using the `translate` method.
+            - If the rotation vector (`params[3:6]`) has a non-zero magnitude, a rotation is applied. The rotation vector is normalized to determine the axis of rotation, and a rotation matrix is computed using `scipy.spatial.transform.Rotation`. The pose is then rotated around its center of mass by translating it to the origin, applying the rotation, and translating it back.
+
+            3. **Scoring**:
+            The adjusted pose is evaluated using a scoring function (`self.scoring_function.score`), which likely measures how well the pose fits a target structure or satisfies certain constraints.
+
+            4. **Saving Intermediate Results**:
+            If an output directory (`self.output_dir`) is specified, the pose is saved as a PDB file every 5 iterations or during the first iteration. The filename includes the iteration number and the current score for traceability.
+
+            5. **Progress Reporting**:
+            The iteration counter is incremented after each call to the callback. Additionally, progress is printed to the console every 5 iterations, showing the current iteration number and score.
+
+            ### Purpose:
+            This callback function is designed to facilitate optimization by:
+            - Tracking and saving intermediate results for analysis.
+            - Providing feedback on the optimization progress.
+            - Ensuring that the pose adjustments (translation and rotation) are applied systematically and correctly.
+
+            This approach is particularly useful in computational biology or structural modeling tasks, where iterative refinement of molecular poses is common.
+            6. **Optimization**:
+            The `scipy.optimize.minimize` function is used to perform the optimization, applying the callback function as the `callback` argument.
+            7. **Final Pose**:
+            The final optimized pose is stored in the `final_pose` variable.
+            8. **Results**:
+            The final pose, score, and iteration count are added to the `all_results` list, which is returned at the end of the function.
+            9. **Output**:
+            The final pose, score, and iteration count are returned as a tuple.
+            10. **Sorting**:
+            The `all_results` list is sorted in descending order based on the scores.
+            11. **Summary**:
+            The function prints a summary of the optimization process, including the final pose, score, and iteration count.
+            """
+            # Define callback function to track progress
+            from scipy.optimize import OptimizeResult
+            from scipy.optimize import OptimizeWarning
+
+            iteration_count = [0]  # Using a list to allow modification in nested function
+            
+            def callback(params):
+                # Create a test pose with current parameters
+                test_pose = copy.deepcopy(start_pose)
+                
+                # Extract translation and rotation
+                translation = params[:3] - centroid
+                rotation_vec = params[3:6]
+                
+                # Apply translation
+                test_pose.translate(translation)
+                
+                # Apply rotation if rotation vector is not zero
+                rot_magnitude = np.linalg.norm(rotation_vec)
+                if rot_magnitude > 1e-6:
+                    # Normalize rotation vector
+                    axis = rotation_vec / rot_magnitude
+                    
+                    # Create rotation matrix
+                    rotation = Rotation.from_rotvec(axis * rot_magnitude)
+                    rotation_matrix = rotation.as_matrix()
+                    
+                    # Apply rotation around center of mass
+                    new_centroid = np.mean(test_pose.xyz, axis=0)
+                    test_pose.translate(-new_centroid)
+                    test_pose.rotate(rotation_matrix)
+                    test_pose.translate(new_centroid)
+                
+                # Evaluate score
+                current_score = self.scoring_function.score(protein, test_pose)
+                
+                # Save intermediate pose if output_dir is specified and every few iterations
+                if self.output_dir and (iteration_count[0] % 5 == 0 or iteration_count[0] == 0):
+                    self._save_pose_to_pdb(
+                        test_pose,
+                        os.path.join(opt_dir, f"iter_{iteration_count[0]}_score_{current_score:.2f}.pdb"),
+                        score=current_score,
+                        remark=f"Gradient optimization iteration {iteration_count[0]}"
+                    )
+                
+                # Increment iteration counter
+                iteration_count[0] += 1
+                
+                # Print progress occasionally
+                if iteration_count[0] % 5 == 0:
+                    print(f"  Iteration {iteration_count[0]}, score: {current_score:.4f}")
+
             # Define objective function for L-BFGS-B
             def objective(params):
                 # Create a new pose for evaluation
