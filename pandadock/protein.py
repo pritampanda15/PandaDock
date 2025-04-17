@@ -101,52 +101,96 @@ class Protein:
     
     def detect_pockets(self):
         """
-        Simple algorithm to detect potential binding pockets.
+        Advanced algorithm to detect potential binding pockets using geometric and physicochemical properties.
         
         Returns:
         --------
         list
-            List of potential binding pockets as (center, radius) tuples
+            List of potential binding pockets as dictionaries with center, radius, and other properties.
         """
-        # This is a placeholder for a more sophisticated algorithm
-        # A real implementation would use methods like fpocket, LIGSITE, etc.
-        # For now, we'll just return a simple cluster-based approach
-        
+        from scipy.spatial import ConvexHull, distance
         from sklearn.cluster import DBSCAN
-        
-        # Only consider surface atoms (this is a simplification)
-        # Real pocket detection would be more sophisticated
+
         pockets = []
-        
+
         try:
-            # Apply DBSCAN clustering to find dense regions
-            clustering = DBSCAN(eps=3.5, min_samples=5).fit(self.xyz)
+            # Step 1: Identify surface atoms
+            print("Detecting surface atoms...")
+            surface_atoms = self._get_surface_atoms()
+            if len(surface_atoms) == 0:
+                print("No surface atoms detected. Pocket detection failed.")
+                return []
+
+            # Step 2: Apply clustering to group surface atoms into potential pockets
+            print("Clustering surface atoms to identify pockets...")
+            clustering = DBSCAN(eps=4.0, min_samples=5).fit(surface_atoms)
             labels = clustering.labels_
-            
-            # Get cluster centers and sizes
+
+            # Step 3: Analyze clusters to identify pockets
             unique_labels = set(labels)
             for label in unique_labels:
                 if label == -1:  # Skip noise points
                     continue
-                    
-                cluster_points = self.xyz[labels == label]
+
+                cluster_points = surface_atoms[labels == label]
+                if len(cluster_points) < 10:  # Skip small clusters
+                    continue
+
+                # Calculate pocket center and radius
                 center = np.mean(cluster_points, axis=0)
                 radius = np.max(np.linalg.norm(cluster_points - center, axis=1))
-                
+
+                # Step 4: Refine pocket using convex hull
+                hull = ConvexHull(cluster_points)
+                hull_volume = hull.volume
+                hull_area = hull.area
+
+                # Step 5: Add pocket properties
                 pockets.append({
                     'center': center,
                     'radius': radius,
-                    'size': len(cluster_points)
+                    'size': len(cluster_points),
+                    'hull_volume': hull_volume,
+                    'hull_area': hull_area
                 })
-            
-            # Sort pockets by size (larger is likely more important)
-            pockets = sorted(pockets, key=lambda x: x['size'], reverse=True)
-            
+
+            # Step 6: Sort pockets by size and volume (larger is likely more important)
+            pockets = sorted(pockets, key=lambda x: (x['size'], x['hull_volume']), reverse=True)
+
+            print(f"Detected {len(pockets)} potential binding pockets.")
+
         except Exception as e:
             print(f"Error in pocket detection: {e}")
-            print("Make sure scikit-learn is installed")
-        
+            print("Ensure required libraries (scipy, sklearn) are installed.")
+
         return pockets
+
+    def _get_surface_atoms(self, probe_radius=1.4):
+        """
+        Identify surface atoms using a distance-based approach or SASA calculation.
+        
+        Parameters:
+        -----------
+        probe_radius : float
+            Radius of the probe used to define the surface (default: 1.4 Å for water).
+        
+        Returns:
+        --------
+        np.ndarray
+            Array of coordinates of surface atoms.
+        """
+        from scipy.spatial import KDTree
+
+        surface_atoms = []
+        kdtree = KDTree(self.xyz)
+
+        for i, atom in enumerate(self.xyz):
+            # Find neighbors within the probe radius
+            neighbors = kdtree.query_ball_point(atom, r=probe_radius + 1.5)
+            if len(neighbors) < 4:  # Surface atoms typically have fewer neighbors
+                surface_atoms.append(atom)
+
+        return np.array(surface_atoms)
 
     # Add to protein.py
 
