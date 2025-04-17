@@ -120,6 +120,22 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
                 print("Neither PyTorch nor CuPy available. Falling back to CPU calculations.")
                 print("For better performance, install PyTorch or CuPy with GPU support.")
     
+
+    def _print_score_breakdown(self, scores):
+        """
+        Print a detailed breakdown of the scoring components.
+        
+        Parameters:
+        -----------
+        scores : dict
+            Dictionary containing individual score components and the total score.
+        """
+        print("\n----- GPU SCORING BREAKDOWN -----")
+        for key in ['vdw', 'hbond', 'elec', 'desolv', 'hydrophobic', 'clash', 'entropy']:
+            print(f"{key.capitalize():12}: {scores[key]:8.4f} × {self.weights[key]:.2f} = {scores[key] * self.weights[key]:.4f}")
+        print(f"TOTAL SCORE  : {scores['total']:.4f}")
+        print("-------------------------------\n")
+
     def score(self, protein, ligand):
         """
         Calculate binding score using GPU acceleration when available.
@@ -160,12 +176,22 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             self.weights['entropy'] * entropy_score
         )
         
+        # Create a dictionary of scores for breakdown
+        scores = {
+            'vdw': vdw_score,
+            'hbond': hbond_score,
+            'elec': elec_score,
+            'desolv': desolv_score,
+            'hydrophobic': hydrophobic_score,
+            'clash': clash_score,
+            'entropy': entropy_score,
+            'total': total_score
+        }
+        
         end_time = time.time()
         if hasattr(self, 'verbose') and self.verbose:
             print(f"Scoring completed in {end_time - start_time:.4f} seconds")
-            print(f"VDW: {vdw_score:.2f}, H-bond: {hbond_score:.2f}, Elec: {elec_score:.2f}, "
-                 f"Desolv: {desolv_score:.2f}, Hydrophobic: {hydrophobic_score:.2f}, "
-                 f"Clash: {clash_score:.2f}, Entropy: {entropy_score:.2f}")
+            self._print_score_breakdown(scores)
         
         return total_score
     
