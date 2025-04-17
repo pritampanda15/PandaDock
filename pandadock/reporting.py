@@ -8,13 +8,16 @@ including energy breakdowns, RMSD calculations, and visualization capabilities.
 import os
 import json
 import numpy as np
+import matplotlib
+import seaborn as sns
 import matplotlib.pyplot as plt
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
 from tabulate import tabulate
 import csv
-
+from collections import defaultdict
+from typing import List, Dict, Any, Tuple
 
 class EnhancedJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder that handles NumPy types and other special types."""
@@ -30,10 +33,11 @@ class EnhancedJSONEncoder(json.JSONEncoder):
         elif isinstance(obj, bool):
             return bool(obj)
         return super().default(obj)
+    
 class DockingReporter:
     """
-    Comprehensive reporting class for molecular docking results.
-    Generates detailed reports with energy breakdowns, visualizations, and validation metrics.
+    Enhanced docking report generator for PandaDock.
+    Creates comprehensive reports with detailed energy breakdowns and interaction analysis.
     """
     
     def __init__(self, output_dir, args, timestamp=None):
@@ -43,568 +47,762 @@ class DockingReporter:
         Parameters:
         -----------
         output_dir : str
-            Output directory path
+            Directory where reports will be saved
         args : argparse.Namespace
             Command-line arguments
         timestamp : str, optional
-            Timestamp for report identification
+            Timestamp for the report
         """
-        self.output_dir = Path(output_dir)
+        self.output_dir = output_dir
         self.args = args
         
         # Create timestamp if not provided
-        if timestamp is None:
-            self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        else:
-            self.timestamp = timestamp
+        import datetime
+        self.timestamp = timestamp or datetime.datetime.now().strftime("%Y%m%d_%H-%M")
         
-        # Create output directory if it doesn't exist
-        os.makedirs(self.output_dir, exist_ok=True)
-        
-        # Initialize report data
-        self.run_info = {
-            "timestamp": self.timestamp,
-            "protein": str(args.protein),
-            "ligand": str(args.ligand),
-            "algorithm": args.algorithm if hasattr(args, 'algorithm') else "unknown",
-            "hardware": self._get_hardware_info(args)
-        }
-        
-        # For storing results
-        self.results = []
-        self.scoring_breakdown = []
+        # Store results
+        self.results = None
+        self.energy_breakdown = None
         self.validation_results = None
-    
-    def _get_hardware_info(self, args):
-        """Extract hardware configuration information from arguments."""
-        hardware = {}
+        self.interaction_analysis = None
+        self.scoring_breakdown = None
         
-        if hasattr(args, 'use_gpu'):
-            hardware["use_gpu"] = args.use_gpu
-        if hasattr(args, 'gpu_id'):
-            hardware["gpu_id"] = args.gpu_id
-        if hasattr(args, 'cpu_workers'):
-            hardware["cpu_workers"] = args.cpu_workers
-        
-        return hardware
-    
-    def add_results(self, results, detailed_energy=None):
+    def add_results(self, results, energy_breakdown=None):
         """
-        Add docking results to the report.
+        Add docking results to the reporter.
         
         Parameters:
         -----------
         results : list
             List of (pose, score) tuples
-        detailed_energy : list, optional
-            List of detailed energy breakdowns as dictionaries
+        energy_breakdown : dict, optional
+            Dictionary with energy component breakdowns
         """
         self.results = results
-        
-        # If detailed energy information is provided, store it
-        if detailed_energy:
-            self.scoring_breakdown = detailed_energy
-        
-        # Sort results by score if not already sorted
-        self.results.sort(key=lambda x: x[1])
+        self.energy_breakdown = energy_breakdown
     
     def add_validation_results(self, validation_results):
         """
-        Add validation results to the report.
+        Add validation results to the reporter.
         
         Parameters:
         -----------
-        validation_results : dict or list
-            Validation results from comparing to a reference structure
+        validation_results : dict
+            Validation results dictionary
         """
         self.validation_results = validation_results
-        
-    def extract_energy_components(self, scoring_function, protein, ligand_poses):
+    
+    def add_interaction_analysis(self, interaction_analysis):
         """
-        Extract detailed energy components for each pose using the scoring function.
+        Add interaction analysis to the reporter.
+        
+        Parameters:
+        -----------
+        interaction_analysis : dict
+            Analysis of protein-ligand interactions
+        """
+        self.interaction_analysis = interaction_analysis
+    
+    def extract_energy_components(self, scoring_function, protein, poses, max_poses=10):
+        """
+        Extract energy components for top poses.
         
         Parameters:
         -----------
         scoring_function : ScoringFunction
-            Scoring function used for docking
+            Scoring function object
         protein : Protein
             Protein object
-        ligand_poses : list
-            List of ligand poses
-        
+        poses : list
+            List of poses
+        max_poses : int
+            Maximum number of poses to analyze
+                
         Returns:
         --------
-        list
-            List of dictionaries containing energy components for each pose
+        dict
+            Dictionary with energy component breakdowns
         """
-        energy_breakdown = []
+        energy_breakdown = {}
         
-        # Check if the scoring function has component methods
-        has_components = hasattr(scoring_function, 'weights')
+        print("Extracting energy component breakdown...")
         
-        if not has_components:
-            print("Scoring function does not provide component breakdown")
-            return energy_breakdown
-        
-        # Physics-based scoring function
-        if hasattr(scoring_function, '_calc_vdw_energy'):
-            print("Extracting energy components from physics-based scoring function")
-            for pose in ligand_poses:
-                # Calculate individual components
-                vdw_energy = scoring_function._calc_vdw_energy(protein.atoms, pose.atoms)
-                elec_energy = scoring_function.electrostatics.calculate_electrostatics(protein, pose)
-                solv_energy = scoring_function.solvation.calculate_binding_solvation(protein, pose)
-                hbond_energy = scoring_function._calc_hbond_energy(protein.atoms, pose.atoms)
-                entropy_penalty = scoring_function._calc_entropy_penalty(pose)
-                
-                # Apply weights
-                weighted_vdw = scoring_function.weights['vdw'] * vdw_energy
-                weighted_elec = scoring_function.weights['elec'] * elec_energy
-                weighted_solv = scoring_function.weights['solv'] * solv_energy
-                weighted_hbond = scoring_function.weights['hbond'] * hbond_energy
-                weighted_entropy = scoring_function.weights['entropy'] * entropy_penalty
-                
-                # Total score
-                total_score = (weighted_vdw + weighted_elec + weighted_solv + 
-                               weighted_hbond + weighted_entropy)
-                
-                # Create component dictionary
-                components = {
-                    'VDW': weighted_vdw,
-                    'Elec': weighted_elec,
-                    'Solv': weighted_solv,
-                    'HBond': weighted_hbond,
-                    'Entropy': weighted_entropy,
-                    'Total': total_score
-                }
-                
-                energy_breakdown.append(components)
-        
-        # Enhanced scoring function
-        elif hasattr(scoring_function, '_calculate_vdw') or hasattr(scoring_function, '_calculate_vdw_energy'):
-            print("Extracting energy components from enhanced scoring function")
-            for pose in ligand_poses:
-                components = {}
-                
-                # Try to call each component method
-                if hasattr(scoring_function, '_calculate_vdw'):
-                    components['VDW'] = scoring_function._calculate_vdw(protein, pose)
-                elif hasattr(scoring_function, '_calculate_vdw_energy'):
-                    components['VDW'] = scoring_function._calculate_vdw_energy(protein.atoms, pose.atoms)
-                
-                if hasattr(scoring_function, '_calculate_hbond'):
-                    components['HBond'] = scoring_function._calculate_hbond(protein, pose)
-                elif hasattr(scoring_function, 'hbond_scorer'):
-                    components['HBond'] = scoring_function.hbond_scorer.score(protein, pose)
-                
-                if hasattr(scoring_function, '_calculate_electrostatics'):
-                    components['Elec'] = scoring_function._calculate_electrostatics(protein, pose)
-                
-                if hasattr(scoring_function, '_calculate_desolvation'):
-                    components['Desolv'] = scoring_function._calculate_desolvation(protein, pose)
+        # Process up to max_poses
+        for i, pose in enumerate(poses[:min(len(poses), max_poses)]):
+            pose_id = f"pose_{i+1}"
+            print(f"  Analyzing pose {i+1}...")
+            
+            # Score the pose
+            try:
+                # First, check if the scoring function has component tracking
+                if hasattr(scoring_function, 'weights'):
+                    # Create a clean dictionary to store components
+                    components = {
+                        'vdw': 0.0,
+                        'hbond': 0.0,
+                        'elec': 0.0,
+                        'desolv': 0.0,
+                        'hydrophobic': 0.0,
+                        'clash': 0.0,
+                        'entropy': 0.0
+                    }
                     
-                if hasattr(scoring_function, '_calculate_hydrophobic'):
-                    components['Hydrophobic'] = scoring_function._calculate_hydrophobic(protein, pose)
-                
-                if hasattr(scoring_function, '_calculate_clashes'):
-                    components['Clash'] = scoring_function._calculate_clashes(protein, pose)
-                
-                if hasattr(scoring_function, '_calculate_entropy'):
-                    components['Entropy'] = scoring_function._calculate_entropy(pose)
-                
-                # Calculate total score
-                total = 0.0
-                for key, value in components.items():
-                    if key in scoring_function.weights:
-                        weighted = scoring_function.weights[key.lower()] * value
-                        components[key] = weighted  # Store weighted value
-                        total += weighted
-                
-                components['Total'] = total
-                energy_breakdown.append(components)
-        
-        # Standard scoring function
-        elif hasattr(scoring_function, 'vdw_scorer') and hasattr(scoring_function, 'hbond_scorer'):
-            print("Extracting energy components from standard scoring function")
-            for pose in ligand_poses:
-                vdw_score = scoring_function.vdw_scorer.score(protein, pose)
-                hbond_score = scoring_function.hbond_scorer.score(protein, pose)
-                clash_score = scoring_function._calculate_clashes(protein, pose)
-                
-                # Apply weights
-                weighted_vdw = scoring_function.weights['vdw'] * vdw_score
-                weighted_hbond = scoring_function.weights['hbond'] * hbond_score
-                weighted_clash = scoring_function.weights['clash'] * clash_score
-                
-                # Total score
-                total_score = weighted_vdw + weighted_hbond + weighted_clash
-                
-                components = {
-                    'VDW': weighted_vdw,
-                    'HBond': weighted_hbond,
-                    'Clash': weighted_clash,
-                    'Total': total_score
-                }
-                
-                energy_breakdown.append(components)
+                    # Get active site atoms
+                    if protein.active_site and 'atoms' in protein.active_site:
+                        protein_atoms = protein.active_site['atoms']
+                    else:
+                        protein_atoms = protein.atoms
+                    
+                    # Score the pose to get the total
+                    total_score = scoring_function.score(protein, pose)
+                    
+                    # Try to extract components directly from the scoring function's methods
+                    try:
+                        # Call individual component calculation methods if they exist
+                        if hasattr(scoring_function, '_calculate_vdw'):
+                            components['vdw'] = scoring_function._calculate_vdw(protein, pose)
+                        elif hasattr(scoring_function, '_calculate_vdw_physics'):
+                            components['vdw'] = scoring_function._calculate_vdw_physics(protein_atoms, pose.atoms)
+                            
+                        if hasattr(scoring_function, '_calculate_hbond'):
+                            components['hbond'] = scoring_function._calculate_hbond(protein, pose)
+                        elif hasattr(scoring_function, '_calculate_hbond_physics'):
+                            components['hbond'] = scoring_function._calculate_hbond_physics(protein_atoms, pose.atoms, protein, pose)
+                            
+                        if hasattr(scoring_function, '_calculate_electrostatics'):
+                            components['elec'] = scoring_function._calculate_electrostatics(protein, pose)
+                        elif hasattr(scoring_function, '_calculate_electrostatics_physics'):
+                            components['elec'] = scoring_function._calculate_electrostatics_physics(protein_atoms, pose.atoms)
+                            
+                        if hasattr(scoring_function, '_calculate_desolvation'):
+                            components['desolv'] = scoring_function._calculate_desolvation(protein, pose)
+                        elif hasattr(scoring_function, '_calculate_desolvation_physics'):
+                            components['desolv'] = scoring_function._calculate_desolvation_physics(protein_atoms, pose.atoms)
+                            
+                        if hasattr(scoring_function, '_calculate_hydrophobic'):
+                            components['hydrophobic'] = scoring_function._calculate_hydrophobic(protein, pose)
+                        elif hasattr(scoring_function, '_calculate_hydrophobic_physics'):
+                            components['hydrophobic'] = scoring_function._calculate_hydrophobic_physics(protein_atoms, pose.atoms)
+                            
+                        if hasattr(scoring_function, '_calculate_clashes'):
+                            components['clash'] = scoring_function._calculate_clashes(protein, pose)
+                        elif hasattr(scoring_function, '_calculate_clashes_physics'):
+                            components['clash'] = scoring_function._calculate_clashes_physics(protein_atoms, pose.atoms)
+                            
+                        if hasattr(scoring_function, '_calculate_entropy'):
+                            components['entropy'] = scoring_function._calculate_entropy(pose)
+                    except Exception as e:
+                        print(f"    Warning: Could not extract some energy components: {e}")
+                    
+                    # Add the total score
+                    components['total'] = total_score
+                    
+                    # Check if we actually got non-zero components
+                    if all(v == 0.0 for k, v in components.items() if k != 'total'):
+                        print("    Warning: All energy components are zero. Estimating components from weights...")
+                        
+                        # If all components are zero, try to estimate based on total score and weights
+                        # This is a rough approximation assuming equal contribution from components
+                        weight_sum = sum(scoring_function.weights.values())
+                        for component in components:
+                            if component != 'total' and component in scoring_function.weights:
+                                weight_ratio = scoring_function.weights[component] / weight_sum
+                                components[component] = total_score * weight_ratio
+                    
+                    energy_breakdown[pose_id] = components
+                    
+                else:
+                    # No component tracking in scoring function
+                    total_score = scoring_function.score(protein, pose)
+                    energy_breakdown[pose_id] = {'total': total_score}
+                    print("    Warning: Scoring function does not support component breakdown")
+                    
+            except Exception as e:
+                print(f"    Error scoring pose {i+1}: {e}")
+                energy_breakdown[pose_id] = {'total': 0.0}
         
         return energy_breakdown
     
-    def generate_basic_report(self):
+    def analyze_protein_ligand_interactions(self, protein, poses, max_poses=5):
         """
-        Generate a basic text report for docking results.
-        
-        Returns:
-        --------
-        str
-            Path to the generated report file
-        """
-        report_path = self.output_dir / "docking_report.txt"
-        
-        # Extract needed information
-        protein_path = self.args.protein
-        ligand_path = self.args.ligand
-        algorithm = self.args.algorithm if hasattr(self.args, 'algorithm') else "unknown"
-        iterations = self.args.iterations if hasattr(self.args, 'iterations') else "unknown"
-        
-        # Calculate elapsed time if available
-        if hasattr(self.args, 'start_time'):
-            elapsed_time = datetime.now().timestamp() - self.args.start_time
-        else:
-            elapsed_time = 0.0
-        
-        # Sort results by score
-        sorted_results = sorted(self.results, key=lambda x: x[1])
-        
-        with open(report_path, 'w') as f:
-            f.write("=====================================================\n")
-            f.write("        PandaDock - Python Molecular Docking Results    \n")
-            f.write("=====================================================\n\n")
-            
-            # Write run information
-            f.write("RUN INFORMATION\n")
-            f.write("--------------\n")
-            f.write(f"Date and Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Protein: {protein_path}\n")
-            f.write(f"Ligand: {ligand_path}\n")
-            f.write(f"Algorithm: {algorithm}\n")
-            f.write(f"Iterations/Generations: {iterations}\n")
-            f.write(f"Total Runtime: {elapsed_time:.2f} seconds\n\n")
-            
-            # Write summary of results
-            f.write("RESULTS SUMMARY\n")
-            f.write("--------------\n")
-            f.write(f"Total Poses Generated: {len(self.results)}\n")
-            f.write(f"Best Score: {sorted_results[0][1]:.4f}\n")
-            f.write(f"Worst Score: {sorted_results[-1][1]:.4f}\n")
-            f.write(f"Average Score: {sum([score for _, score in self.results])/len(self.results):.4f}\n\n")
-            
-            # Write top 10 poses
-            f.write("TOP 10 POSES\n")
-            f.write("--------------\n")
-            f.write("Rank\tScore\tFile\n")
-            for i, (pose, score) in enumerate(sorted_results[:10]):
-                f.write(f"{i+1}\t{score:.4f}\tpose_{i+1}_score_{score:.1f}.pdb\n")
-            
-            f.write("\n\nFull results are available in the output directory.\n")
-            f.write("=====================================================\n")
-        
-        print(f"Basic report written to {report_path}")
-        return report_path
-    
-    def generate_detailed_report(self, include_energy_breakdown=True):
-        """
-        Generate a detailed report for docking results with energy breakdowns.
+        Analyze protein-ligand interactions for top poses.
         
         Parameters:
         -----------
-        include_energy_breakdown : bool
-            Whether to include detailed energy breakdowns
+        protein : Protein
+            Protein object
+        poses : list
+            List of poses
+        max_poses : int
+            Maximum number of poses to analyze
+            
+        Returns:
+        --------
+        dict
+            Dictionary with interaction analysis
+        """
+        interaction_analysis = {}
+        
+        # Process up to max_poses
+        for i, pose in enumerate(poses[:min(len(poses), max_poses)]):
+            pose_id = f"pose_{i+1}"
+            
+            # Initialize interaction types
+            interactions = {
+                'h_bonds': [],
+                'hydrophobic': [],
+                'ionic': [],
+                'pi_stacking': [],
+                'residues': set()
+            }
+            
+            # Analyze hydrogen bonds
+            self._analyze_hbonds(protein, pose, interactions)
+            
+            # Analyze hydrophobic interactions
+            self._analyze_hydrophobic(protein, pose, interactions)
+            
+            # Analyze ionic interactions
+            self._analyze_ionic(protein, pose, interactions)
+            
+            # Store results
+            interaction_analysis[pose_id] = interactions
+        
+        self.interaction_analysis = interaction_analysis
+        return interaction_analysis
+    
+    def _analyze_hbonds(self, protein, ligand, interactions):
+        """Analyze hydrogen bonds between protein and ligand."""
+        import numpy as np
+
+        # Get active site atoms
+        if protein.active_site and 'atoms' in protein.active_site:
+            protein_atoms = protein.active_site['atoms']
+        else:
+            protein_atoms = protein.atoms
+
+        # Define donors and acceptors
+        donors = ['N', 'O']  # Extend this list as needed
+        acceptors = ['N', 'O', 'F']
+        cutoff_distance = 3.8  # Maximum H-bond distance (in Å)
+        angle_cutoff = 30.0  # Maximum deviation from linearity (in degrees)
+
+        for p_atom in protein_atoms:
+            if 'coords' not in p_atom:
+                continue
+
+            p_coords = np.array(p_atom['coords'])
+            p_element = p_atom.get('element', p_atom.get('name', '')[0])
+
+            if not p_element or p_element not in donors + acceptors:
+                continue
+
+            # Get residue info
+            res_name = p_atom.get('residue_name', 'UNK')
+            res_id = p_atom.get('residue_id', 0)
+            chain_id = p_atom.get('chain_id', 'X')
+
+            for l_atom in ligand.atoms:
+                if 'coords' not in l_atom:
+                    continue
+
+                l_coords = np.array(l_atom['coords'])
+                l_element = l_atom.get('symbol', '')
+
+                if not l_element or l_element not in donors + acceptors:
+                    continue
+
+                # Calculate distance
+                distance = np.linalg.norm(p_coords - l_coords)
+
+                # Check if distance is within cutoff
+                if distance <= cutoff_distance:
+                    # Check for linearity (angle between donor-H-acceptor)
+                    # Simplified: Assume H is along the donor-acceptor vector
+                    if p_element in donors and l_element in acceptors:
+                        interactions['h_bonds'].append({
+                            'type': 'protein_donor',
+                            'distance': round(distance, 2),
+                            'protein_atom': {
+                                'element': p_element,
+                                'residue': res_name,
+                                'residue_id': res_id,
+                                'chain': chain_id
+                            },
+                            'ligand_atom': {
+                                'element': l_element,
+                                'index': l_atom.get('idx', 0)
+                            }
+                        })
+                        interactions['residues'].add(f"{chain_id}:{res_name}{res_id}")
+
+                    if l_element in donors and p_element in acceptors:
+                        interactions['h_bonds'].append({
+                            'type': 'ligand_donor',
+                            'distance': round(distance, 2),
+                            'protein_atom': {
+                                'element': p_element,
+                                'residue': res_name,
+                                'residue_id': res_id,
+                                'chain': chain_id
+                            },
+                            'ligand_atom': {
+                                'element': l_element,
+                                'index': l_atom.get('idx', 0)
+                            }
+                        })
+                        interactions['residues'].add(f"{chain_id}:{res_name}{res_id}")
+    
+    def _analyze_hydrophobic(self, protein, ligand, interactions):
+        """Analyze hydrophobic interactions between protein and ligand."""
+        # Get active site atoms
+        if protein.active_site and 'atoms' in protein.active_site:
+            protein_atoms = protein.active_site['atoms']
+        else:
+            protein_atoms = protein.atoms
+        
+        # Define hydrophobic atom types
+        hydrophobic_types = ['C', 'S', 'Cl', 'Br', 'I']
+        cutoff_distance = 4.0  # Maximum hydrophobic interaction distance
+        
+        # Identify hydrophobic atoms in protein
+        p_hydrophobic = []
+        for atom in protein_atoms:
+            element = None
+            if 'element' in atom:
+                element = atom['element']
+            elif 'name' in atom and len(atom['name']) > 0:
+                element = atom['name'][0]
+                
+            if element in hydrophobic_types:
+                p_hydrophobic.append(atom)
+        
+        # Identify hydrophobic atoms in ligand
+        l_hydrophobic = [atom for atom in ligand.atoms 
+                        if atom.get('symbol', '') in hydrophobic_types]
+        
+        import numpy as np
+        
+        for p_atom in p_hydrophobic:
+            if 'coords' not in p_atom:
+                continue
+                
+            p_coords = p_atom['coords']
+            
+            # Get residue info
+            res_name = p_atom.get('residue_name', 'UNK')
+            res_id = p_atom.get('residue_id', 0)
+            chain_id = p_atom.get('chain_id', 'X')
+            
+            for l_atom in l_hydrophobic:
+                if 'coords' not in l_atom:
+                    continue
+                    
+                l_coords = l_atom['coords']
+                
+                # Calculate distance
+                distance = np.linalg.norm(p_coords - l_coords)
+                
+                # Check for hydrophobic contact
+                if distance <= cutoff_distance:
+                    interactions['hydrophobic'].append({
+                        'distance': round(distance, 2),
+                        'protein_atom': {
+                            'element': p_atom.get('element', p_atom.get('name', 'C')[0]),
+                            'residue': res_name,
+                            'residue_id': res_id,
+                            'chain': chain_id
+                        },
+                        'ligand_atom': {
+                            'element': l_atom.get('symbol', 'C'),
+                            'index': l_atom.get('idx', 0)
+                        }
+                    })
+                    interactions['residues'].add(f"{chain_id}:{res_name}{res_id}")
+    
+    def _analyze_ionic(self, protein, ligand, interactions):
+        """Analyze ionic interactions between protein and ligand."""
+        # Get active site atoms
+        if protein.active_site and 'atoms' in protein.active_site:
+            protein_atoms = protein.active_site['atoms']
+        else:
+            protein_atoms = protein.atoms
+        
+        # Define charged groups
+        pos_charged = ['LYS', 'ARG', 'HIS']  # Positive residues
+        neg_charged = ['ASP', 'GLU']         # Negative residues
+        cutoff_distance = 4.0  # Maximum ionic interaction distance
+        
+        import numpy as np
+        
+        # Check for charged residues in protein
+        for p_atom in protein_atoms:
+            if 'coords' not in p_atom:
+                continue
+                
+            p_coords = p_atom['coords']
+            
+            # Get residue info
+            res_name = p_atom.get('residue_name', 'UNK')
+            res_id = p_atom.get('residue_id', 0)
+            chain_id = p_atom.get('chain_id', 'X')
+            
+            # Skip non-charged residues
+            if res_name not in pos_charged and res_name not in neg_charged:
+                continue
+                
+            # Determine protein charge
+            protein_charge = 'positive' if res_name in pos_charged else 'negative'
+            
+            # Specific atoms to check based on residue
+            check_atom = False
+            if (res_name == 'LYS' and p_atom.get('name') == 'NZ') or \
+               (res_name == 'ARG' and p_atom.get('name') in ['NH1', 'NH2']) or \
+               (res_name == 'HIS' and p_atom.get('name') in ['ND1', 'NE2']) or \
+               (res_name == 'ASP' and p_atom.get('name') in ['OD1', 'OD2']) or \
+               (res_name == 'GLU' and p_atom.get('name') in ['OE1', 'OE2']):
+                check_atom = True
+            
+            if not check_atom:
+                continue
+                
+            # Check against all ligand atoms (simplified check)
+            for l_atom in ligand.atoms:
+                if 'coords' not in l_atom:
+                    continue
+                    
+                l_coords = l_atom['coords']
+                l_element = l_atom.get('symbol', '')
+                
+                # Simplified ligand charge check
+                ligand_charge = None
+                if l_element == 'N':  # Potential positive center
+                    ligand_charge = 'positive'
+                elif l_element == 'O':  # Potential negative center
+                    ligand_charge = 'negative'
+                
+                # Skip if no charge or same charge
+                if not ligand_charge or ligand_charge == protein_charge:
+                    continue
+                
+                # Calculate distance
+                distance = np.linalg.norm(p_coords - l_coords)
+                
+                # Check for ionic interaction
+                if distance <= cutoff_distance:
+                    interactions['ionic'].append({
+                        'distance': round(distance, 2),
+                        'protein': {
+                            'charge': protein_charge,
+                            'residue': res_name,
+                            'residue_id': res_id,
+                            'chain': chain_id,
+                            'atom': p_atom.get('name', '')
+                        },
+                        'ligand': {
+                            'charge': ligand_charge,
+                            'atom': l_element,
+                            'index': l_atom.get('idx', 0)
+                        }
+                    })
+                    interactions['residues'].add(f"{chain_id}:{res_name}{res_id}")
+    
+    def generate_detailed_report(self):
+        """
+        Generate a detailed text report of docking results.
         
         Returns:
         --------
         str
-            Path to the generated report file
+            Path to the generated report
         """
-        report_path = self.output_dir / "detailed_docking_report.txt"
+        import os
+        import datetime
         
-        # Extract needed information
-        protein_path = self.args.protein
-        ligand_path = self.args.ligand
-        algorithm = self.args.algorithm if hasattr(self.args, 'algorithm') else "unknown"
+        # Create report path
+        report_name = getattr(self.args, 'report_name', None)
+        if report_name:
+            report_path = os.path.join(self.output_dir, f"{report_name}_detailed_report.txt")
+        else:
+            report_path = os.path.join(self.output_dir, f"detailed_docking_report.txt")
         
-        # Get algorithm parameters
-        algorithm_params = {}
-        if algorithm == "genetic":
-            if hasattr(self.args, 'population_size'):
-                algorithm_params["Population Size"] = self.args.population_size
-            if hasattr(self.args, 'mutation_rate'):
-                algorithm_params["Mutation Rate"] = self.args.mutation_rate
-        elif algorithm == "monte-carlo":
-            if hasattr(self.args, 'mc_steps'):
-                algorithm_params["Steps"] = self.args.mc_steps
-            if hasattr(self.args, 'temperature'):
-                algorithm_params["Temperature"] = f"{self.args.temperature} K"
+        # Check if we have results
+        if not self.results:
+            with open(report_path, 'w') as f:
+                f.write("===========================================================\n")
+                f.write("        PandaDock - Detailed Molecular Docking Report       \n")
+                f.write("===========================================================\n\n")
+                f.write("No docking results available.\n")
+            return report_path
         
-        # Get scoring function details
-        scoring_type = "standard"
+        # Extract arguments
+        protein_file = getattr(self.args, 'protein', 'Unknown')
+        ligand_file = getattr(self.args, 'ligand', 'Unknown')
+        algorithm = getattr(self.args, 'algorithm', 'Unknown')
+        
+        # Determine scoring function type
+        scoring_type = "Standard"
         if hasattr(self.args, 'enhanced_scoring') and self.args.enhanced_scoring:
-            scoring_type = "enhanced"
+            scoring_type = "Enhanced"
         if hasattr(self.args, 'physics_based') and self.args.physics_based:
-            scoring_type = "physics-based"
+            scoring_type = "Physics-based"
         
-        # Sort results by score
-        sorted_results = sorted(self.results, key=lambda x: x[1])
+        # Get hardware info
+        gpu_used = hasattr(self.args, 'use_gpu') and self.args.use_gpu
+        cpu_cores = getattr(self.args, 'cpu_workers', None)
+        
+        hardware = "CPU"
+        if gpu_used:
+            hardware = "GPU"
+        hardware += f" ({cpu_cores} cores)" if cpu_cores else " (Unknown cores)"
+        
+        # Generate scores statistics
+        scores = [score for _, score in self.results]
+        avg_score = sum(scores) / len(scores) if scores else 0
+        std_dev = self._calculate_std_dev(scores) if len(scores) > 1 else 0
         
         with open(report_path, 'w') as f:
             f.write("===========================================================\n")
             f.write("        PandaDock - Detailed Molecular Docking Report       \n")
             f.write("===========================================================\n\n")
             
-            # Write run information
+            # Run information
             f.write("RUN INFORMATION\n")
             f.write("--------------\n")
-            f.write(f"Date and Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Date and Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Report ID: {self.timestamp}\n")
-            f.write(f"Protein: {protein_path}\n")
-            f.write(f"Ligand: {ligand_path}\n\n")
+            f.write(f"Protein: {os.path.basename(protein_file)}\n")
+            f.write(f"Ligand: {os.path.basename(ligand_file)}\n\n")
             
             # Algorithm details
             f.write("ALGORITHM DETAILS\n")
             f.write("-----------------\n")
             f.write(f"Algorithm: {algorithm.capitalize()}\n")
-            for param, value in algorithm_params.items():
-                f.write(f"{param}: {value}\n")
-            f.write(f"Scoring Function: {scoring_type.capitalize()}\n")
             
-            if hasattr(self.args, 'use_gpu') and self.args.use_gpu:
-                f.write(f"Hardware Acceleration: GPU (ID: {getattr(self.args, 'gpu_id', 0)})\n")
-                if hasattr(self.args, 'gpu_precision'):
-                    f.write(f"GPU Precision: {self.args.gpu_precision}\n")
-            else:
-                cpu_workers = getattr(self.args, 'cpu_workers', 'all available')
-                f.write(f"Hardware Acceleration: CPU ({cpu_workers} cores)\n")
+            if algorithm.lower() == 'genetic':
+                pop_size = getattr(self.args, 'population_size', 'Unknown')
+                f.write(f"Population Size: {pop_size}\n")
+                
+            f.write(f"Scoring Function: {scoring_type}\n")
+            f.write(f"Hardware Acceleration: {hardware}\n")
             
-            if hasattr(self.args, 'exhaustiveness'):
-                f.write(f"Exhaustiveness: {self.args.exhaustiveness}\n")
+            # Add local optimization info if available
+            if hasattr(self.args, 'local_opt'):
+                f.write(f"Local Optimization: {'Enabled' if self.args.local_opt else 'Disabled'}\n")
+                
+            # Add exhaustiveness info if available
+            exhaust = getattr(self.args, 'exhaustiveness', 1)
+            f.write(f"Exhaustiveness: {exhaust}\n\n")
             
-            if hasattr(self.args, 'local_opt') and self.args.local_opt:
-                f.write("Local Optimization: Enabled\n")
-            
-            f.write("\n")
-            
-            # Write summary of results
+            # Results summary
             f.write("RESULTS SUMMARY\n")
             f.write("--------------\n")
             f.write(f"Total Poses Generated: {len(self.results)}\n")
-            f.write(f"Best Score: {sorted_results[0][1]:.4f}\n")
-            f.write(f"Worst Score: {sorted_results[-1][1]:.4f}\n")
-            f.write(f"Average Score: {sum([score for _, score in self.results])/len(self.results):.4f}\n")
-            f.write(f"Score Standard Deviation: {np.std([score for _, score in self.results]):.4f}\n\n")
             
-            # Write top poses
+            if scores:
+                f.write(f"Best Score: {min(scores):.4f}\n")
+                f.write(f"Worst Score: {max(scores):.4f}\n")
+                f.write(f"Average Score: {avg_score:.4f}\n")
+                f.write(f"Score Standard Deviation: {std_dev:.4f}\n\n")
+            
+            # Top poses ranking
             f.write("TOP POSES RANKING\n")
             f.write("----------------\n")
             f.write("Rank  Score      Filename\n")
             f.write("----- ---------- ----------------------------------------\n")
-            for i, (pose, score) in enumerate(sorted_results[:min(20, len(sorted_results))]):
+            
+            sorted_results = sorted(self.results, key=lambda x: x[1])
+            for i, (_, score) in enumerate(sorted_results[:min(10, len(sorted_results))]):
                 f.write(f"{i+1:5d} {score:10.4f} pose_{i+1}_score_{score:.1f}.pdb\n")
+            
             f.write("\n")
             
-            # Write energy breakdown if available
-            if include_energy_breakdown and self.scoring_breakdown:
-                f.write("ENERGY COMPONENT BREAKDOWN (TOP 10 POSES)\n")
-                f.write("----------------------------------------\n")
+            # Energy breakdown
+            if self.energy_breakdown:
+                f.write("ENERGY COMPONENT BREAKDOWN\n")
+                f.write("-------------------------\n")
+                f.write("Component       Pose 1     Pose 2     Pose 3     Pose 4     Pose 5\n")
+                f.write("-------------- ---------- ---------- ---------- ---------- ----------\n")
                 
-                # Create a header based on first energy breakdown
-                if len(self.scoring_breakdown) > 0:
-                    components = list(self.scoring_breakdown[0].keys())
-                    header = "Pose  " + "  ".join([f"{comp[:7]:>8}" for comp in components])
-                    f.write(header + "\n")
-                    f.write("-" * len(header) + "\n")
+                components = ['vdw', 'hbond', 'elec', 'desolv', 'hydrophobic', 'clash', 'entropy', 'total']
+                component_names = {
+                    'vdw': 'Van der Waals',
+                    'hbond': 'H-Bond',
+                    'elec': 'Electrostatic',
+                    'desolv': 'Desolvation',
+                    'hydrophobic': 'Hydrophobic',
+                    'clash': 'Steric Clash',
+                    'entropy': 'Entropy',
+                    'total': 'TOTAL'
+                }
+                
+                for component in components:
+                    name = component_names.get(component, component)
+                    f.write(f"{name:14s} ")
                     
-                    # Write energy breakdown for top poses
-                    for i, energy in enumerate(self.scoring_breakdown[:min(10, len(self.scoring_breakdown))]):
-                        energy_str = f"{i+1:4d}  " + "  ".join([f"{energy[comp]:8.2f}" for comp in components])
-                        f.write(energy_str + "\n")
+                    for i in range(1, 6):
+                        pose_id = f"pose_{i}"
+                        if pose_id in self.energy_breakdown and component in self.energy_breakdown[pose_id]:
+                            value = self.energy_breakdown[pose_id][component]
+                            f.write(f"{value:10.4f} ")
+                        else:
+                            f.write(f"{'N/A':10s} ")
+                    
                     f.write("\n")
+                
+                f.write("\n")
             
-            # Write validation results if available
+            # Interaction analysis
+            if self.interaction_analysis:
+                f.write("PROTEIN-LIGAND INTERACTIONS\n")
+                f.write("--------------------------\n")
+                
+                for i in range(1, min(4, len(self.results) + 1)):
+                    pose_id = f"pose_{i}"
+                    if pose_id in self.interaction_analysis:
+                        f.write(f"Pose {i} (Score: {sorted_results[i-1][1]:.4f})\n")
+                        interactions = self.interaction_analysis[pose_id]
+                        
+                        # H-bonds
+                        if interactions['h_bonds']:
+                            f.write("  Hydrogen Bonds:\n")
+                            for hbond in interactions['h_bonds']:
+                                if hbond['type'] == 'protein_donor':
+                                    f.write(f"    {hbond['protein_atom']['chain']}:{hbond['protein_atom']['residue']}{hbond['protein_atom']['residue_id']} → Ligand {hbond['ligand_atom']['element']} ({hbond['distance']} Å)\n")
+                                else:
+                                    f.write(f"    Ligand {hbond['ligand_atom']['element']} → {hbond['protein_atom']['chain']}:{hbond['protein_atom']['residue']}{hbond['protein_atom']['residue_id']} ({hbond['distance']} Å)\n")
+                        
+                        # Hydrophobic
+                        if interactions['hydrophobic']:
+                            f.write("  Hydrophobic Interactions:\n")
+                            seen = set()
+                            for hydro in interactions['hydrophobic']:
+                                res_key = f"{hydro['protein_atom']['chain']}:{hydro['protein_atom']['residue']}{hydro['protein_atom']['residue_id']}"
+                                if res_key not in seen:
+                                    seen.add(res_key)
+                                    
+                                    # Find minimum distance for this residue - calculate separately to avoid nested f-string issues
+                                    distances = []
+                                    for h in interactions['hydrophobic']:
+                                        h_res_key = f"{h['protein_atom']['chain']}:{h['protein_atom']['residue']}{h['protein_atom']['residue_id']}"
+                                        if h_res_key == res_key:
+                                            distances.append(h['distance'])
+                                    
+                                    min_distance = min(distances) if distances else 0
+                                    
+                                    f.write(f"    {res_key} ({min_distance} Å)\n")
+                                    
+                                    if len(seen) >= 5:  # Show only top 5
+                                        f.write(f"    ... and {len(interactions['hydrophobic']) - 5} more\n")
+                                        break
+                        
+                        # Ionic
+                        if interactions['ionic']:
+                            f.write("  Ionic Interactions:\n")
+                            for ionic in interactions['ionic']:
+                                f.write(f"    {ionic['protein']['chain']}:{ionic['protein']['residue']}{ionic['protein']['residue_id']} ({ionic['protein']['charge']}) ↔ Ligand {ionic['ligand']['atom']} ({ionic['ligand']['charge']}) - {ionic['distance']} Å\n")
+                        
+                        # Summary of interacting residues
+                        f.write("  Interacting Residues: ")
+                        f.write(", ".join(sorted(list(interactions['residues']))))
+                        f.write("\n\n")
+                
+            # Validation results
             if self.validation_results:
-                f.write("VALIDATION AGAINST REFERENCE STRUCTURE\n")
-                f.write("------------------------------------\n")
+                f.write("VALIDATION AGAINST REFERENCE\n")
+                f.write("---------------------------\n")
+                best_rmsd = self.validation_results[0]['rmsd']
+                f.write(f"Best RMSD to Reference: {best_rmsd:.4f} Å (Pose {self.validation_results[0]['pose_index'] + 1})\n")
+                f.write(f"Validation Status: {'Success' if best_rmsd < 2.0 else 'Failure'}\n\n")
                 
-                if isinstance(self.validation_results, list):
-                    # List of validation results for multiple poses
-                    f.write("RMSD Results for Top Poses:\n")
-                    f.write("Rank  Pose     RMSD (Å)  Status\n")
-                    f.write("----- -------- --------- --------------\n")
-                    
-                    for i, result in enumerate(self.validation_results[:min(10, len(self.validation_results))]):
-                        pose_idx = result.get('pose_index', i)
-                        rmsd = result.get('rmsd', 0.0)
-                        status = "Success" if rmsd < 2.0 else "Failure"
-                        f.write(f"{i+1:5d} {pose_idx+1:8d} {rmsd:9.4f} {status}\n")
-                    
-                    # Best RMSD
-                    if len(self.validation_results) > 0:
-                        best_rmsd = min(result.get('rmsd', float('inf')) for result in self.validation_results)
-                        f.write(f"\nBest RMSD: {best_rmsd:.4f} Å\n")
-                        f.write(f"Docking Success: {'Yes' if best_rmsd < 2.0 else 'No'}\n")
-                
-                elif isinstance(self.validation_results, dict):
-                    # Single validation result
-                    rmsd = self.validation_results.get('rmsd', 0.0)
-                    max_dev = self.validation_results.get('max_deviation', 0.0)
-                    min_dev = self.validation_results.get('min_deviation', 0.0)
-                    success = self.validation_results.get('success', False)
-                    
-                    f.write(f"Overall RMSD: {rmsd:.4f} Å\n")
-                    f.write(f"Maximum Atomic Deviation: {max_dev:.4f} Å\n")
-                    f.write(f"Minimum Atomic Deviation: {min_dev:.4f} Å\n")
-                    f.write(f"Docking Success: {'Yes' if success else 'No'}\n")
-                    
-                    # Report per-atom deviations if available
-                    atom_deviations = self.validation_results.get('atom_deviations', None)
-                    if atom_deviations is not None:
-                        f.write("\nTop 10 Atom Deviations:\n")
-                        sorted_indices = np.argsort(atom_deviations)[::-1]
-                        for i in range(min(10, len(sorted_indices))):
-                            idx = sorted_indices[i]
-                            f.write(f"Atom {idx + 1}: {atom_deviations[idx]:.4f} Å\n")
+                f.write("RMSD Values for Top 5 Poses:\n")
+                for i, result in enumerate(self.validation_results[:min(5, len(self.validation_results))]):
+                    pose_idx = result['pose_index'] + 1
+                    rmsd = result['rmsd']
+                    f.write(f"  Pose {pose_idx}: {rmsd:.4f} Å\n")
                 
                 f.write("\n")
             
             f.write("===========================================================\n")
             f.write("Report generated by PandaDock - Python Molecular Docking Tool\n")
         
-        print(f"Detailed report written to {report_path}")
         return report_path
+    
+    def _calculate_std_dev(self, values):
+        """Calculate standard deviation of a list of values."""
+        if not values or len(values) < 2:
+            return 0.0
+            
+        mean = sum(values) / len(values)
+        variance = sum((x - mean) ** 2 for x in values) / len(values)
+        return variance ** 0.5
     
     def generate_csv_report(self):
         """
-        Generate CSV files with docking results and energy breakdowns.
-        
-        Returns:
-        --------
-        tuple
-            Paths to the generated CSV files (results_csv, energy_csv)
-        """
-        # Create paths for CSV files
-        results_csv = self.output_dir / "docking_results.csv"
-        energy_csv = self.output_dir / "energy_breakdown.csv"
-        
-        # Write docking results to CSV
-        with open(results_csv, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['Rank', 'Score', 'Filename'])
-            
-            sorted_results = sorted(self.results, key=lambda x: x[1])
-            for i, (pose, score) in enumerate(sorted_results):
-                writer.writerow([i+1, score, f"pose_{i+1}_score_{score:.1f}.pdb"])
-        
-        # Write energy breakdown to CSV if available
-        if self.scoring_breakdown:
-            with open(energy_csv, 'w', newline='') as f:
-                # Get all energy components from first breakdown
-                components = list(self.scoring_breakdown[0].keys())
-                
-                writer = csv.writer(f)
-                writer.writerow(['Pose'] + components)
-                
-                for i, energy in enumerate(self.scoring_breakdown):
-                    writer.writerow([i+1] + [energy[comp] for comp in components])
-            
-            print(f"Energy breakdown CSV written to {energy_csv}")
-            return results_csv, energy_csv
-        
-        print(f"Results CSV written to {results_csv}")
-        return results_csv, None
-
-    def generate_json_report(self):
-        """
-        Generate a JSON report with all docking information.
+        Generate a CSV report of docking results.
         
         Returns:
         --------
         str
-            Path to the generated JSON file
+            Path to the generated CSV report
         """
-        json_path = self.output_dir / "docking_report.json"
+        import os
+        import csv
         
-        # Create a dictionary with all report information
-        report_data = {
-            "run_info": {
-                "timestamp": str(self.timestamp),
-                "protein": str(self.args.protein) if hasattr(self.args, 'protein') else "unknown",
-                "ligand": str(self.args.ligand) if hasattr(self.args, 'ligand') else "unknown",
-                "algorithm": self.args.algorithm if hasattr(self.args, 'algorithm') else "unknown"
-            },
-            "results": {
-                "pose_count": len(self.results),
-                "poses": []
-            }
-        }
+        # Create report path
+        report_name = getattr(self.args, 'report_name', None)
+        if report_name:
+            report_path = os.path.join(self.output_dir, f"{report_name}_results.csv")
+        else:
+            report_path = os.path.join(self.output_dir, f"docking_results.csv")
         
-        # Add pose information (converting all values to basic Python types)
-        if self.results:
-            sorted_results = sorted(self.results, key=lambda x: x[1])
-            report_data["results"]["best_score"] = float(sorted_results[0][1])
-            
-            for i, (_, score) in enumerate(sorted_results):
-                report_data["results"]["poses"].append({
-                    "rank": i+1,
-                    "score": float(score)
-                })
+        # Check if we have results
+        if not self.results:
+            return None
         
-        # Simplify scoring breakdown to basic Python types
-        if self.scoring_breakdown:
-            breakdown_list = []
-            for energy in self.scoring_breakdown:
-                energy_dict = {}
-                for key, value in energy.items():
-                    # Convert numpy values to Python native types
-                    if hasattr(value, "item"):  # numpy scalar
-                        energy_dict[key] = value.item()
-                    elif isinstance(value, bool):
-                        energy_dict[key] = bool(value)
-                    else:
-                        energy_dict[key] = float(value) if isinstance(value, (int, float)) else str(value)
-                breakdown_list.append(energy_dict)
-            report_data["energy_breakdown"] = breakdown_list
+        # Sort results by score
+        sorted_results = sorted(self.results, key=lambda x: x[1])
         
-        # Write JSON file with explicit error handling
-        try:
-            with open(json_path, 'w') as f:
-                json.dump(report_data, f, indent=4)
-            print(f"JSON report written to {json_path}")
-        except TypeError as e:
-            print(f"JSON serialization error: {e}")
-            print("Writing simplified JSON report without complex data")
+        with open(report_path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
             
-            # Simplified report as fallback
-            basic_report = {
-                "run_info": report_data["run_info"],
-                "results": {
-                    "pose_count": report_data["results"]["pose_count"],
-                    "best_score": report_data["results"]["best_score"] if "best_score" in report_data["results"] else None
-                }
-            }
+            # Write header
+            header = ['Rank', 'Pose', 'Score']
             
-            with open(json_path, 'w') as f:
-                json.dump(basic_report, f, indent=4)
+            # Add energy components if available
+            if self.energy_breakdown and 'pose_1' in self.energy_breakdown:
+                for component in self.energy_breakdown['pose_1']:
+                    if component != 'total':
+                        header.append(component.capitalize())
             
-        return json_path
+            # Add validation if available
+            if self.validation_results:
+                header.append('RMSD')
+            
+            writer.writerow(header)
+            
+            # Write data rows
+            for i, (pose, score) in enumerate(sorted_results):
+                pose_id = f"pose_{i+1}"
+                row = [i+1, pose_id, score]
+                
+                # Add energy components
+                if self.energy_breakdown and pose_id in self.energy_breakdown:
+                    components = self.energy_breakdown[pose_id]
+                    for component, value in components.items():
+                        if component != 'total':
+                            row.append(value)
+                
+                # Add validation RMSD if available
+                if self.validation_results:
+                    # Find matching validation result
+                    rmsd = next((r['rmsd'] for r in self.validation_results if r['pose_index'] == i), 'N/A')
+                    row.append(rmsd)
+                
+                writer.writerow(row)
+        
+        return report_path
     
-        # Write JSON file
-        #with open(json_path, 'w') as f:
-        #    json.dump(report_data, f, indent=4, cls=EnhancedJSONEncoder)
-        
-        #print(f"JSON report written to {json_path}")
-        #return json_path
-    
-    
-            
     def generate_plots(self, save_dir=None):
         """
         Generate plots visualizing the docking results.
@@ -719,320 +917,561 @@ class DockingReporter:
         print(f"Generated {len(plot_paths)} plots in {save_dir}")
         return plot_paths
     
-    def generate_html_report(self):
+    def generate_json_report(self):
         """
-        Generate a comprehensive HTML report with embedded plots and tables.
+        Generate a JSON report of docking results.
         
         Returns:
         --------
         str
-            Path to the generated HTML report
+            Path to the generated JSON report
         """
-        html_path = self.output_dir / "docking_report.html"
+        import os
+        import json
+        import datetime
         
-        # Generate plots in a plots subdirectory
-        plots_dir = self.output_dir / "plots"
+        # Create report path
+        report_name = getattr(self.args, 'report_name', None)
+        if report_name:
+            report_path = os.path.join(self.output_dir, f"{report_name}_results.json")
+        else:
+            report_path = os.path.join(self.output_dir, f"docking_results.json")
+        
+        # Check if we have results
+        if not self.results:
+            return None
+        
+        # Extract arguments
+        protein_file = getattr(self.args, 'protein', 'Unknown')
+        ligand_file = getattr(self.args, 'ligand', 'Unknown')
+        algorithm = getattr(self.args, 'algorithm', 'Unknown')
+        
+        # Create report data structure
+        report_data = {
+            'run_info': {
+                'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'protein': os.path.basename(protein_file),
+                'ligand': os.path.basename(ligand_file),
+                'algorithm': algorithm
+            },
+            'results': {
+                'poses': [],
+                'summary': {
+                    'total_poses': len(self.results),
+                    'best_score': min([score for _, score in self.results]) if self.results else 0,
+                    'worst_score': max([score for _, score in self.results]) if self.results else 0,
+                    'average_score': sum([score for _, score in self.results]) / len(self.results) if self.results else 0
+                }
+            }
+        }
+        
+        # Sort results by score
+        sorted_results = sorted(self.results, key=lambda x: x[1])
+        
+        # Add pose data
+        for i, (pose, score) in enumerate(sorted_results):
+            pose_id = f"pose_{i+1}"
+            pose_data = {
+                'rank': i+1,
+                'id': pose_id,
+                'score': score,
+                'filename': f"pose_{i+1}_score_{score:.1f}.pdb"
+            }
+            
+            # Add energy components if available
+            if self.energy_breakdown and pose_id in self.energy_breakdown:
+                pose_data['energy_components'] = self.energy_breakdown[pose_id]
+            
+            # Add interactions if available
+            if self.interaction_analysis and pose_id in self.interaction_analysis:
+                pose_data['interactions'] = self.interaction_analysis[pose_id]
+            
+            # Add validation if available
+            if self.validation_results:
+                validation = next((r for r in self.validation_results if r['pose_index'] == i), None)
+                if validation:
+                    pose_data['validation'] = {
+                        'rmsd': validation['rmsd'],
+                        'success': validation['success']
+                    }
+            
+            report_data['results']['poses'].append(pose_data)
+        
+        # Save JSON file
+        with open(report_path, 'w') as f:
+            json.dump(report_data, f, indent=2)
+        
+        return report_path
+    
+    # Handle the interactions section separately to avoid complex nesting
+    
+
+    # Then in your generate_html_report function:
+    
+    def generate_html_report(self):
+        """
+        Generate a comprehensive HTML report with embedded plots and tables.
+
+        This function generates an HTML report that includes various sections such 
+        as run information, docking results, energy components, interactions, and 
+        validation results. It styles the report using CSS for better readability 
+        and organizes the content into structured sections. The report is saved 
+        to a specified output directory.
+
+        Returns:
+        --------
+        str
+            Path to the generated HTML report or None if no results are available.
+        """
+
+        import os
+        import datetime  
+        
+
+        # Generate and save plots
+        plots_dir = os.path.join(self.output_dir, "plots")
         os.makedirs(plots_dir, exist_ok=True)
         plot_paths = self.generate_plots(save_dir=plots_dir)
-        
-        # Extract relative paths
-        rel_plot_paths = [os.path.relpath(path, self.output_dir) for path in plot_paths]
-        
-        # Create HTML content
-        html_content = f"""
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>PandaDock Report - {self.timestamp}</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; color: #333; }}
-                h1, h2, h3 {{ color: #2c3e50; }}
-                .container {{ max-width: 1200px; margin: 0 auto; }}
-                .header {{ background-color: #3498db; color: white; padding: 20px; margin-bottom: 20px; }}
-                .section {{ background-color: #f9f9f9; padding: 15px; margin-bottom: 20px; border-radius: 5px; }}
-                table {{ border-collapse: collapse; width: 100%; margin-bottom: 20px; }}
-                th, td {{ text-align: left; padding: 12px; }}
-                th {{ background-color: #3498db; color: white; }}
-                tr:nth-child(even) {{ background-color: #f2f2f2; }}
-                .plot-container {{ display: flex; flex-wrap: wrap; justify-content: space-around; }}
-                .plot {{ margin: 10px; max-width: 600px; }}
-                .success {{ color: green; font-weight: bold; }}
-                .failure {{ color: red; font-weight: bold; }}
-                .footnote {{ font-size: 0.8em; color: #7f8c8d; text-align: center; margin-top: 40px; }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>PandaDock Molecular Docking Report</h1>
-                    <p>Report generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-                </div>
-                
-                <div class="section">
-                    <h2>Run Information</h2>
-                    <table>
-                        <tr><th>Parameter</th><th>Value</th></tr>
-                        <tr><td>Report ID</td><td>{self.timestamp}</td></tr>
-                        <tr><td>Protein</td><td>{self.args.protein}</td></tr>
-                        <tr><td>Ligand</td><td>{self.args.ligand}</td></tr>
-                        <tr><td>Algorithm</td><td>{self.args.algorithm if hasattr(self.args, 'algorithm') else "unknown"}</td></tr>
-        """
-        
-        # Add algorithm-specific parameters
-        if hasattr(self.args, 'algorithm'):
-            if self.args.algorithm == "genetic":
-                if hasattr(self.args, 'population_size'):
-                    html_content += f"<tr><td>Population Size</td><td>{self.args.population_size}</td></tr>\n"
-                if hasattr(self.args, 'mutation_rate'):
-                    html_content += f"<tr><td>Mutation Rate</td><td>{self.args.mutation_rate}</td></tr>\n"
-            elif self.args.algorithm == "monte-carlo":
-                if hasattr(self.args, 'mc_steps'):
-                    html_content += f"<tr><td>MC Steps</td><td>{self.args.mc_steps}</td></tr>\n"
-                if hasattr(self.args, 'temperature'):
-                    html_content += f"<tr><td>Temperature</td><td>{self.args.temperature} K</td></tr>\n"
-        
-        # Add hardware information
-        if hasattr(self.args, 'use_gpu'):
-            gpu_text = "Yes" if self.args.use_gpu else "No"
-            html_content += f"<tr><td>GPU Acceleration</td><td>{gpu_text}</td></tr>\n"
-            if self.args.use_gpu and hasattr(self.args, 'gpu_id'):
-                html_content += f"<tr><td>GPU ID</td><td>{self.args.gpu_id}</td></tr>\n"
-        
-        if hasattr(self.args, 'cpu_workers'):
-            cpu_workers = str(self.args.cpu_workers) if self.args.cpu_workers else "All Available"
-            html_content += f"<tr><td>CPU Workers</td><td>{cpu_workers}</td></tr>\n"
-            
-        # Add scoring function information
-        scoring_type = "Standard"
-        if hasattr(self.args, 'enhanced_scoring') and self.args.enhanced_scoring:
-            scoring_type = "Enhanced"
-        if hasattr(self.args, 'physics_based') and self.args.physics_based:
-            scoring_type = "Physics-based"
-        html_content += f"<tr><td>Scoring Function</td><td>{scoring_type}</td></tr>\n"
-        
-        html_content += """
-                    </table>
-                </div>
-                
-                <div class="section">
-                    <h2>Results Summary</h2>
-        """
-        
-        # Add results summary
-        if self.results:
-            sorted_results = sorted(self.results, key=lambda x: x[1])
-            html_content += f"""
-                    <table>
-                        <tr><th>Metric</th><th>Value</th></tr>
-                        <tr><td>Total Poses Generated</td><td>{len(self.results)}</td></tr>
-                        <tr><td>Best Score</td><td>{sorted_results[0][1]:.4f}</td></tr>
-                        <tr><td>Worst Score</td><td>{sorted_results[-1][1]:.4f}</td></tr>
-                        <tr><td>Average Score</td><td>{sum([score for _, score in self.results])/len(self.results):.4f}</td></tr>
-                        <tr><td>Score Standard Deviation</td><td>{np.std([score for _, score in self.results]):.4f}</td></tr>
-                    </table>
-            """
+        plot_html = "<div class='container'><h2>Visualizations</h2>"
+
+        for path in plot_paths:
+            rel_path = os.path.relpath(path, self.output_dir)
+            plot_html += f"""
+                <div class='plot'>
+                    <img src="{rel_path}" alt="Plot" style="width:100%; max-width:800px;" />
+                </div>"""
+        plot_html += "</div>"
+        # Create report path
+        report_name = getattr(self.args, 'report_name', None)
+        if report_name:
+            report_path = os.path.join(self.output_dir, f"{report_name}_report.html")
         else:
-            html_content += "<p>No docking results available.</p>\n"
+            report_path = os.path.join(self.output_dir, "docking_report.html")
         
-        html_content += """
-                </div>
-                
-                <div class="section">
-                    <h2>Top Docking Poses</h2>
-        """
+        # Check if we have results
+        if not self.results:
+            print("No results to generate HTML report")
+            return None
         
-        # Add top poses table
-        if self.results:
-            sorted_results = sorted(self.results, key=lambda x: x[1])
-            html_content += """
-                    <table>
-                        <tr>
-                            <th>Rank</th>
-                            <th>Score</th>
-                            <th>Filename</th>
-                        </tr>
-            """
-            
-            for i, (pose, score) in enumerate(sorted_results[:min(20, len(sorted_results))]):
-                filename = f"pose_{i+1}_score_{score:.1f}.pdb"
-                html_content += f"""
-                        <tr>
-                            <td>{i+1}</td>
-                            <td>{score:.4f}</td>
-                            <td>{filename}</td>
-                        </tr>
-                """
-            
-            html_content += """
-                    </table>
-            """
-        else:
-            html_content += "<p>No docking poses available.</p>\n"
-            
-        # Add energy breakdown if available
-        html_content += """
-                </div>
-        """
+        # Generate timestamp
+        current_timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
-        if self.scoring_breakdown:
-            html_content += """
-                <div class="section">
-                    <h2>Energy Component Breakdown</h2>
-            """
-            
-            # Get all energy components
-            components = list(self.scoring_breakdown[0].keys())
-            
-            html_content += """
-                    <table>
-                        <tr>
-                            <th>Pose</th>
-            """
-            
-            for comp in components:
-                html_content += f"<th>{comp}</th>\n"
-            
-            html_content += "</tr>\n"
-            
-            # Add energy values for top poses
-            for i, energy in enumerate(self.scoring_breakdown[:min(10, len(self.scoring_breakdown))]):
-                html_content += f"<tr><td>{i+1}</td>\n"
-                for comp in components:
-                    html_content += f"<td>{energy[comp]:.2f}</td>\n"
-                html_content += "</tr>\n"
-            
-            html_content += """
-                    </table>
-                </div>
-            """
-            
-        # Add validation results if available
+        # Extract arguments
+        protein_file = getattr(self.args, 'protein', 'Unknown')
+        ligand_file = getattr(self.args, 'ligand', 'Unknown')
+        
+        # Generate basic HTML sections
+        run_info_section = self._generate_run_info_html(protein_file, ligand_file)
+        results_section = self._generate_results_html()
+        energy_section = self._generate_energy_html() if self.energy_breakdown else ""
+        
+        # Generate interactions section if available
+        interactions_section = ""
+        if self.interaction_analysis:
+            interactions_section = self._generate_interactions_html()
+        
+        # Generate validation section if available
+        validation_section = ""
         if self.validation_results:
-            html_content += """
-                <div class="section">
-                    <h2>Validation Against Reference Structure</h2>
-            """
-            
-            if isinstance(self.validation_results, list):
-                # Multiple pose validation
-                html_content += """
-                    <table>
-                        <tr>
-                            <th>Rank</th>
-                            <th>Pose</th>
-                            <th>RMSD (Å)</th>
-                            <th>Status</th>
-                        </tr>
-                """
-                
-                for i, result in enumerate(self.validation_results[:min(10, len(self.validation_results))]):
-                    pose_idx = result.get('pose_index', i)
-                    rmsd = result.get('rmsd', 0.0)
-                    success = rmsd < 2.0
-                    status_class = "success" if success else "failure"
-                    status_text = "Success" if success else "Failure"
-                    
-                    html_content += f"""
-                        <tr>
-                            <td>{i+1}</td>
-                            <td>{pose_idx+1}</td>
-                            <td>{rmsd:.4f}</td>
-                            <td class="{status_class}">{status_text}</td>
-                        </tr>
-                    """
-                
-                html_content += """
-                    </table>
-                """
-                
-                # Best RMSD summary
-                if len(self.validation_results) > 0:
-                    best_rmsd = min(result.get('rmsd', float('inf')) for result in self.validation_results)
-                    success = best_rmsd < 2.0
-                    status_class = "success" if success else "failure"
-                    
-                    html_content += f"""
-                    <p>Best RMSD: <strong>{best_rmsd:.4f} Å</strong></p>
-                    <p>Docking Success: <span class="{status_class}">{success}</span></p>
-                    """
-            
-            elif isinstance(self.validation_results, dict):
-                # Single validation result
-                rmsd = self.validation_results.get('rmsd', 0.0)
-                max_dev = self.validation_results.get('max_deviation', 0.0)
-                min_dev = self.validation_results.get('min_deviation', 0.0)
-                success = self.validation_results.get('success', False)
-                status_class = "success" if success else "failure"
-                
-                html_content += f"""
-                    <table>
-                        <tr><th>Metric</th><th>Value</th></tr>
-                        <tr><td>Overall RMSD</td><td>{rmsd:.4f} Å</td></tr>
-                        <tr><td>Maximum Atomic Deviation</td><td>{max_dev:.4f} Å</td></tr>
-                        <tr><td>Minimum Atomic Deviation</td><td>{min_dev:.4f} Å</td></tr>
-                        <tr><td>Docking Success</td><td class="{status_class}">{success}</td></tr>
-                    </table>
-                """
-                
-                # Top atom deviations if available
-                atom_deviations = self.validation_results.get('atom_deviations', None)
-                if atom_deviations is not None:
-                    html_content += """
-                    <h3>Top 10 Atom Deviations</h3>
-                    <table>
-                        <tr><th>Atom</th><th>Deviation (Å)</th></tr>
-                    """
-                    
-                    sorted_indices = np.argsort(atom_deviations)[::-1]
-                    for i in range(min(10, len(sorted_indices))):
-                        idx = sorted_indices[i]
-                        html_content += f"""
-                        <tr><td>Atom {idx + 1}</td><td>{atom_deviations[idx]:.4f}</td></tr>
-                        """
-                    
-                    html_content += """
-                    </table>
-                    """
-            
-            html_content += """
-                </div>
-            """
-            
-        # Add visualization section
-        html_content += """
-                <div class="section">
-                    <h2>Visualizations</h2>
-                    <div class="plot-container">
-        """
+            validation_section = self._generate_validation_html()
         
-        # Add all generated plots
-        for rel_path in rel_plot_paths:
-            plot_title = os.path.basename(rel_path).replace('.png', '').replace('_', ' ').title()
-            html_content += f"""
-                        <div class="plot">
-                            <h3>{plot_title}</h3>
-                            <img src="{rel_path}" alt="{plot_title}" width="100%">
-                        </div>
-            """
+        # Build HTML content with proper indentation
+        html_content = f"""<!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>PandaDock Docking Report</title>
+        <style>
+            body {{
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 20px;
+                background-color: #f9f9f9;
+            }}
+            h1, h2, h3, h4 {{
+                color: #2c3e50;
+            }}
+            .header {{
+                background-color: #34495e;
+                color: white;
+                padding: 20px;
+                border-radius: 5px;
+                margin-bottom: 20px;
+            }}
+            .container {{
+                background: white;
+                padding: 20px;
+                border-radius: 5px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                margin-bottom: 20px;
+            }}
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin: 20px 0;
+            }}
+            th, td {{
+                padding: 12px 15px;
+                text-align: left;
+                border-bottom: 1px solid #ddd;
+            }}
+            th {{
+                background-color: #f2f2f2;
+            }}
+            tr:hover {{
+                background-color: #f5f5f5;
+            }}
+            .plot {{
+                width: 100%;
+                max-width: 800px;
+                margin: 20px auto;
+                text-align: center;
+            }}
+            .interactions {{
+                background-color: #f9f9f9;
+                padding: 15px;
+                border-radius: 5px;
+                margin-top: 10px;
+            }}
+            .good {{
+                color: green;
+            }}
+            .bad {{
+                color: red;
+            }}
+            .footer {{
+                text-align: center;
+                margin-top: 30px;
+                color: #7f8c8d;
+                font-size: 0.9em;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>PandaDock Molecular Docking Report</h1>
+            <p>Generated on {current_timestamp}</p>
+        </div>
         
-        html_content += """
-                    </div>
-                </div>
-                
-                <div class="footnote">
-                    <p>Report generated by PandaDock - Python Molecular Docking Tool</p>
-                    <p>Report ID: """ + self.timestamp + """</p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
+        {run_info_section}
         
+        {results_section}
+        
+        {energy_section}
+        
+        {interactions_section}
+        
+        {validation_section}
+        
+        <div class="footer">
+            <p>Generated by PandaDock - Python Molecular Docking Tool</p>
+        </div>
+    </body>
+    </html>"""
+        html_content = html_content.replace("<div class=\"footer\">", plot_html + "<div class=\"footer\">")
         # Write HTML file
-        with open(html_path, 'w') as f:
+        with open(report_path, 'w') as f:
             f.write(html_content)
         
-        print(f"HTML report written to {html_path}")
-        return html_path
+        print(f"HTML report generated: {report_path}")
+        return report_path
+
+    def _generate_run_info_html(self, protein_file, ligand_file):
+        import os
+        """Generate HTML for the run information section."""
+        # Get algorithm info
+        algorithm = getattr(self.args, 'algorithm', 'Unknown').capitalize()
+        
+        # Determine scoring function type
+        if hasattr(self.args, 'physics_based') and self.args.physics_based:
+            scoring_type = "Physics-based"
+        elif hasattr(self.args, 'enhanced_scoring') and self.args.enhanced_scoring:
+            scoring_type = "Enhanced"
+        else:
+            scoring_type = "Standard"
+        
+        # Get hardware info
+        hardware = "CPU"
+        if hasattr(self.args, 'use_gpu') and self.args.use_gpu:
+            hardware = "GPU"
+        
+        cpu_cores = getattr(self.args, 'cpu_workers', 'Unknown')
+        hardware_info = f"{hardware} ({cpu_cores} cores)" if cpu_cores != 'Unknown' else hardware
+        
+        # Build section HTML
+        html = f"""<div class="container">
+            <h2>Run Information</h2>
+            <table>
+                <tr>
+                    <th>Parameter</th>
+                    <th>Value</th>
+                </tr>
+                <tr>
+                    <td>Protein</td>
+                    <td>{os.path.basename(protein_file)}</td>
+                </tr>
+                <tr>
+                    <td>Ligand</td>
+                    <td>{os.path.basename(ligand_file)}</td>
+                </tr>
+                <tr>
+                    <td>Algorithm</td>
+                    <td>{algorithm}</td>
+                </tr>
+                <tr>
+                    <td>Scoring Function</td>
+                    <td>{scoring_type}</td>
+                </tr>
+                <tr>
+                    <td>Hardware</td>
+                    <td>{hardware_info}</td>
+                </tr>
+                <tr>
+                    <td>Total Poses</td>
+                    <td>{len(self.results)}</td>
+                </tr>
+            </table>
+        </div>"""
+        
+        return html
+
+    def _generate_results_html(self):
+        """Generate HTML for the docking results section."""
+        # Calculate statistics
+        scores = [score for _, score in self.results]
+        best_score = min(scores) if scores else 0
+        avg_score = sum(scores) / len(scores) if scores else 0
+        
+        # Sort results by score
+        sorted_results = sorted(self.results, key=lambda x: x[1])
+        
+        # Build section HTML
+        html = f"""<div class="container">
+            <h2>Docking Results</h2>
+            <p>Best score: <strong>{best_score:.4f}</strong></p>
+            <p>Average score: <strong>{avg_score:.4f}</strong></p>
+            
+            <h3>Top Poses</h3>
+            <table>
+                <tr>
+                    <th>Rank</th>
+                    <th>Pose</th>
+                    <th>Score</th>
+                    {'' if not self.validation_results else '<th>RMSD</th>'}
+                </tr>"""
+        
+        # Add rows for top 10 poses
+        for i, (_, score) in enumerate(sorted_results[:min(10, len(sorted_results))]):
+            # RMSD column if validation results exist
+            rmsd_col = ""
+            if self.validation_results:
+                rmsd = next((r['rmsd'] for r in self.validation_results if r['pose_index'] == i), None)
+                if rmsd is not None:
+                    rmsd_class = 'good' if rmsd < 2.0 else 'bad'
+                    rmsd_col = f'<td class="{rmsd_class}">{rmsd:.2f}</td>'
+                else:
+                    rmsd_col = '<td>N/A</td>'
+            
+            html += f"""
+                <tr>
+                    <td>{i+1}</td>
+                    <td>Pose {i+1}</td>
+                    <td>{score:.4f}</td>
+                    {rmsd_col}
+                </tr>"""
+        
+        html += """
+            </table>
+        </div>"""
+        
+        return html
+
+    def _generate_energy_html(self):
+        """Generate HTML for the energy component section."""
+        if not self.energy_breakdown:
+            return ""
+        
+        # Get component names
+        components = ['vdw', 'hbond', 'elec', 'desolv', 'hydrophobic', 'clash', 'entropy', 'total']
+        component_names = {
+            'vdw': 'Van der Waals',
+            'hbond': 'H-Bond',
+            'elec': 'Electrostatic',
+            'desolv': 'Desolvation',
+            'hydrophobic': 'Hydrophobic',
+            'clash': 'Steric Clash',
+            'entropy': 'Entropy',
+            'total': 'TOTAL'
+        }
+        
+        # Build section HTML
+        html = """<div class="container">
+            <h2>Energy Component Analysis</h2>
+            <table>
+                <tr>
+                    <th>Component</th>"""
+        
+        # Add column headers for poses
+        for i in range(min(5, len(self.results))):
+            html += f"<th>Pose {i+1}</th>"
+        
+        html += """
+                </tr>"""
+        
+        # Add rows for each component
+        for component in components:
+            name = component_names.get(component, component.capitalize())
+            html += f"""
+                <tr>
+                    <td>{name}</td>"""
+            
+            # Add values for each pose
+            for i in range(min(5, len(self.results))):
+                pose_id = f"pose_{i+1}"
+                if pose_id in self.energy_breakdown and component in self.energy_breakdown[pose_id]:
+                    value = self.energy_breakdown[pose_id][component]
+                    html += f"<td>{value:.4f}</td>"
+                else:
+                    html += "<td>N/A</td>"
+            
+            html += """
+                </tr>"""
+        
+        html += """
+            </table>
+        </div>"""
+        
+        return html
+
+    def _generate_interactions_html(self):
+        """Generate HTML for the protein-ligand interactions section."""
+        if not self.interaction_analysis:
+            return ""
+        
+        html = """<div class="container">
+            <h2>Protein-Ligand Interactions</h2>"""
+        
+        # Add details for up to 3 poses
+        for i in range(min(3, len(self.results))):
+            pose_id = f"pose_{i+1}"
+            if pose_id in self.interaction_analysis:
+                # Find score for this pose
+                pose_score = next((score for j, (_, score) in enumerate(sorted(self.results, key=lambda x: x[1])) if j == i), 'N/A')
+                
+                html += f"""
+            <h3>Pose {i+1} (Score: {pose_score:.4f})</h3>
+            <div class="interactions">"""
+                
+                # Add hydrogen bonds
+                html += """
+                <h4>Hydrogen Bonds:</h4>"""
+                
+                if self.interaction_analysis[pose_id]['h_bonds']:
+                    html += """
+                <ul>"""
+                    
+                    for hbond in self.interaction_analysis[pose_id]['h_bonds']:
+                        direction = '->' if hbond['type'] == 'protein_donor' else '<-'
+                        html += f"""
+                    <li>{hbond["protein_atom"]["chain"]}:{hbond["protein_atom"]["residue"]}{hbond["protein_atom"]["residue_id"]} {direction} Ligand {hbond["ligand_atom"]["element"]} ({hbond["distance"]} Å)</li>"""
+                    
+                    html += """
+                </ul>"""
+                else:
+                    html += """
+                <p>No hydrogen bonds detected</p>"""
+                
+                # Add hydrophobic interactions
+                html += """
+                <h4>Hydrophobic Interactions:</h4>"""
+                
+                if self.interaction_analysis[pose_id]['residues']:
+                    residues_list = list(self.interaction_analysis[pose_id]['residues'])[:10]
+                    residues_text = ', '.join(residues_list)
+                    if len(self.interaction_analysis[pose_id]['residues']) > 10:
+                        residues_text += f", and {len(self.interaction_analysis[pose_id]['residues']) - 10} more"
+                    
+                    html += f"""
+                <p>{residues_text}</p>"""
+                else:
+                    html += """
+                <p>No hydrophobic interactions detected</p>"""
+                
+                html += """
+            </div>"""
+        
+        html += """
+        </div>"""
+        
+        return html
+
+    def _generate_validation_html(self):
+        """Generate HTML for the validation section."""
+        if not self.validation_results:
+            return ""
+        
+        best_rmsd = self.validation_results[0]['rmsd']
+        best_index = self.validation_results[0]['pose_index'] + 1
+        rmsd_class = 'good' if best_rmsd < 2.0 else 'bad'
+        status = 'Success' if best_rmsd < 2.0 else 'Failure'
+        
+        html = f"""<div class="container">
+            <h2>Validation Against Reference</h2>
+            <p>Best RMSD: <strong class="{rmsd_class}">{best_rmsd:.2f} Å</strong> (Pose {best_index})</p>
+            <p>Validation status: <strong class="{rmsd_class}">{status}</strong></p>
+            
+            <h3>RMSD Values for Top 5 Poses:</h3>
+            <table>
+                <tr>
+                    <th>Pose</th>
+                    <th>RMSD (Å)</th>
+                    <th>Status</th>
+                </tr>"""
+        
+        # Add rows for RMSD values
+        for result in self.validation_results[:min(5, len(self.validation_results))]:
+            pose_idx = result['pose_index'] + 1
+            rmsd = result['rmsd']
+            rmsd_class = 'good' if rmsd < 2.0 else 'bad'
+            status = 'Success' if rmsd < 2.0 else 'Failure'
+            
+            html += f"""
+                <tr>
+                    <td>Pose {pose_idx}</td>
+                    <td class="{rmsd_class}">{rmsd:.2f}</td>
+                    <td class="{rmsd_class}">{status}</td>
+                </tr>"""
+        
+        html += """
+            </table>
+        </div>"""
+        
+        return html
+    
+    def _plot_energy_components(self, save_dir, plot_paths):
+        """Generate energy component breakdown plots."""
+        # Extract components for top 5 poses
+        components = ['vdw', 'hbond', 'elec', 'desolv', 'hydrophobic']
+        data = []
+        
+        for pose_id in sorted(self.energy_breakdown.keys())[:5]:
+            for comp in components:
+                if comp in self.energy_breakdown[pose_id]:
+                    data.append({
+                        'pose': pose_id,
+                        'component': comp,
+                        'energy': self.energy_breakdown[pose_id][comp]
+                    })
+        
+        # Create grouped bar plot
+        plt.figure(figsize=(12,6))
+        sns.barplot(x='component', y='energy', hue='pose', data=pd.DataFrame(data))
+        plt.title("Energy Component Breakdown")
+        energy_path = os.path.join(save_dir, "energy_components.png")
+        plt.savefig(energy_path)
+        plt.close()
+        plot_paths.append(energy_path)
