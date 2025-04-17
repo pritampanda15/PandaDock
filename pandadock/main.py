@@ -429,15 +429,19 @@ def main():
                             help='Output directory for docking results')
         parser.add_argument('-a', '--algorithm', choices=['random', 'genetic', 'pandadock'], default='genetic',
                             help='Docking algorithm to use (default: genetic)')
-        parser.add_argument('-i', '--iterations', type=int, default=1000,
-                            help='Number of iterations/generations (default: 1000)')
+        parser.add_argument('-i', '--iterations', type=int, default=100,
+                            help='Number of iterations/generations (default: 100)')
         parser.add_argument('-s', '--site', nargs=3, type=float, metavar=('X', 'Y', 'Z'),
                             help='Active site center coordinates')
         parser.add_argument('-r', '--radius', type=float, default=10.0,
                             help='Active site radius in Angstroms (default: 10.0)')
         parser.add_argument('--detect-pockets', action='store_true',
                             help='Automatically detect binding pockets')
-        
+        parser.add_argument('--grid-spacing', type=float, default=1.0,
+                    help='Grid spacing in Å for spherical grid sampling (default: 1.0 Å)')
+        parser.add_argument('--grid-radius', type=float, default=10.0,
+                            help='Grid radius in Å around the binding site for spherical sampling (default: 10.0 Å)')
+                
         parser.add_argument('--tethered-docking', action='store_true',
                     help='Use tethered scoring with reference structure')
         parser.add_argument('--tether-weight', type=float, default=10.0,
@@ -530,7 +534,15 @@ def main():
         add_analysis_options(parser)
         
         args = parser.parse_args()
-        
+    
+        # Check for required arguments
+        if not args.protein or not args.ligand:
+            parser.error("Both --protein and --ligand arguments are required")
+
+
+        if not args.output:
+            parser.error("--output argument is required")
+
         # Create descriptive output directory name
         protein_base = Path(args.protein).stem
         ligand_base = Path(args.ligand).stem

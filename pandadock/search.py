@@ -8,7 +8,7 @@ from .utils import setup_logging
 class DockingSearch:
     """Base class for docking search algorithms."""
     
-    def __init__(self, scoring_function, max_iterations=100, output_dir=None):
+    def __init__(self, scoring_function, max_iterations=1000, output_dir=None):
         """
         Initialize search algorithm.
         
@@ -27,8 +27,27 @@ class DockingSearch:
     
     # Set up logger
         self.logger = setup_logging(output_dir)
+        self.grid_points = None
+        self.grid_radius = 10.0
+        self.grid_spacing = 1.0
+        
+    # Define a method to set up the grid
+    def initialize_grid_points(self, center):
+        from .utils import generate_spherical_grid
+        if self.grid_points is None:
+            self.grid_points = generate_spherical_grid(
+                center=center,
+                radius=self.grid_radius,
+                spacing=self.grid_spacing
+            )
+            self.logger.info(
+                f"Initialized spherical grid with {len(self.grid_points)} points "
+                f"(spacing: {self.grid_spacing}, radius: {self.grid_radius})"
+            )
 
-    
+
+
+
     def search(self, protein, ligand):
         """
         Perform docking search.
@@ -85,11 +104,12 @@ class DockingSearch:
                 print("WARNING: No active site specified. Defining one based on protein center.")
                 center = np.mean(protein.xyz, axis=0)
                 protein.define_active_site(center, 15.0)
-        
+       
         # Create a more focused initial pose generation
         active_site_center = protein.active_site['center']
         active_site_radius = protein.active_site['radius']
-        
+        self.initialize_grid_points(center=protein.active_site['center'])
+
         # Use the current scoring function
         scoring_function = self.scoring_function
         

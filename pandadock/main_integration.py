@@ -4,7 +4,7 @@ This module extends the main.py command-line interface with GPU/CPU options.
 """
 
 import argparse
-
+import os
 
 def add_hardware_options(parser):
     """
@@ -192,6 +192,14 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
     SearchAlgorithm
         Optimized search algorithm
     """
+    # Get grid-related settings from kwargs
+    # Extract grid and meta parameters
+
+    grid_spacing = kwargs.get("grid_spacing", 1.0)
+    grid_radius = kwargs.get("grid_radius", 10.0)
+    grid_center = kwargs.get("grid_center", None)
+    output_dir = kwargs.get("output_dir", None)
+
     # Standard algorithm types
     if algorithm_type == 'genetic':
         try:
@@ -262,7 +270,16 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
             scoring_function,
             **kwargs
         )
+    # 🔥 ADD THIS HERE
+    if isinstance(search, DockingSearch):
+        search.grid_spacing = grid_spacing
+        search.grid_radius = grid_radius
+        search.grid_center = grid_center
 
+    if output_dir:
+        search.output_dir = output_dir
+
+    return search
 def get_scoring_type_from_args(args):
     """
     Determine scoring type based on command-line arguments.

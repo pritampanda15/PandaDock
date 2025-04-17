@@ -82,6 +82,38 @@ def is_within_grid(pose, grid_center, grid_radius):
     distance = np.linalg.norm(centroid - grid_center)
     return distance <= grid_radius
 
+
+def generate_spherical_grid(center, radius, spacing=1.0):
+        """
+        Generate grid points within a sphere centered at `center` with a given `radius`.
+
+        Parameters:
+        -----------
+        center : array-like
+            Center of the sphere (3D coordinates).
+        radius : float
+            Radius of the sphere.
+        spacing : float
+            Approximate spacing between grid points.
+
+        Returns:
+        --------
+        np.ndarray
+            Array of 3D points within the sphere.
+        """
+        center = np.array(center)
+        r = int(np.ceil(radius / spacing))
+        grid = []
+
+        for x in range(-r, r + 1):
+            for y in range(-r, r + 1):
+                for z in range(-r, r + 1):
+                    point = np.array([x, y, z]) * spacing + center
+                    if np.linalg.norm(point - center) <= radius:
+                        grid.append(point)
+
+        return np.array(grid)
+
 def detect_steric_clash(protein_atoms, ligand_atoms, threshold=1.6):
     """
     Check if any ligand atom is too close to a protein atom (steric clash).
