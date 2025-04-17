@@ -245,7 +245,23 @@ class ScoringFunction:
     
     def _calculate_hbond_physics(self, protein_atoms, ligand_atoms, protein, ligand):
         """
-        Calculate hydrogen bonding using a 12-10 potential with angular dependence.
+        Calculate hydrogen bonding using a Gaussian-like potential with safe error handling.
+        
+        Parameters:
+        -----------
+        protein_atoms : list
+            List of protein atom dictionaries
+        ligand_atoms : list
+            List of ligand atom dictionaries
+        protein : Protein
+            Protein object
+        ligand : Ligand
+            Ligand object
+            
+        Returns:
+        --------
+        float
+            H-bond energy contribution
         """
         hbond_energy = 0.0
         
@@ -331,6 +347,22 @@ class ScoringFunction:
         """
         Calculate angular dependency factor for hydrogen bond.
         Returns a value between 0 (poor geometry) and 1 (ideal geometry).
+        
+        Parameters:
+        -----------
+        donor_atom : dict
+            The donor atom dictionary
+        acceptor_atom : dict
+            The acceptor atom dictionary
+        donor_mol : Molecule
+            The molecule containing the donor atom
+        acceptor_mol : Molecule
+            The molecule containing the acceptor atom
+            
+        Returns:
+        --------
+        float
+            Angular factor between 0.0 (poor) and 1.0 (ideal)
         """
         try:
             # Get coordinates
@@ -547,9 +579,14 @@ class CompositeScoringFunction(ScoringFunction):
         # Calibrated weights
         self.weights = {
             'vdw': 1.0,
-            'hbond': 2.0,
-            'clash': 10.0
-        }
+            'hbond': 1.0,
+            'elec': 1.0,
+            'desolv': 1.0,
+            'hydrophobic': 1.0,
+            'clash': 5.0,  # ⬅️ Increase clash weight to strengthen repulsion
+            'entropy': 0.25
+    }
+
     
     def score(self, protein, ligand):
         """Calculate composite score using physics-based methods."""
@@ -562,54 +599,59 @@ class CompositeScoringFunction(ScoringFunction):
         # Calculate individual terms using physics-based methods
         vdw_score = self._calculate_vdw_physics(protein_atoms, ligand.atoms)
         hbond_score = self._calculate_hbond_physics(protein_atoms, ligand.atoms, protein, ligand)
+        elec_score = self._calculate_electrostatics_physics(protein_atoms, ligand.atoms)
+        desolv_score = self._calculate_desolvation_physics(protein_atoms, ligand.atoms)
+        hydrophobic_score = self._calculate_hydrophobic_physics(protein_atoms, ligand.atoms)
         clash_score = self._calculate_clashes_physics(protein_atoms, ligand.atoms)
+        entropy_score = self._calculate_entropy(ligand)
         
         # Combine scores
         total_score = (
             self.weights['vdw'] * vdw_score +
             self.weights['hbond'] * hbond_score +
-            self.weights['clash'] * clash_score
+            self.weights['elec'] * elec_score +
+            self.weights['desolv'] * desolv_score +
+            self.weights['hydrophobic'] * hydrophobic_score +
+            self.weights['clash'] * clash_score +
+            self.weights['entropy'] * entropy_score
         )
         
         return total_score
     
     def _calculate_clashes_physics(self, protein_atoms, ligand_atoms):
-        """Calculate severe steric clashes using physics-based approach."""
+        """
+        CDOCKER-style CPU clash detection using Van der Waals overlap and exponential repulsion.
+        """
         clash_score = 0.0
-        
+
         for p_atom in protein_atoms:
-            p_type = self._get_atom_type(p_atom)
+            if 'coords' not in p_atom:
+                continue
             p_coords = p_atom['coords']
+            p_type = self._get_atom_type(p_atom)
             p_radius = self.vdw_params.get(p_type, self.vdw_params['C'])['r_eq'] / 2.0
-            
+
             for l_atom in ligand_atoms:
-                l_type = self._get_atom_type(l_atom)
+                if 'coords' not in l_atom:
+                    continue
                 l_coords = l_atom['coords']
+                l_type = self._get_atom_type(l_atom)
                 l_radius = self.vdw_params.get(l_type, self.vdw_params['C'])['r_eq'] / 2.0
-                
-                # Calculate distance
+
                 distance = np.linalg.norm(p_coords - l_coords)
-                
-                # Calculate minimum allowed distance with physics-based parameters
-                min_allowed = (p_radius + l_radius) * 0.7  # Allow some overlap
-                
-                # Penalize severe clashes with smoother transition
+                min_allowed = (p_radius + l_radius) * 0.7
+                upper_bound = (p_radius + l_radius) * 1.2
+
                 if distance < min_allowed:
-                    # Use exponential repulsion for more realistic physics
-                    clash_factor = np.exp((min_allowed - distance) / min_allowed) - 1.0
-                    clash_score += clash_factor ** 2  # Quadratic penalty
-        
+                    repulsion = np.exp((min_allowed - distance) / min_allowed) - 1.0
+                    clash_score += repulsion ** 2
+                elif distance < upper_bound:
+                    soft_penalty = (upper_bound - distance) / (upper_bound - min_allowed)
+                    clash_score += 0.1 * (soft_penalty ** 2)
+
         return clash_score
 
-    def _calculate_clashes(self, protein, ligand, cutoff=1.6):
-        clash_energy = 0.0
-        for p_atom in protein.atoms:
-            for l_atom in ligand.atoms:
-                if 'coords' in p_atom and 'coords' in l_atom:
-                    dist = np.linalg.norm(p_atom['coords'] - l_atom['coords'])
-                    if dist < cutoff:
-                        clash_energy += (cutoff - dist)**2
-        return clash_energy
+
 
 class EnhancedScoringFunction(CompositeScoringFunction):
     """
@@ -631,43 +673,133 @@ class EnhancedScoringFunction(CompositeScoringFunction):
         }
     
     def score(self, protein, ligand):
-        """Calculate full physics-based composite score."""
-        # Get active site atoms
-        if protein.active_site and 'atoms' in protein.active_site:
-            protein_atoms = protein.active_site['atoms']
+        """
+        Calculate full physics-based composite score with component breakdown.
+        
+        Parameters:
+        -----------
+        protein : Protein
+            Protein object
+        ligand : Ligand
+            Ligand object
+        
+        Returns:
+        --------
+        float
+            Total binding score (lower is better)
+        """
+        # Initialize component scores
+        component_scores = {
+            'vdw': 0.0,
+            'hbond': 0.0,
+            'elec': 0.0,
+            'desolv': 0.0,
+            'hydrophobic': 0.0,
+            'clash': 0.0,
+            'entropy': 0.0,
+            'total': 0.0
+        }
+        
+        try:
+            # Get active site atoms
+            if protein.active_site and 'atoms' in protein.active_site:
+                protein_atoms = protein.active_site['atoms']
+            else:
+                protein_atoms = protein.atoms
+            
+            # Calculate all energy terms with try/except for each component
+            try:
+                component_scores['vdw'] = self._calculate_vdw_physics(protein_atoms, ligand.atoms)
+            except Exception as e:
+                print(f"Warning: Error in VDW calculation: {e}")
+                component_scores['vdw'] = 0.0
+            
+            try:
+                component_scores['hbond'] = self._calculate_hbond_physics(protein_atoms, ligand.atoms, protein, ligand)
+            except Exception as e:
+                print(f"Warning: Error in H-bond calculation: {e}")
+                component_scores['hbond'] = 0.0
+            
+            try:
+                component_scores['elec'] = self._calculate_electrostatics_physics(protein_atoms, ligand.atoms)
+            except Exception as e:
+                print(f"Warning: Error in electrostatics calculation: {e}")
+                component_scores['elec'] = 0.0
+            
+            try:
+                component_scores['desolv'] = self._calculate_desolvation_physics(protein_atoms, ligand.atoms)
+            except Exception as e:
+                print(f"Warning: Error in desolvation calculation: {e}")
+                component_scores['desolv'] = 0.0
+            
+            try:
+                component_scores['hydrophobic'] = self._calculate_hydrophobic_physics(protein_atoms, ligand.atoms)
+            except Exception as e:
+                print(f"Warning: Error in hydrophobic calculation: {e}")
+                component_scores['hydrophobic'] = 0.0
+            
+            try:
+                component_scores['clash'] = self._calculate_clashes_physics(protein_atoms, ligand.atoms)
+            except Exception as e:
+                print(f"Warning: Error in clash calculation: {e}")
+                component_scores['clash'] = 0.0
+            
+            try:
+                component_scores['entropy'] = self._calculate_entropy(ligand)
+            except Exception as e:
+                print(f"Warning: Error in entropy calculation: {e}")
+                component_scores['entropy'] = 0.0
+            
+            # Combine scores with improved physics-based weights
+            total_score = (
+                self.weights['vdw'] * component_scores['vdw'] +
+                self.weights['hbond'] * component_scores['hbond'] +
+                self.weights['elec'] * component_scores['elec'] +
+                self.weights['desolv'] * component_scores['desolv'] +
+                self.weights['hydrophobic'] * component_scores['hydrophobic'] +
+                self.weights['clash'] * component_scores['clash'] +
+                self.weights['entropy'] * component_scores['entropy']
+            )
+            
+            component_scores['total'] = total_score
+            
+            # Store component scores for later analysis
+            self.last_component_scores = component_scores
+            
+            # Print score breakdown if debug is enabled
+            if self.debug:
+                self._print_score_breakdown(component_scores)
+            
+            return total_score
+            
+        except Exception as e:
+            print(f"Error in scoring calculation: {e}")
+            return 1000.0  # Return a high penalty score on failure
+    
+    def _print_score_breakdown(self, scores):
+        """Print detailed breakdown of scoring components."""
+        print("\n----- SCORING BREAKDOWN -----")
+        print(f"VDW:         {scores['vdw']:.2f} × {self.weights['vdw']:.2f} = {scores['vdw'] * self.weights['vdw']:.2f}")
+        print(f"H-Bond:      {scores['hbond']:.2f} × {self.weights['hbond']:.2f} = {scores['hbond'] * self.weights['hbond']:.2f}")
+        print(f"Electro:     {scores['elec']:.2f} × {self.weights['elec']:.2f} = {scores['elec'] * self.weights['elec']:.2f}")
+        print(f"Desolvation: {scores['desolv']:.2f} × {self.weights['desolv']:.2f} = {scores['desolv'] * self.weights['desolv']:.2f}")
+        print(f"Hydrophobic: {scores['hydrophobic']:.2f} × {self.weights['hydrophobic']:.2f} = {scores['hydrophobic'] * self.weights['hydrophobic']:.2f}")
+        print(f"Clashes:     {scores['clash']:.2f} × {self.weights['clash']:.2f} = {scores['clash'] * self.weights['clash']:.2f}")
+        print(f"Entropy:     {scores['entropy']:.2f} × {self.weights['entropy']:.2f} = {scores['entropy'] * self.weights['entropy']:.2f}")
+        print(f"TOTAL SCORE: {scores['total']:.2f}")
+        print("-----------------------------\n")
+    
+    def get_component_scores(self):
+        """Return the component scores from the last scoring calculation."""
+        if hasattr(self, 'last_component_scores'):
+            return self.last_component_scores
         else:
-            protein_atoms = protein.atoms
-        
-        # Calculate all energy terms using improved physics-based methods
-        vdw_score = self._calculate_vdw_physics(protein_atoms, ligand.atoms)
-        hbond_score = self._calculate_hbond_physics(protein_atoms, ligand.atoms, protein, ligand)
-        elec_score = self._calculate_electrostatics_physics(protein_atoms, ligand.atoms)
-        desolv_score = self._calculate_desolvation_physics(protein_atoms, ligand.atoms)
-        hydrophobic_score = self._calculate_hydrophobic_physics(protein_atoms, ligand.atoms)
-        clash_score = self._calculate_clashes_physics(protein_atoms, ligand.atoms)
-        entropy_score = self._calculate_entropy(ligand)
-        
-        # Combine scores with improved physics-based weights
-        total_score = (
-            self.weights['vdw'] * vdw_score +
-            self.weights['hbond'] * hbond_score +
-            self.weights['elec'] * elec_score +
-            self.weights['desolv'] * desolv_score +
-            self.weights['hydrophobic'] * hydrophobic_score +
-            self.weights['clash'] * clash_score +
-            self.weights['entropy'] * entropy_score
-        )
-        
-        return total_score
-    def _calculate_clashes(self, protein, ligand, cutoff=1.6):
-        clash_energy = 0.0
-        for p_atom in protein.atoms:
-            for l_atom in ligand.atoms:
-                if 'coords' in p_atom and 'coords' in l_atom:
-                    dist = np.linalg.norm(p_atom['coords'] - l_atom['coords'])
-                    if dist < cutoff:
-                        clash_energy += (cutoff - dist)**2
-        return clash_energy
+            return None
+    
+    def enable_debug(self, enable=True):
+        """Enable or disable debug output."""
+        self.debug = enable
+
 
 class TetheredScoringFunction:
     """
@@ -690,7 +822,12 @@ class TetheredScoringFunction:
         
         # Apply RMSD penalty, capped at max_penalty
         rmsd_penalty = min(self.weight * rmsd, self.max_penalty)
-        score += self.weights['clash'] * self._calculate_clashes(protein, ligand)
+        base_score += self.weights['clash'] * self._calculate_clashes(protein, ligand)
+        base_score += self.weights['entropy'] * self._calculate_entropy(ligand)
+        
+        # Print score breakdown if debug is enabled
+        if self.debug:
+            self._print_score_breakdown(base_score + rmsd_penalty)
 
         # Return combined score
         return base_score + rmsd_penalty

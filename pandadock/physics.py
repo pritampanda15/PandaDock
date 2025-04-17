@@ -982,11 +982,14 @@ class PhysicsBasedScoring:
         # Set up weights for energy components
         self.weights = {
             'vdw': 1.0,
+            'hbond': 1.0,
             'elec': 1.0,
-            'solv': 1.0,
-            'hbond': 1.5,
-            'entropy': 0.5
+            'desolv': 1.0,
+            'hydrophobic': 1.0,
+            'clash': 5.0,  # ⬅️ Increase clash weight to strengthen repulsion
+            'entropy': 0.2
         }
+
         
         # VDW parameters for Lennard-Jones potential
         self.vdw_radii = {
@@ -1226,7 +1229,7 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
             'elec': 0.1406,          # Electrostatic weight 
             'desolv': 0.1322,        # Desolvation weight
             'entropy': 0.2983,       # Torsional entropy weight
-            'clash': 1.0             # Keep clash detection
+            'clash': 5.0             # Keep clash detection
         }
         
         # Extended atom type parameters for more precise interactions

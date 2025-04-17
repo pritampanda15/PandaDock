@@ -803,6 +803,12 @@ class DockingReporter:
         
         return report_path
     
+    def add_results(self, results, energy_breakdown=None):
+        self.results = results
+        self.energy_breakdown = energy_breakdown
+        self.scoring_breakdown = list(energy_breakdown.values()) if energy_breakdown else None
+
+
     def generate_plots(self, save_dir=None):
         """
         Generate plots visualizing the docking results.

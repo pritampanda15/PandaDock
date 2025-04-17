@@ -555,9 +555,11 @@ def main():
         hw_config = configure_hardware(args)
         
         # Create temporary directory for prepared files
-        temp_dir = Path('temp_pandadock')
-        os.makedirs(temp_dir, exist_ok=True)
-
+        if getattr(args, 'prepare_molecules', False):
+            temp_dir = Path('prepared_files_for_pandadock')
+            os.makedirs(temp_dir, exist_ok=True)
+        else:
+            temp_dir = None
         # Process mode flags - set parameters based on mode
         if args.auto_algorithm:
             # Simple heuristic for algorithm selection:
