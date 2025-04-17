@@ -11,6 +11,7 @@ import time
 import multiprocessing as mp
 from pathlib import Path
 from scipy.spatial.transform import Rotation
+from scipy.spatial.transform import Rotation, Slerp
 
 from .search import GeneticAlgorithm, RandomSearch
 
@@ -355,7 +356,10 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         # Rotation interpolation
         rotation1 = Rotation.random()
         rotation2 = Rotation.random()
-        interpolated_rotation = Rotation.slerp(rotation1, rotation2, alpha)
+        key_times = [0, 1]
+        rotations = Rotation.concatenate([rotation1, rotation2])
+        slerp = Slerp(key_times, rotations)
+        interpolated_rotation = slerp([alpha])[0]  # Interpolate at alpha
         
         # Apply interpolated rotation to children
         centroid1 = np.mean(child1.xyz, axis=0)
