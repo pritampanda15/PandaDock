@@ -763,9 +763,16 @@ def main():
         # Get algorithm type and parameters
         algorithm_type = get_algorithm_type_from_args(args)
         algorithm_kwargs = get_algorithm_kwargs_from_args(args)
-        
-        # Pass output directory to algorithm kwargs for progress tracking
-        algorithm_kwargs['output_dir'] = output_dir
+        # Inject grid parameters into algorithm kwargs
+        algorithm_kwargs['grid_spacing'] = args.grid_spacing
+        algorithm_kwargs['grid_radius'] = args.grid_radius
+
+        # If active site center is specified
+        if hasattr(args, 'site') and args.site:
+            algorithm_kwargs['grid_center'] = args.site  # already parsed as list of floats
+
+                # Pass output directory to algorithm kwargs for progress tracking
+            algorithm_kwargs['output_dir'] = output_dir
         
         # Get advanced search if specified
         search_algorithm = None
@@ -789,6 +796,11 @@ def main():
                 **adv_search_kwargs
             )
             logger.info(f"\nUsing advanced search algorithm: {args.advanced_search}")
+            logger.info(f"Grid search parameters: spacing = {args.grid_spacing} Å, radius = {args.grid_radius} Å")
+            if hasattr(args, 'site') and args.site:
+                logger.info(f"Grid centered at: {args.site}")
+            else:
+                logger.info("No specific grid center provided.")
         else:
             # Create the standard search algorithm
             search_algorithm = create_optimized_search_algorithm(

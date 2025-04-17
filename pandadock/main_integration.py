@@ -175,30 +175,9 @@ def create_optimized_scoring_function(manager, scoring_type='enhanced'):
 def create_optimized_search_algorithm(manager, algorithm_type, scoring_function, **kwargs):
     """
     Create an optimized search algorithm based on available hardware.
-    
-    Parameters:
-    -----------
-    manager : HybridDockingManager
-        Hybrid docking manager
-    algorithm_type : str
-        Type of algorithm ('genetic', 'random', 'monte-carlo', or 'pandadock')
-    scoring_function : ScoringFunction
-        Scoring function to use
-    **kwargs : dict
-        Additional arguments for the search algorithm
-    
-    Returns:
-    --------
-    SearchAlgorithm
-        Optimized search algorithm
     """
-    # Get grid-related settings from kwargs
-    # Extract grid and meta parameters
-
-    grid_spacing = kwargs.get("grid_spacing", 1.0)
-    grid_radius = kwargs.get("grid_radius", 10.0)
-    grid_center = kwargs.get("grid_center", None)
-    output_dir = kwargs.get("output_dir", None)
+    # Extract grid-related settings from kwargs
+    grid_spacing = kwargs.pop('grid_spacing', 1.0)  # Remove grid_spacing from kwargs
 
     # Standard algorithm types
     if algorithm_type == 'genetic':
@@ -206,6 +185,7 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
             from .parallel_search import ParallelGeneticAlgorithm
             return ParallelGeneticAlgorithm(
                 scoring_function=scoring_function,
+                grid_spacing=grid_spacing,  # Pass grid_spacing explicitly
                 **kwargs
             )
         except ImportError:
@@ -270,16 +250,6 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
             scoring_function,
             **kwargs
         )
-    # 🔥 ADD THIS HERE
-    if isinstance(search, DockingSearch):
-        search.grid_spacing = grid_spacing
-        search.grid_radius = grid_radius
-        search.grid_center = grid_center
-
-    if output_dir:
-        search.output_dir = output_dir
-
-    return search
 def get_scoring_type_from_args(args):
     """
     Determine scoring type based on command-line arguments.

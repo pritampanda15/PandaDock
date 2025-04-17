@@ -19,12 +19,15 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
     def __init__(self, scoring_function, max_iterations=100, population_size=50, 
                  mutation_rate=0.2, crossover_rate=0.8, tournament_size=3, 
                  n_processes=None, batch_size=None, process_pool=None, 
-                 output_dir=None, perform_local_opt=False):
+                 output_dir=None, perform_local_opt=False, grid_spacing=1.0, grid_radius=10.0, grid_center=None):
         super().__init__(scoring_function, max_iterations, population_size, mutation_rate)
         self.output_dir = output_dir
         self.crossover_rate = crossover_rate
         self.tournament_size = tournament_size
         self.perform_local_opt = perform_local_opt
+        self.grid_spacing = grid_spacing  # Add grid_spacing as an attribute
+        self.grid_radius = grid_radius  # Add grid_radius as an attribute
+        self.grid_center = np.array(grid_center) if grid_center is not None else np.array([0.0, 0.0, 0.0])  # Default grid center
 
         if n_processes is None:
             self.n_processes = mp.cpu_count()
@@ -44,8 +47,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         self.best_score = float('inf')
         self.best_pose = None
 
-        self.grid_center = np.array([0.0, 0.0, 0.0])
-        self.grid_radius = 10.0
+        self.grid_center = np.array([0.0, 0.0, 0.0])  # Default grid center
 
     def initialize_population(self, protein, ligand):
         """
@@ -73,6 +75,20 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
             # Use protein center of mass
             center = np.mean(protein.xyz, axis=0)
             radius = 15.0  # Arbitrary search radius
+        
+        print(f"Searching around center {center} with radius {self.grid_radius}")
+        print(f"Using {self.n_processes} CPU cores for evaluation")
+        print(f"Using {self.batch_size} poses per process for evaluation")
+        print(f"Using {self.population_size} poses in total")
+        print(f"Using {self.mutation_rate} mutation rate")
+        print(f"Using {self.crossover_rate} crossover rate")
+        print(f"Using {self.tournament_size} tournament size")
+        print(f"Performing local optimization: {self.perform_local_opt}")
+        print(f"Grid spacing: {self.grid_spacing}")
+        print(f"Grid radius: {self.grid_radius}")
+    
+        # Log grid center and radius
+        print(f"INFO - Using grid center: {center}, self.grid_radius: {self.grid_radius}")
         
         for _ in range(self.population_size):
             # Make a deep copy of the ligand
