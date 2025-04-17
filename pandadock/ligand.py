@@ -120,7 +120,7 @@ class Ligand:
     
     def generate_conformers(self, n_conformers=10):
         """
-        Generate ligand conformers by rotating bonds.
+        Generate ligand conformers by rotating bonds using RDKit's ETKDG algorithm.
         
         Parameters:
         -----------
@@ -136,14 +136,40 @@ class Ligand:
             from rdkit import Chem
             from rdkit.Chem import AllChem
             
-            # This is just a placeholder for demonstration
-            # In a real implementation, you would use more sophisticated methods
+            # Convert the ligand to an RDKit molecule
+            mol = Chem.MolFromMolBlock(self.to_mol_block())
+            if mol is None:
+                raise ValueError("Failed to convert ligand to RDKit molecule")
             
-            print(f"Generating {n_conformers} conformers...")
-            return self.conformers
+            # Add hydrogens to the molecule
+            mol = Chem.AddHs(mol)
             
+            # Generate conformers using the ETKDG algorithm
+            params = AllChem.ETKDGv3()  # Use the latest version of ETKDG
+            params.numThreads = 0  # Use all available threads
+            params.maxAttempts = 1000  # Increase attempts for better success rate
+            params.randomSeed = 42  # Set a seed for reproducibility
+            params.pruneRmsThresh = 0.5  # Prune conformers with RMSD < 0.5 Å
+            
+            print(f"Generating {n_conformers} conformers using ETKDG...")
+            AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers, params=params)
+            
+            # Extract conformers as numpy arrays
+            conformers = []
+            for conf_id in range(mol.GetNumConformers()):
+                conformer = mol.GetConformer(conf_id)
+                coords = np.array([list(conformer.GetAtomPosition(i)) for i in range(mol.GetNumAtoms())])
+                conformers.append(coords)
+            
+            self.conformers = conformers
+            print(f"Generated {len(conformers)} conformers")
+            return conformers
+        
         except ImportError:
             print("RDKit is required for conformer generation")
+            return []
+        except Exception as e:
+            print(f"Error during conformer generation: {e}")
             return []
     
     def translate(self, vector):
