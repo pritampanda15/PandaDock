@@ -508,7 +508,11 @@ def _dock_single_ligand(protein, ligand_file, output_dir, hybrid_manager, dockin
     
     # Save docking results
     save_docking_results(results[:10], output_dir)
-    
+    from .utils import save_complex_to_pdb
+    for i, (pose, score) in enumerate(results[:10]):
+        complex_path = Path(output_dir) / f"complex_pose_{i+1}_score_{score:.2f}.pdb"
+        save_complex_to_pdb(protein, pose, complex_path)
+
     return results
 
 

@@ -183,6 +183,11 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
     if algorithm_type == 'genetic':
         try:
             from .parallel_search import ParallelGeneticAlgorithm
+             # Remove unsupported kwargs for this algorithm
+            kwargs.pop('grid_radius', None)
+            kwargs.pop('grid_spacing', None)
+            kwargs.pop('grid_center', None)
+            kwargs.pop('use_spherical_grid', None)
             return ParallelGeneticAlgorithm(
                 scoring_function=scoring_function,
                 grid_spacing=grid_spacing,  # Pass grid_spacing explicitly
@@ -198,6 +203,11 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
     elif algorithm_type == 'random':
         try:
             from .parallel_search import ParallelRandomSearch
+             # Remove unsupported kwargs for this algorithm
+            kwargs.pop('grid_radius', None)
+            kwargs.pop('grid_spacing', None)
+            kwargs.pop('grid_center', None)
+            kwargs.pop('use_spherical_grid', None)
             return ParallelRandomSearch(
                 scoring_function=scoring_function,
                 **kwargs
@@ -212,6 +222,15 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
     elif algorithm_type == 'monte-carlo':
         try:
             from .physics import MonteCarloSampling
+             # Remove unsupported kwargs for this algorithm
+            kwargs.pop('grid_radius', None)
+            kwargs.pop('grid_spacing', None)
+            kwargs.pop('grid_center', None)
+            kwargs.pop('use_spherical_grid', None)
+            kwargs.pop('max_iterations', None)
+            kwargs.pop('workload_balance', None)            
+            kwargs.pop('num_processes', None)
+            kwargs.pop('output_dir', None)
             return MonteCarloSampling(
                 scoring_function=scoring_function,
                 **kwargs
@@ -228,10 +247,21 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
     elif algorithm_type == 'pandadock':
         try:
             from .pandadock import PANDADOCKAlgorithm
+            
+            # Remove unsupported kwargs for this algorithm
+            kwargs.pop('grid_radius', None)
+            kwargs.pop('grid_spacing', None)
+            kwargs.pop('grid_center', None)
+            kwargs.pop('use_spherical_grid', None)
+
             return PANDADOCKAlgorithm(
                 scoring_function=scoring_function,
                 **kwargs
             )
+        ##############
+        # Add exception handling for PANDADOCK
+        ##############
+
         except ImportError:
             print("PANDADOCK algorithm not available. Using genetic algorithm instead.")
             return create_optimized_search_algorithm(

@@ -787,7 +787,7 @@ class MonteCarloSampling:
     """
     
     def __init__(self, scoring_function, temperature=300.0, n_steps=1000, 
-                 max_translation=2.0, max_rotation=0.3, cooling_factor=0.95):
+                 max_translation=2.0, max_rotation=0.3, cooling_factor=0.95, output_dir=None):
         """
         Initialize Monte Carlo sampling.
         
@@ -812,6 +812,7 @@ class MonteCarloSampling:
         self.max_translation = max_translation
         self.max_rotation = max_rotation
         self.cooling_factor = cooling_factor
+        self.output_dir = output_dir 
         
         # Gas constant in kcal/(mol·K)
         self.gas_constant = 1.9872e-3
@@ -986,7 +987,7 @@ class PhysicsBasedScoring:
             'elec': 1.0,
             'desolv': 1.0,
             'hydrophobic': 1.0,
-            'clash': 5.0,  # ⬅️ Increase clash weight to strengthen repulsion
+            'clash': 0.5,  # ⬅️ Increase clash weight to strengthen repulsion
             'entropy': 0.2
         }
 
@@ -1047,14 +1048,17 @@ class PhysicsBasedScoring:
         
         # Calculate configurational entropy penalty
         entropy_penalty = self._calc_entropy_penalty(ligand)
+
+        clash_energy = self._calc_clash_energy(protein_atoms, ligand.atoms)
         
         # Combine all energy terms
         total_score = (
             self.weights['vdw'] * vdw_energy +
             self.weights['elec'] * elec_energy +
-            self.weights['solv'] * solv_energy +
+            self.weights['desolv'] * solv_energy +
             self.weights['hbond'] * hbond_energy +
-            self.weights['entropy'] * entropy_penalty
+            self.weights['entropy'] * entropy_penalty +
+            self.weights['clash'] * clash_energy
         )
         
         return total_score
@@ -1213,6 +1217,45 @@ class PhysicsBasedScoring:
         
         return entropy_penalty
 
+    def _calc_clash_energy(self, protein_atoms, ligand_atoms, clash_cutoff=2.0, penalty_per_clash=5.0):
+        """
+        Calculate steric clash penalty between protein and ligand atoms.
+
+        Parameters:
+        -----------
+        protein_atoms : list
+            List of protein atom dictionaries
+        ligand_atoms : list
+            List of ligand atom dictionaries
+        clash_cutoff : float
+            Distance threshold for defining a clash (Å)
+        penalty_per_clash : float
+            Energy penalty per clash (kcal/mol)
+
+        Returns:
+        --------
+        float
+            Total steric clash energy (positive penalty)
+        """
+        clash_count = 0
+
+        for p_atom in protein_atoms:
+            p_coords = p_atom['coords']
+            p_element = p_atom.get('element', p_atom.get('name', 'C'))[0]
+
+            for l_atom in ligand_atoms:
+                l_coords = l_atom['coords']
+                l_element = l_atom.get('symbol', 'C')[0]
+
+                distance = np.linalg.norm(np.array(p_coords) - np.array(l_coords))
+
+                # If atoms are too close — i.e., below clash cutoff
+                if distance < clash_cutoff:
+                    clash_count += 1
+
+        # Return total clash energy (positive)
+        return clash_count * penalty_per_clash
+
 class PhysicsBasedScoringFunction(PhysicsBasedScoring):
     """
     Physics-based scoring function using calibrated energy terms and parameters.
@@ -1229,7 +1272,7 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
             'elec': 0.1406,          # Electrostatic weight 
             'desolv': 0.1322,        # Desolvation weight
             'entropy': 0.2983,       # Torsional entropy weight
-            'clash': 5.0             # Keep clash detection
+            'clash': 0.5             # Keep clash detection
         }
         
         # Extended atom type parameters for more precise interactions
@@ -1392,6 +1435,7 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
         elec_energy = self._calculate_electrostatics_physics(protein_atoms, ligand_atoms)
         desolv_energy = self._calculate_desolvation_physics(protein_atoms, ligand_atoms)
         entropy_energy = self._calculate_entropy(ligand)
+        clash_energy = self._calculate_clash_energy(protein_atoms, ligand_atoms)
         
         # Combine scores with calibrated weights
         total_score = (
@@ -1399,7 +1443,8 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
             self.weights['hbond'] * hbond_energy +
             self.weights['elec'] * elec_energy +
             self.weights['desolv'] * desolv_energy +
-            self.weights['entropy'] * entropy_energy
+            self.weights['entropy'] * entropy_energy +
+            self.weights['clash'] * clash_energy  # 👈 here
         )
         
         return total_score

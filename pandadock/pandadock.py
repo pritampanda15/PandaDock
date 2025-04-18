@@ -281,7 +281,7 @@ class PANDADOCKAlgorithm(DockingSearch):
                 from .utils import save_intermediate_result, update_status
                 
                 # For MD steps, you might want to save periodically rather than every step
-                if step % 10 == 0:  # Save every 10 steps
+                if step % 100 == 0:  # Save every 10 steps
                     save_intermediate_result(
                         current_pose,
                         current_score,

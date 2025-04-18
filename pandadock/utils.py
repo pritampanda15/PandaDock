@@ -288,6 +288,40 @@ def save_intermediate_result(pose, score, iteration, output_dir, total_iteration
         except Exception as e:
             logger.warning(f"Could not save intermediate pose: {e}")
 
+def save_complex_to_pdb(protein, ligand, output_path):
+    """
+    Save the full protein-ligand complex as a single PDB file.
+    
+    Parameters:
+    -----------
+    protein : Protein
+        Protein object
+    ligand : Ligand
+        Ligand object
+    output_path : str or Path
+        File path to save the complex
+    """
+    with open(output_path, 'w') as f:
+        # Write protein atoms
+        for i, atom in enumerate(protein.atoms):
+            coords = atom['coords']
+            name = atom.get('name', 'X')
+            resname = atom.get('residue_name', 'UNK')
+            chain = atom.get('chain_id', 'A')
+            resid = atom.get('residue_id', 1)
+            f.write(f"ATOM  {i+1:5d} {name:<4} {resname:<3} {chain}{resid:4d}    "
+                    f"{coords[0]:8.3f}{coords[1]:8.3f}{coords[2]:8.3f}  1.00  0.00\n")
+        
+        # Write ligand atoms
+        for j, atom in enumerate(ligand.atoms):
+            coords = atom['coords']
+            symbol = atom.get('symbol', 'C')
+            f.write(f"HETATM{j+1:5d} {symbol:<4} LIG A{1:4d}    "
+                    f"{coords[0]:8.3f}{coords[1]:8.3f}{coords[2]:8.3f}  1.00  0.00          {symbol:>2}\n")
+        
+        f.write("END\n")
+        
+    print(f"Saved complex to {output_path}")
 def update_status(output_dir, **kwargs):
     """
     Update the status.json file with new information.

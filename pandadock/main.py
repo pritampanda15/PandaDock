@@ -880,7 +880,7 @@ def main():
              logger.info("Using enhanced rigid docking algorithm...")
              all_results = search_algorithm.improve_rigid_docking(protein, ligand, args)
         else:
-             logger.info("\nPerforming standard docking...")
+             logger.info("\nPerforming docking...")
              all_results = search_algorithm.search(protein, ligand)
              # Post-optimization logic below will handle these results if --local-opt is set
         
@@ -1173,14 +1173,17 @@ def main():
             
             # Save docking results
             save_docking_results(unique_results, output_dir, flexible_residues=flexible_residues)
-            
-            # Validate against reference if provided
-            if hasattr(args, 'reference') and args.reference and not args.exact_alignment:
-                logger.info("Validating against reference structure...")
-                update_status(output_dir, status="validating")
-                validation_results = validate_against_reference(args, unique_results, output_dir)
-                # Add validation results to reporter
-                reporter.add_validation_results(validation_results)
+            from .utils import save_complex_to_pdb
+            for i, (pose, score) in enumerate(unique_results[:10]):
+                complex_path = Path(output_dir) / f"complex_pose_{i+1}_score_{score:.2f}.pdb"
+                save_complex_to_pdb(protein, pose, complex_path)
+        
+        if hasattr(args, 'reference') and args.reference and not getattr(args, 'exact_alignment', False):
+            logger.info("Validating against reference structure...")
+            update_status(output_dir, status="validating")
+            validation_results = validate_against_reference(args, unique_results, output_dir)
+            reporter.add_validation_results(validation_results)
+
         
         # Write detailed results to text file
         write_results_to_txt(
