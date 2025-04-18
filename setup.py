@@ -1,21 +1,48 @@
+import sys
+import os
+import json
 from setuptools import setup, find_packages
+from setuptools.command.install import install
+from distutils import log
+from urllib.request import urlopen
+from packaging import version
+
+# Custom install command to check PyPI and show upgrade warning
+class CustomInstallCommand(install):
+    """Custom install that warns user if newer version is available on PyPI"""
+    def run(self):
+        install.run(self)
+        try:
+            response = urlopen("https://pypi.org/pypi/pandadock/json", timeout=3)
+            data = json.loads(response.read().decode())
+            latest = data["info"]["version"]
+            current = self.distribution.get_version()
+
+            if version.parse(latest) > version.parse(current):
+                log.warn("\033[91m" + "="*72)
+                log.warn(f"\033[91mWARNING: PandaDock {latest} is available (you have {current})")
+                log.warn("\033[91mTo upgrade: pip install --upgrade pandadock")
+                log.warn("\033[91mVisit: https://github.com/pritampanda15/PandaDock/releases")
+                log.warn("\033[91m" + "="*72 + "\033[0m")
+        except Exception:
+            pass  # Silent fail
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
     name="pandadock",
-    version="1.3.6",
+    version="1.4.0",
     author="Dr. Pritam Kumar Panda",
     author_email="pritam@stanford.edu",
-    description="A GPU-accelerated molecular docking tool for computational drug discovery",
+    description="A Python based GPU/CPU-accelerated molecular docking tool for computational drug discovery",
     long_description=long_description,
     long_description_content_type="text/markdown",
+    url="https://github.com/pritampanda15/PandaDock",
     project_urls={
         "Bug Tracker": "https://github.com/pritampanda15/PandaDock/issues",
         "Documentation": "https://github.com/pritampanda15/PandaDock/wiki",
     },
-    url="https://github.com/pritampanda15/PandaDock",
     packages=find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -33,17 +60,18 @@ setup(
         "scipy>=1.5.0",
         "matplotlib>=3.3.0",
         "scikit-learn>=0.24.0",
-        "requests",  # For HTTP requests to PyPI
-        "packaging",  # For version parsing
+        "requests",
+        "packaging",
         "pandas",
         "tabulate",
         "tqdm"
+        "seaborn"
     ],
     entry_points={
-    'console_scripts': [
-        'pandadock=pandadock.main:main',
-    ],
-},
+        'console_scripts': [
+            'pandadock=pandadock.main:main',
+        ],
+    },
     extras_require={
         "gpu": ["torch>=1.9.0"],
         "dev": [
@@ -54,5 +82,8 @@ setup(
         ],
         "rdkit": ["rdkit>=2020.09.1"],
     },
-    include_package_data=True,  # Include files specified in MANIFEST.in
+    include_package_data=True,
+    cmdclass={
+        'install': CustomInstallCommand,
+    },
 )
