@@ -64,7 +64,7 @@ setup(
         "packaging",
         "pandas",
         "tabulate",
-        "tqdm"
+        "tqdm",
         "seaborn"
     ],
     entry_points={
