@@ -138,10 +138,10 @@ def main():
     
     # Save results
     save_docking_results(results, args.output)
-    from .utils import save_complex_to_pdb
-    for i, (pose, score) in enumerate(results[:10]):
-        complex_path = Path(output_dir) / f"complex_pose_{i+1}_score_{score:.2f}.pdb"
-        save_complex_to_pdb(protein, pose, complex_path)
+   # from .utils import save_complex_to_pdb
+   # for i, (pose, score) in enumerate(results[:10]):
+    #    complex_path = Path(output_dir) / f"complex_pose_{i+1}_score_{score:.2f}.pdb"
+    #    save_complex_to_pdb(protein, pose, complex_path)
     
     # Calculate elapsed time
     elapsed_time = time.time() - start_time
