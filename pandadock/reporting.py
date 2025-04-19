@@ -187,10 +187,13 @@ class DockingReporter:
                         if hasattr(scoring_function, '_calculate_clashes'):
                             components['clash'] = scoring_function._calculate_clashes(protein, pose)
                         elif hasattr(scoring_function, '_calculate_clashes_physics'):
-                            components['clash'] = scoring_function._calculate_clashes_physics(protein_atoms, pose.atoms)
+                            components['clash'] = scoring_function._calc_clash_energy(protein_atoms, pose.atoms)
                             
                         if hasattr(scoring_function, '_calculate_entropy'):
                             components['entropy'] = scoring_function._calculate_entropy(pose)
+                        elif hasattr(scoring_function, '_calc_entropy_penalty'):
+                            components['entropy'] = scoring_function._calc_entropy_penalty(protein_atoms, pose.atoms)
+                            
                     except Exception as e:
                         print(f"    Warning: Could not extract some energy components: {e}")
                     
