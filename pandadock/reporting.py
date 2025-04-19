@@ -106,7 +106,7 @@ class DockingReporter:
     def extract_energy_components(self, scoring_function, protein, poses, max_poses=10):
         """
         Extract energy components for top poses.
-        
+
         Parameters:
         -----------
         scoring_function : ScoringFunction
@@ -117,114 +117,82 @@ class DockingReporter:
             List of poses
         max_poses : int
             Maximum number of poses to analyze
-                
+
         Returns:
         --------
         dict
             Dictionary with energy component breakdowns
         """
         energy_breakdown = {}
-        
+
         print("Extracting energy component breakdown...")
-        
-        # Process up to max_poses
+
         for i, pose in enumerate(poses[:min(len(poses), max_poses)]):
             pose_id = f"pose_{i+1}"
             print(f"  Analyzing pose {i+1}...")
-            
-            # Score the pose
+
             try:
-                # First, check if the scoring function has component tracking
-                if hasattr(scoring_function, 'weights'):
-                    # Create a clean dictionary to store components
-                    components = {
-                        'vdw': 0.0,
-                        'hbond': 0.0,
-                        'elec': 0.0,
-                        'desolv': 0.0,
-                        'hydrophobic': 0.0,
-                        'clash': 0.0,
-                        'entropy': 0.0
-                    }
-                    
-                    # Get active site atoms
-                    if protein.active_site and 'atoms' in protein.active_site:
-                        protein_atoms = protein.active_site['atoms']
-                    else:
-                        protein_atoms = protein.atoms
-                    
-                    # Score the pose to get the total
-                    total_score = scoring_function.score(protein, pose)
-                    
-                    # Try to extract components directly from the scoring function's methods
-                    try:
-                        # Call individual component calculation methods if they exist
-                        if hasattr(scoring_function, '_calculate_vdw'):
-                            components['vdw'] = scoring_function._calculate_vdw(protein, pose)
-                        elif hasattr(scoring_function, '_calculate_vdw_physics'):
-                            components['vdw'] = scoring_function._calculate_vdw_physics(protein_atoms, pose.atoms)
-                            
-                        if hasattr(scoring_function, '_calculate_hbond'):
-                            components['hbond'] = scoring_function._calculate_hbond(protein, pose)
-                        elif hasattr(scoring_function, '_calculate_hbond_physics'):
-                            components['hbond'] = scoring_function._calculate_hbond_physics(protein_atoms, pose.atoms, protein, pose)
-                            
-                        if hasattr(scoring_function, '_calculate_electrostatics'):
-                            components['elec'] = scoring_function._calculate_electrostatics(protein, pose)
-                        elif hasattr(scoring_function, '_calculate_electrostatics_physics'):
-                            components['elec'] = scoring_function._calculate_electrostatics_physics(protein_atoms, pose.atoms)
-                            
-                        if hasattr(scoring_function, '_calculate_desolvation'):
-                            components['desolv'] = scoring_function._calculate_desolvation(protein, pose)
-                        elif hasattr(scoring_function, '_calculate_desolvation_physics'):
-                            components['desolv'] = scoring_function._calculate_desolvation_physics(protein_atoms, pose.atoms)
-                            
-                        if hasattr(scoring_function, '_calculate_hydrophobic'):
-                            components['hydrophobic'] = scoring_function._calculate_hydrophobic(protein, pose)
-                        elif hasattr(scoring_function, '_calculate_hydrophobic_physics'):
-                            components['hydrophobic'] = scoring_function._calculate_hydrophobic_physics(protein_atoms, pose.atoms)
-                            
-                        if hasattr(scoring_function, '_calculate_clashes'):
-                            components['clash'] = scoring_function._calculate_clashes(protein, pose)
-                        elif hasattr(scoring_function, '_calculate_clashes_physics'):
-                            components['clash'] = scoring_function._calc_clash_energy(protein_atoms, pose.atoms)
-                            
-                        if hasattr(scoring_function, '_calculate_entropy'):
-                            components['entropy'] = scoring_function._calculate_entropy(pose)
-                        elif hasattr(scoring_function, '_calc_entropy_penalty'):
-                            components['entropy'] = scoring_function._calc_entropy_penalty(protein_atoms, pose.atoms)
-                            
-                    except Exception as e:
-                        print(f"    Warning: Could not extract some energy components: {e}")
-                    
-                    # Add the total score
-                    components['total'] = total_score
-                    
-                    # Check if we actually got non-zero components
-                    if all(v == 0.0 for k, v in components.items() if k != 'total'):
-                        print("    Warning: All energy components are zero. Estimating components from weights...")
-                        
-                        # If all components are zero, try to estimate based on total score and weights
-                        # This is a rough approximation assuming equal contribution from components
-                        weight_sum = sum(scoring_function.weights.values())
-                        for component in components:
-                            if component != 'total' and component in scoring_function.weights:
-                                weight_ratio = scoring_function.weights[component] / weight_sum
-                                components[component] = total_score * weight_ratio
-                    
-                    energy_breakdown[pose_id] = components
-                    
+                components = {
+                    'vdw': 0.0,
+                    'hbond': 0.0,
+                    'elec': 0.0,
+                    'desolv': 0.0,
+                    'hydrophobic': 0.0,
+                    'clash': 0.0,
+                    'entropy': 0.0
+                }
+
+                if protein.active_site and 'atoms' in protein.active_site:
+                    protein_atoms = protein.active_site['atoms']
                 else:
-                    # No component tracking in scoring function
-                    total_score = scoring_function.score(protein, pose)
-                    energy_breakdown[pose_id] = {'total': total_score}
-                    print("    Warning: Scoring function does not support component breakdown")
-                    
+                    protein_atoms = protein.atoms
+
+                total_score = scoring_function.score(protein, pose)
+
+                try:
+                    if hasattr(scoring_function, '_calculate_vdw_physics'):
+                        components['vdw'] = scoring_function._calculate_vdw_physics(protein_atoms, pose.atoms)
+
+                    if hasattr(scoring_function, '_calculate_hbond_physics'):
+                        components['hbond'] = scoring_function._calculate_hbond_physics(protein_atoms, pose.atoms, protein, pose)
+
+                    if hasattr(scoring_function, '_calculate_electrostatics_physics'):
+                        components['elec'] = scoring_function._calculate_electrostatics_physics(protein_atoms, pose.atoms)
+
+                    if hasattr(scoring_function, '_calculate_desolvation_physics'):
+                        components['desolv'] = scoring_function._calculate_desolvation_physics(protein_atoms, pose.atoms)
+
+                    if hasattr(scoring_function, '_calculate_hydrophobic_physics'):
+                        components['hydrophobic'] = scoring_function._calculate_hydrophobic_physics(protein_atoms, pose.atoms)
+
+                    if hasattr(scoring_function, '_calc_clash_energy'):
+                        components['clash'] = scoring_function._calc_clash_energy(protein_atoms, pose.atoms)
+
+                    if hasattr(scoring_function, '_calc_entropy_penalty'):
+                        components['entropy'] = scoring_function._calc_entropy_penalty(pose)
+
+                except Exception as e:
+                    print(f"    ⚠️ Warning: Exception while extracting components: {e}")
+
+                components['total'] = total_score
+
+                if all(v == 0.0 for k, v in components.items() if k != 'total'):
+                    print("    ⚠️ Warning: All components are zero — using weighted estimation.")
+                    weight_sum = sum(scoring_function.weights.values())
+                    for component in components:
+                        if component != 'total' and component in scoring_function.weights:
+                            weight_ratio = scoring_function.weights[component] / weight_sum
+                            components[component] = total_score * weight_ratio
+
+                print(f"    ✅ Components for {pose_id}: {components}")
+                energy_breakdown[pose_id] = components
+
             except Exception as e:
-                print(f"    Error scoring pose {i+1}: {e}")
+                print(f"    ❌ Error analyzing {pose_id}: {e}")
                 energy_breakdown[pose_id] = {'total': 0.0}
-        
+
         return energy_breakdown
+
     
     def analyze_protein_ligand_interactions(self, protein, poses, max_poses=5):
         """
