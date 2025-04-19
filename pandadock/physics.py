@@ -971,290 +971,118 @@ class MonteCarloSampling:
 class PhysicsBasedScoring:
     """
     Physics-based scoring function combining molecular mechanics terms.
-    This provides a more accurate energy calculation based on physics.
+    Provides accurate binding energy by integrating physical interaction models.
     """
-    
+
     def __init__(self):
-        """Initialize physics-based scoring function."""
-        # Initialize component models
+        from .physics import ImprovedElectrostatics, GeneralizedBornSolvation
         self.electrostatics = ImprovedElectrostatics()
         self.solvation = GeneralizedBornSolvation()
-        
-        # Set up weights for energy components
+
+        # Component weights (modifiable)
         self.weights = {
             'vdw': 1.0,
             'hbond': 1.0,
             'elec': 1.0,
             'desolv': 1.0,
             'hydrophobic': 1.0,
-            'clash': 0.5,  # ⬅️ Increase clash weight to strengthen repulsion
+            'clash': 0.5,
             'entropy': 0.2
         }
 
-        
-        # VDW parameters for Lennard-Jones potential
-        self.vdw_radii = {
-            'H': 1.2, 'C': 1.7, 'N': 1.55, 'O': 1.52, 'S': 1.8,
-            'P': 1.8, 'F': 1.47, 'Cl': 1.75, 'Br': 1.85, 'I': 1.98
-        }
-        
-        self.vdw_well_depth = {
-            'H': 0.02, 'C': 0.10, 'N': 0.16, 'O': 0.20, 'S': 0.25,
-            'P': 0.20, 'F': 0.08, 'Cl': 0.25, 'Br': 0.32, 'I': 0.40
-        }
-        
-        # Hydrogen bond parameters
+        # Parameters
+        self.vdw_radii = {'H': 1.2, 'C': 1.7, 'N': 1.55, 'O': 1.52, 'S': 1.8,
+                          'P': 1.8, 'F': 1.47, 'Cl': 1.75, 'Br': 1.85, 'I': 1.98}
+        self.vdw_well_depth = {'H': 0.02, 'C': 0.10, 'N': 0.16, 'O': 0.20, 'S': 0.25,
+                               'P': 0.20, 'F': 0.08, 'Cl': 0.25, 'Br': 0.32, 'I': 0.40}
         self.hbond_donors = {'N', 'O'}
         self.hbond_acceptors = {'N', 'O', 'F', 'Cl'}
-        self.hbond_strength = 5.0  # kcal/mol
-        self.hbond_distance = 3.0  # Angstroms
-        
-        # Rotatable bond parameters for entropy
-        self.entropy_per_rot_bond = 0.4  # kcal/mol per rotatable bond
-    
+        self.hbond_strength = 5.0
+        self.hbond_distance = 3.0
+        self.entropy_per_rot_bond = 0.4
+
     def score(self, protein, ligand):
-        """
-        Calculate physics-based binding score.
-        
-        Parameters:
-        -----------
-        protein : Protein
-            Protein object
-        ligand : Ligand
-            Ligand object
-        
-        Returns:
-        --------
-        float
-            Binding score (lower is better)
-        """
-        # Get active site atoms if defined
         if protein.active_site and 'atoms' in protein.active_site:
             protein_atoms = protein.active_site['atoms']
         else:
             protein_atoms = protein.atoms
-        
-        # Calculate van der Waals energy
-        vdw_energy = self._calc_vdw_energy(protein_atoms, ligand.atoms)
-        
-        # Calculate electrostatic energy
-        elec_energy = self.electrostatics.calculate_electrostatics(protein, ligand)
-        
-        # Calculate solvation energy
-        solv_energy = self.solvation.calculate_binding_solvation(protein, ligand)
-        
-        # Calculate hydrogen bonding energy
-        hbond_energy = self._calc_hbond_energy(protein_atoms, ligand.atoms)
-        
-        # Calculate configurational entropy penalty
-        entropy_penalty = self._calc_entropy_penalty(ligand)
 
-        clash_energy = self._calc_clash_energy(protein_atoms, ligand.atoms)
-        
-        # Combine all energy terms
-        total_score = (
-            self.weights['vdw'] * vdw_energy +
-            self.weights['elec'] * elec_energy +
-            self.weights['desolv'] * solv_energy +
-            self.weights['hbond'] * hbond_energy +
-            self.weights['entropy'] * entropy_penalty +
-            self.weights['clash'] * clash_energy
+        vdw = self._calc_vdw_energy(protein_atoms, ligand.atoms)
+        hbond = self._calc_hbond_energy(protein_atoms, ligand.atoms)
+        elec = self.electrostatics.calculate_electrostatics(protein, ligand)
+        desolv = self.solvation.calculate_binding_solvation(protein, ligand)
+        entropy = self._calc_entropy_penalty(ligand)
+        clash = self._calc_clash_energy(protein_atoms, ligand.atoms)
+
+        total = (
+            self.weights['vdw'] * vdw +
+            self.weights['hbond'] * hbond +
+            self.weights['elec'] * elec +
+            self.weights['desolv'] * desolv +
+            self.weights['entropy'] * entropy +
+            self.weights['clash'] * clash
         )
-        
-        return total_score
-    
+        return total
+
     def _calc_vdw_energy(self, protein_atoms, ligand_atoms):
-        """
-        Calculate van der Waals energy using Lennard-Jones potential.
-        
-        Parameters:
-        -----------
-        protein_atoms : list
-            List of protein atom dictionaries
-        ligand_atoms : list
-            List of ligand atom dictionaries
-        
-        Returns:
-        --------
-        float
-            VDW energy in kcal/mol
-        """
-        vdw_energy = 0.0
-        
-        for p_atom in protein_atoms:
-            p_coords = p_atom['coords']
-            p_symbol = p_atom.get('element', p_atom.get('name', 'C'))[0]
-            p_radius = self.vdw_radii.get(p_symbol, 1.7)
-            p_depth = self.vdw_well_depth.get(p_symbol, 0.1)
-            
-            for l_atom in ligand_atoms:
-                l_coords = l_atom['coords']
-                l_symbol = l_atom.get('symbol', 'C')
-                l_radius = self.vdw_radii.get(l_symbol, 1.7)
-                l_depth = self.vdw_well_depth.get(l_symbol, 0.1)
-                
-                # Calculate distance
-                distance = np.linalg.norm(p_coords - l_coords)
-                
-                # Skip pairs that are too far apart
-                if distance > 10.0:
+        energy = 0.0
+        for p in protein_atoms:
+            p_coords = p['coords']
+            p_type = p.get('element', p.get('name', 'C'))[0]
+            pr = self.vdw_radii.get(p_type, 1.7)
+            pd = self.vdw_well_depth.get(p_type, 0.1)
+            for l in ligand_atoms:
+                l_coords = l['coords']
+                l_type = l.get('symbol', 'C')
+                lr = self.vdw_radii.get(l_type, 1.7)
+                ld = self.vdw_well_depth.get(l_type, 0.1)
+                d = np.linalg.norm(p_coords - l_coords)
+                if d > 10.0:
                     continue
-                
-                # Calculate Lennard-Jones parameters
-                sigma = (p_radius + l_radius) * 0.5
-                epsilon = np.sqrt(p_depth * l_depth)
-                
-                # Calculate Lennard-Jones energy
-                if distance < 0.1:  # Avoid numerical issues
-                    vdw_energy += 1000  # Large repulsive energy
+                sigma = (pr + lr) * 0.5
+                epsilon = np.sqrt(pd * ld)
+                if d < 0.1:
+                    energy += 1000
                 else:
-                    ratio = sigma / distance
-                    lj_energy = epsilon * ((ratio**12) - 2.0 * (ratio**6))
-                    vdw_energy += lj_energy
-        
-        return vdw_energy
-    
+                    r = sigma / d
+                    energy += epsilon * (r**12 - 2 * r**6)
+        return energy
+
     def _calc_hbond_energy(self, protein_atoms, ligand_atoms):
-        """
-        Calculate hydrogen bonding energy.
-        
-        Parameters:
-        -----------
-        protein_atoms : list
-            List of protein atom dictionaries
-        ligand_atoms : list
-            List of ligand atom dictionaries
-        
-        Returns:
-        --------
-        float
-            Hydrogen bonding energy in kcal/mol
-        """
-        hbond_energy = 0.0
-        
-        # Identify potential donors and acceptors in protein
-        p_donors = []
-        p_acceptors = []
-        
-        for p_atom in protein_atoms:
-            p_symbol = p_atom.get('element', p_atom.get('name', 'C'))[0]
-            if p_symbol in self.hbond_donors:
-                p_donors.append(p_atom)
-            if p_symbol in self.hbond_acceptors:
-                p_acceptors.append(p_atom)
-        
-        # Identify potential donors and acceptors in ligand
-        l_donors = []
-        l_acceptors = []
-        
-        for l_atom in ligand_atoms:
-            l_symbol = l_atom.get('symbol', 'C')
-            if l_symbol in self.hbond_donors:
-                l_donors.append(l_atom)
-            if l_symbol in self.hbond_acceptors:
-                l_acceptors.append(l_atom)
-        
-        # Protein donor - Ligand acceptor H-bonds
-        for donor in p_donors:
-            donor_coords = donor['coords']
-            
-            for acceptor in l_acceptors:
-                acceptor_coords = acceptor['coords']
-                
-                # Calculate distance
-                distance = np.linalg.norm(donor_coords - acceptor_coords)
-                
-                # Check if within H-bond distance
-                if distance <= self.hbond_distance:
-                    # Calculate H-bond energy with distance-dependent scaling
-                    distance_factor = 1.0 - (distance / self.hbond_distance)
-                    energy = -self.hbond_strength * distance_factor**2
-                    hbond_energy += energy
-        
-        # Ligand donor - Protein acceptor H-bonds
-        for donor in l_donors:
-            donor_coords = donor['coords']
-            
-            for acceptor in p_acceptors:
-                acceptor_coords = acceptor['coords']
-                
-                # Calculate distance
-                distance = np.linalg.norm(donor_coords - acceptor_coords)
-                
-                # Check if within H-bond distance
-                if distance <= self.hbond_distance:
-                    # Calculate H-bond energy with distance-dependent scaling
-                    distance_factor = 1.0 - (distance / self.hbond_distance)
-                    energy = -self.hbond_strength * distance_factor**2
-                    hbond_energy += energy
-        
-        return hbond_energy
-    
+        e = 0.0
+        p_donors = [a for a in protein_atoms if a.get('element', a.get('name', 'C'))[0] in self.hbond_donors]
+        p_acceptors = [a for a in protein_atoms if a.get('element', a.get('name', 'C'))[0] in self.hbond_acceptors]
+        l_donors = [a for a in ligand_atoms if a.get('symbol', 'C') in self.hbond_donors]
+        l_acceptors = [a for a in ligand_atoms if a.get('symbol', 'C') in self.hbond_acceptors]
+        for d in p_donors:
+            for a in l_acceptors:
+                d_c, a_c = d['coords'], a['coords']
+                dist = np.linalg.norm(d_c - a_c)
+                if dist <= self.hbond_distance:
+                    f = 1.0 - (dist / self.hbond_distance)
+                    e += -self.hbond_strength * f**2
+        for d in l_donors:
+            for a in p_acceptors:
+                d_c, a_c = d['coords'], a['coords']
+                dist = np.linalg.norm(d_c - a_c)
+                if dist <= self.hbond_distance:
+                    f = 1.0 - (dist / self.hbond_distance)
+                    e += -self.hbond_strength * f**2
+        return e
+
     def _calc_entropy_penalty(self, ligand):
-        """
-        Calculate configurational entropy penalty.
-        
-        Parameters:
-        -----------
-        ligand : Ligand
-            Ligand object
-        
-        Returns:
-        --------
-        float
-            Entropy penalty in kcal/mol
-        """
-        # Count rotatable bonds
-        if hasattr(ligand, 'rotatable_bonds'):
-            n_rotatable = len(ligand.rotatable_bonds)
-        else:
-            # Estimate from bonds
-            n_rotatable = sum(1 for bond in ligand.bonds 
-                             if bond.get('is_rotatable', False))
-        
-        # Calculate entropy penalty
-        entropy_penalty = n_rotatable * self.entropy_per_rot_bond
-        
-        return entropy_penalty
+        n_rot = len(ligand.rotatable_bonds) if hasattr(ligand, 'rotatable_bonds') else                 sum(1 for b in ligand.bonds if b.get('is_rotatable', False))
+        return n_rot * self.entropy_per_rot_bond
 
-    def _calc_clash_energy(self, protein_atoms, ligand_atoms, clash_cutoff=2.0, penalty_per_clash=5.0):
-        """
-        Calculate steric clash penalty between protein and ligand atoms.
+    def _calc_clash_energy(self, protein_atoms, ligand_atoms, cutoff=2.0, penalty=5.0):
+        count = 0
+        for p in protein_atoms:
+            for l in ligand_atoms:
+                if np.linalg.norm(np.array(p['coords']) - np.array(l['coords'])) < cutoff:
+                    count += 1
+        energy = min(count * penalty, 100.0)
+        return max(energy, 0.0)
 
-        Parameters:
-        -----------
-        protein_atoms : list
-            List of protein atom dictionaries
-        ligand_atoms : list
-            List of ligand atom dictionaries
-        clash_cutoff : float
-            Distance threshold for defining a clash (Å)
-        penalty_per_clash : float
-            Energy penalty per clash (kcal/mol)
-
-        Returns:
-        --------
-        float
-            Total steric clash energy (positive penalty)
-        """
-        clash_count = 0
-
-        for p_atom in protein_atoms:
-            p_coords = p_atom['coords']
-            p_element = p_atom.get('element', p_atom.get('name', 'C'))[0]
-
-            for l_atom in ligand_atoms:
-                l_coords = l_atom['coords']
-                l_element = l_atom.get('symbol', 'C')[0]
-
-                distance = np.linalg.norm(np.array(p_coords) - np.array(l_coords))
-
-                # If atoms are too close — i.e., below clash cutoff
-                if distance < clash_cutoff:
-                    clash_count += 1
-
-        # Return total clash energy (positive)
-        return clash_count * penalty_per_clash
 
 class PhysicsBasedScoringFunction(PhysicsBasedScoring):
     """
@@ -1272,7 +1100,7 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
             'elec': 0.1406,          # Electrostatic weight 
             'desolv': 0.1322,        # Desolvation weight
             'entropy': 0.2983,       # Torsional entropy weight
-            'clash': 0.5             # Keep clash detection
+            'clash': 1.0             # Keep clash detection
         }
         
         # Extended atom type parameters for more precise interactions
@@ -1435,7 +1263,6 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
         elec_energy = self._calculate_electrostatics_physics(protein_atoms, ligand_atoms)
         desolv_energy = self._calculate_desolvation_physics(protein_atoms, ligand_atoms)
         entropy_energy = self._calculate_entropy(ligand)
-        clash_energy = self._calculate_clash_energy(protein_atoms, ligand_atoms)
         
         # Combine scores with calibrated weights
         total_score = (
@@ -1443,8 +1270,7 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
             self.weights['hbond'] * hbond_energy +
             self.weights['elec'] * elec_energy +
             self.weights['desolv'] * desolv_energy +
-            self.weights['entropy'] * entropy_energy +
-            self.weights['clash'] * clash_energy  # 👈 here
+            self.weights['entropy'] * entropy_energy
         )
         
         return total_score
