@@ -76,7 +76,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
             center = np.mean(protein.xyz, axis=0)
             radius = 15.0  # Arbitrary search radius
         
-        print(f"Searching around center {center} with radius {self.grid_radius}")
+        #print(f"Searching around center {center} with radius {self.grid_radius}")
         print(f"Using {self.n_processes} CPU cores for evaluation")
         print(f"Using {self.batch_size} poses per process for evaluation")
         print(f"Using {self.population_size} poses in total")
@@ -88,7 +88,8 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         print(f"Grid radius: {self.grid_radius}")
     
         # Log grid center and radius
-        print(f"INFO - Using grid center: {center}, self.grid_radius: {self.grid_radius}")
+        #print(f"INFO - Using grid center: {center}, grid radius: {self.grid_radius}")
+        #print(f"INFO - Using grid spacing: {self.grid_spacing}")
         
         for _ in range(self.population_size):
             # Make a deep copy of the ligand
