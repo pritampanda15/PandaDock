@@ -139,33 +139,33 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
     def score(self, protein, ligand):
         """
         Calculate binding score using GPU acceleration when available.
-        
+
         Parameters:
         -----------
         protein : Protein
             Protein object
         ligand : Ligand
             Ligand object
-        
+
         Returns:
         --------
         float
             Binding score (lower is better)
         """
         start_time = time.time()
-        
-        # Calculate base terms
-        vdw_score = self._calculate_vdw(protein, ligand)
-        hbond_score = self._calculate_hbond(protein, ligand)
-        clash_score = self._calculate_clashes(protein, ligand)
-        
-        # Calculate additional terms
-        elec_score = self._calculate_electrostatics(protein, ligand)
-        desolv_score = self._calculate_desolvation(protein, ligand)
-        hydrophobic_score = self._calculate_hydrophobic(protein, ligand)
-        entropy_score = self._calculate_entropy(ligand)
-        
-        # Combine scores
+
+        # Calculate base terms using the GPU-aware methods of this class
+        vdw_score = self._calculate_vdw_physics(protein, ligand)
+        hbond_score = self._calculate_hbond_physics(protein, ligand)
+        clash_score = self._calculate_clashes_physics(protein, ligand)
+
+        # Calculate additional terms using the GPU-aware methods of this class
+        elec_score = self._calculate_electrostatics_physics(protein, ligand)
+        desolv_score = self._calculate_desolvation_physics(protein, ligand)
+        hydrophobic_score = self._calculate_hydrophobic_physics(protein, ligand)
+        entropy_score = self._calculate_entropy(ligand) # Uses parent
+
+        # Combine scores using weights inherited from EnhancedScoringFunction
         total_score = (
             self.weights['vdw'] * vdw_score +
             self.weights['hbond'] * hbond_score +
@@ -175,7 +175,7 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             self.weights['clash'] * clash_score +
             self.weights['entropy'] * entropy_score
         )
-        
+
         # Create a dictionary of scores for breakdown
         scores = {
             'vdw': vdw_score,
@@ -185,14 +185,20 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             'hydrophobic': hydrophobic_score,
             'clash': clash_score,
             'entropy': entropy_score,
-            'total': total_score
+            'total': total_score  # Include total for completeness if needed later
         }
-        
+
+        # --- ADD THIS LINE ---
+        # Store component scores for reporter access via get_component_scores (inherited)
+        self.last_component_scores = scores
+        # --- END OF ADDED LINE ---
+
         end_time = time.time()
-        if hasattr(self, 'verbose') and self.verbose:
+        # Use self.debug inherited from EnhancedScoringFunction if it exists
+        if hasattr(self, 'debug') and self.debug:
             print(f"Scoring completed in {end_time - start_time:.4f} seconds")
-            self._print_score_breakdown(scores)
-        
+            self._print_score_breakdown(scores) # Use the local scores dict here
+
         return total_score
     
     def _calculate_vdw(self, protein, ligand):
@@ -204,14 +210,15 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             protein_atoms = protein.active_site['atoms']
         else:
             protein_atoms = protein.atoms
-        
+
         if self.torch_available:
             return self._calculate_vdw_torch(protein_atoms, ligand.atoms)
         elif self.cupy_available:
             return self._calculate_vdw_cupy(protein_atoms, ligand.atoms)
         else:
-            # Fall back to CPU implementation
-            return super()._calculate_vdw_energy(protein_atoms, ligand.atoms)
+            # Fall back to CPU implementation - Use the correct parent method name
+            # return super()._calculate_vdw_energy(protein_atoms, ligand.atoms) # Original - likely wrong name
+            return super()._calculate_vdw_physics(protein_atoms, ligand.atoms) # Corrected name
     
     def _calculate_vdw_torch(self, protein_atoms, ligand_atoms):
         """
@@ -354,7 +361,7 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             return self._calculate_electrostatics_cupy(protein_atoms, ligand.atoms)
         else:
             # Fall back to CPU implementation
-            return super()._calculate_electrostatics(protein, ligand)
+            return super()._calculate_electrostatics_physics(protein, ligand)
     
     def _calculate_electrostatics_torch(self, protein_atoms, ligand_atoms):
         """
@@ -477,7 +484,7 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             return self._calculate_desolvation_cupy(protein_atoms, ligand.atoms)
         else:
             # Fall back to CPU implementation
-            return super()._calculate_desolvation(protein, ligand)
+            return super()._calculate_desolvation_physics(protein, ligand)
     
     def _calculate_desolvation_torch(self, protein_atoms, ligand_atoms):
         """
@@ -602,7 +609,7 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             return self._calculate_hydrophobic_cupy(p_hydrophobic, l_hydrophobic)
         else:
             # Fall back to CPU implementation
-            return super()._calculate_hydrophobic(protein, ligand)
+            return super()._calculate_hydrophobic_physics(protein, ligand)
     
     def _calculate_hydrophobic_torch(self, p_hydrophobic, l_hydrophobic):
         """
@@ -683,7 +690,7 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             return self.hbond_scorer.score(protein, ligand)
         else:
             # Fall back to parent method
-            return super()._calculate_hbond_energy(protein, ligand) if hasattr(super(), '_calculate_hbond_energy') else 0.0
+            return super()._calculate_hbond_physics(protein, ligand) if hasattr(super(), '_calculate_hbond_physics') else 0.0
     
     def _calculate_clashes(self, protein, ligand):
         """
@@ -701,7 +708,7 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             return self._calculate_clashes_cupy(protein_atoms, ligand.atoms)
         else:
             # Fall back to CPU implementation
-            return super()._calculate_clashes(protein, ligand)
+            return super()._calculate_clashes_physics(protein, ligand)
     
     def _calculate_clashes_torch(self, protein_atoms, ligand_atoms):
         """
