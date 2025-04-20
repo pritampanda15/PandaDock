@@ -105,149 +105,126 @@ class DockingReporter:
     
     def extract_energy_components(self, scoring_function, protein, poses, max_poses=10):
         """
-        Extract energy components for top poses. Prioritizes retrieving components
-        calculated by the scoring function itself, falling back to individual calls if needed.
-
+        Extract energy components for top poses.
+        
         Parameters:
         -----------
         scoring_function : ScoringFunction
-            Scoring function object (ideally EnhancedScoringFunction or similar)
+            Scoring function object
         protein : Protein
             Protein object
         poses : list
-            List of (pose, score) tuples - NOTE: Requires sorted poses if matching by index!
-            Or better, pass the original unsorted list of poses used for scoring.
+            List of poses
         max_poses : int
             Maximum number of poses to analyze
-
+                
         Returns:
         --------
         dict
-            Dictionary with energy component breakdowns for each pose_id.
+            Dictionary with energy component breakdowns
         """
         energy_breakdown = {}
+        
         print("Extracting energy component breakdown...")
-
-        # Ensure we have the poses themselves, not (pose, score) tuples from results
-        # Assuming 'poses' passed here is the list of ligand objects
-        actual_poses = poses # Adjust if 'poses' is the (pose, score) list
-
-        # It's crucial that the 'poses' list here corresponds *exactly* to the order
-        # they were scored in initially if we rely on matching index/pose_id.
-
+        
         # Process up to max_poses
-        for i, pose in enumerate(actual_poses[:min(len(actual_poses), max_poses)]):
+        for i, pose in enumerate(poses[:min(len(poses), max_poses)]):
             pose_id = f"pose_{i+1}"
-            print(f" Analyzing pose {i+1}...")
-
+            print(f"  Analyzing pose {i+1}...")
+            
+            # Score the pose
             try:
-                # --- NEW LOGIC ---
-                # 1. Score the pose to ensure components are calculated and stored (if applicable)
-                #    We need the total score anyway for reference.
-                total_score = scoring_function.score(protein, pose) # This call potentially updates internal components
-
-                # 2. Check if the scoring function provides a component breakdown directly
-                if hasattr(scoring_function, 'get_component_scores') and callable(scoring_function.get_component_scores):
-                    components = scoring_function.get_component_scores() # Get the dict calculated by score()
-                    if components and isinstance(components, dict):
-                        # Ensure 'total' is present, matching the score we just got (or recalculate for safety)
-                        components['total'] = total_score
-                        energy_breakdown[pose_id] = components
-                        print(f"  Retrieved components from scoring function for pose {i+1}.")
-                        continue # Move to the next pose
+                # First, check if the scoring function has component tracking
+                if hasattr(scoring_function, 'weights'):
+                    # Create a clean dictionary to store components
+                    components = {
+                        'vdw': 0.0,
+                        'hbond': 0.0,
+                        'elec': 0.0,
+                        'desolv': 0.0,
+                        'hydrophobic': 0.0,
+                        'clash': 0.0,
+                        'entropy': 0.0
+                    }
+                    
+                    # Get active site atoms
+                    if protein.active_site and 'atoms' in protein.active_site:
+                        protein_atoms = protein.active_site['atoms']
                     else:
-                         print(f"  Warning: get_component_scores() did not return a valid dict for pose {i+1}. Falling back.")
-
-                # --- FALLBACK LOGIC (Original method, kept for compatibility) ---
-                print(f"  Falling back to direct component calculation for pose {i+1}.")
-                # If the scoring function doesn't provide components, try calculating them individually
-                components = { # Initialize with defaults
-                    'vdw': 0.0, 'hbond': 0.0, 'elec': 0.0, 'desolv': 0.0,
-                    'hydrophobic': 0.0, 'clash': 0.0, 'entropy': 0.0, 'total': total_score
-                }
-                # Get active site atoms
-                if protein.active_site and 'atoms' in protein.active_site:
-                    protein_atoms = protein.active_site['atoms']
+                        protein_atoms = protein.atoms
+                    
+                    # Score the pose to get the total
+                    total_score = scoring_function.score(protein, pose)
+                    
+                    # Try to extract components directly from the scoring function's methods
+                    try:
+                        # Call individual component calculation methods if they exist
+                        if hasattr(scoring_function, '_calculate_vdw'):
+                            components['vdw'] = scoring_function._calculate_vdw(protein, pose)
+                        elif hasattr(scoring_function, '_calculate_vdw_physics'):
+                            components['vdw'] = scoring_function._calculate_vdw_physics(protein_atoms, pose.atoms)
+                            
+                        if hasattr(scoring_function, '_calculate_hbond'):
+                            components['hbond'] = scoring_function._calculate_hbond(protein, pose)
+                        elif hasattr(scoring_function, '_calculate_hbond_physics'):
+                            components['hbond'] = scoring_function._calculate_hbond_physics(protein_atoms, pose.atoms, protein, pose)
+                            
+                        if hasattr(scoring_function, '_calculate_electrostatics'):
+                            components['elec'] = scoring_function._calculate_electrostatics(protein, pose)
+                        elif hasattr(scoring_function, '_calculate_electrostatics_physics'):
+                            components['elec'] = scoring_function._calculate_electrostatics_physics(protein_atoms, pose.atoms)
+                            
+                        if hasattr(scoring_function, '_calculate_desolvation'):
+                            components['desolv'] = scoring_function._calculate_desolvation(protein, pose)
+                        elif hasattr(scoring_function, '_calculate_desolvation_physics'):
+                            components['desolv'] = scoring_function._calculate_desolvation_physics(protein_atoms, pose.atoms)
+                            
+                        if hasattr(scoring_function, '_calculate_hydrophobic'):
+                            components['hydrophobic'] = scoring_function._calculate_hydrophobic(protein, pose)
+                        elif hasattr(scoring_function, '_calculate_hydrophobic_physics'):
+                            components['hydrophobic'] = scoring_function._calculate_hydrophobic_physics(protein_atoms, pose.atoms)
+                            
+                        if hasattr(scoring_function, '_calculate_clashes'):
+                            components['clash'] = scoring_function._calculate_clashes(protein, pose)
+                        elif hasattr(scoring_function, '_calculate_clashes_physics'):
+                            components['clash'] = scoring_function._calc_clash_energy(protein_atoms, pose.atoms)
+                            
+                        if hasattr(scoring_function, '_calculate_entropy'):
+                            components['entropy'] = scoring_function._calculate_entropy(pose)
+                        elif hasattr(scoring_function, '_calc_entropy_penalty'):
+                            components['entropy'] = scoring_function._calc_entropy_penalty(protein_atoms, pose.atoms)
+                            
+                    except Exception as e:
+                        print(f"    Warning: Could not extract some energy components: {e}")
+                    
+                    # Add the total score
+                    components['total'] = total_score
+                    
+                    # Check if we actually got non-zero components
+                    if all(v == 0.0 for k, v in components.items() if k != 'total'):
+                        print("    Warning: All energy components are zero. Estimating components from weights...")
+                        
+                        # If all components are zero, try to estimate based on total score and weights
+                        # This is a rough approximation assuming equal contribution from components
+                        weight_sum = sum(scoring_function.weights.values())
+                        for component in components:
+                            if component != 'total' and component in scoring_function.weights:
+                                weight_ratio = scoring_function.weights[component] / weight_sum
+                                components[component] = total_score * weight_ratio
+                    
+                    energy_breakdown[pose_id] = components
+                    
                 else:
-                    protein_atoms = protein.atoms
-
-                # Try extracting components using the individual _calculate methods
-                component_methods = {
-                    'vdw': '_calculate_vdw_physics',
-                    'hbond': '_calculate_hbond_physics',
-                    'elec': '_calculate_electrostatics_physics',
-                    'desolv': '_calculate_desolvation_physics',
-                    'hydrophobic': '_calculate_hydrophobic_physics',
-                    'clash': '_calculate_clashes_physics', # Note the name difference
-                    'entropy': '_calculate_entropy'        # Note the name difference
-                }
-                # Initialize components as empty for safety
-                components = {key: 0.0 for key in component_methods.keys()}
-                # Add total to components
-                components['total'] = total_score
-                # Attempt to calculate each component
-                # Note: This assumes the methods are named consistently with the keys
-                # and that they accept the same arguments as the scoring function.
-                # Adjust as needed based on actual method signatures
-                # Note: The scoring function might not have all methods, so we check for existence
-                # and handle exceptions gracefully.
-                # This is a bit of a hack, but it allows us to use the same method names
-                # as the scoring function without needing to modify the scoring function itself.
-                # Calculate base terms using the GPU-aware methods of this class
-                
-                calculation_successful = True
-                for comp_key, method_name in component_methods.items():
-                    if hasattr(scoring_function, method_name):
-                        try:
-                            method = getattr(scoring_function, method_name)
-                            if comp_key == 'hbond': # Needs extra args
-                                components[comp_key] = method(protein_atoms, pose.atoms, protein, pose)
-                            elif comp_key == 'entropy': # Needs only ligand
-                                components[comp_key] = method(pose)
-                            else: # Most need protein_atoms, ligand_atoms
-                                components[comp_key] = method(protein_atoms, pose.atoms)
-                        except Exception as e:
-                            print(f"    Warning: Could not calculate component '{comp_key}' using {method_name}: {e}")
-                            calculation_successful = False
-                    else:
-                        print(f"    Warning: Scoring function missing method {method_name} for component '{comp_key}'.")
-                        calculation_successful = False # Mark as incomplete if a method is missing
-
-                # Store whatever was calculated, even if incomplete
-                energy_breakdown[pose_id] = components
-                if not calculation_successful:
-                     print(f"  Warning: Fallback calculation for pose {i+1} was incomplete.")
-
-
+                    # No component tracking in scoring function
+                    total_score = scoring_function.score(protein, pose)
+                    energy_breakdown[pose_id] = {'total': total_score}
+                    print("    Warning: Scoring function does not support component breakdown")
+                    
             except Exception as e:
-                print(f" Error processing pose {i+1}: {e}")
-                # Ensure a basic entry exists even on error
-                energy_breakdown[pose_id] = {'total': float('nan')} # Or some error indicator
-
-        # --- Store the extracted breakdown ---
-        # This might be slightly redundant if add_results already does this, adjust as needed
-        self.energy_breakdown = energy_breakdown
-        self.scoring_breakdown = list(energy_breakdown.values()) # For plots
-
+                print(f"    Error scoring pose {i+1}: {e}")
+                energy_breakdown[pose_id] = {'total': 0.0}
+        
         return energy_breakdown
-    def add_results(self, results): # Removed energy_breakdown param
-        """
-        Add docking results to the reporter. Energy breakdown should be
-        generated separately using extract_energy_components AFTER results are added.
-
-        Parameters:
-        -----------
-        results : list
-            List of (pose, score) tuples
-        """
-        self.results = results
-        # Reset dependent attributes
-        self.energy_breakdown = None
-        self.scoring_breakdown = None
-        self.interaction_analysis = None # Interactions often depend on poses/results
-        self.validation_results = None # Validation often depends on poses/results
-        self.scoring_breakdown = list(self.energy_breakdown.values()) # For plots
-        self.interaction_analysis = None # Interactions often depend on poses/results
     
     def analyze_protein_ligand_interactions(self, protein, poses, max_poses=5):
         """
