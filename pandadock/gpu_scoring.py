@@ -155,14 +155,14 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
         start_time = time.time()
 
         # Calculate base terms using the GPU-aware methods of this class
-        vdw_score = self._calculate_vdw_physics(protein, ligand)
-        hbond_score = self._calculate_hbond_physics(protein, ligand)
-        clash_score = self._calculate_clashes_physics(protein, ligand)
+        vdw_score = self._calculate_vdw(protein, ligand)
+        hbond_score = self._calculate_hbond(protein, ligand)
+        clash_score = self._calculate_clashes(protein, ligand)
 
         # Calculate additional terms using the GPU-aware methods of this class
-        elec_score = self._calculate_electrostatics_physics(protein, ligand)
-        desolv_score = self._calculate_desolvation_physics(protein, ligand)
-        hydrophobic_score = self._calculate_hydrophobic_physics(protein, ligand)
+        elec_score = self._calculate_electrostatics(protein, ligand)
+        desolv_score = self._calculate_desolvation(protein, ligand)
+        hydrophobic_score = self._calculate_hydrophobic(protein, ligand)
         entropy_score = self._calculate_entropy(ligand) # Uses parent
 
         # Combine scores using weights inherited from EnhancedScoringFunction

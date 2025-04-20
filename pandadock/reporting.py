@@ -181,7 +181,20 @@ class DockingReporter:
                     'clash': '_calculate_clashes_physics', # Note the name difference
                     'entropy': '_calculate_entropy'        # Note the name difference
                 }
-
+                # Initialize components as empty for safety
+                components = {key: 0.0 for key in component_methods.keys()}
+                # Add total to components
+                components['total'] = total_score
+                # Attempt to calculate each component
+                # Note: This assumes the methods are named consistently with the keys
+                # and that they accept the same arguments as the scoring function.
+                # Adjust as needed based on actual method signatures
+                # Note: The scoring function might not have all methods, so we check for existence
+                # and handle exceptions gracefully.
+                # This is a bit of a hack, but it allows us to use the same method names
+                # as the scoring function without needing to modify the scoring function itself.
+                # Calculate base terms using the GPU-aware methods of this class
+                
                 calculation_successful = True
                 for comp_key, method_name in component_methods.items():
                     if hasattr(scoring_function, method_name):
