@@ -26,7 +26,7 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
         Initialize the GPU-accelerated scoring function.
         """
         super().__init__()
-    
+
         # Add the van der Waals well depth parameters if not inherited
         if not hasattr(self, 'vdw_well_depth'):
             self.vdw_well_depth = {
@@ -120,52 +120,22 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
                 print("Neither PyTorch nor CuPy available. Falling back to CPU calculations.")
                 print("For better performance, install PyTorch or CuPy with GPU support.")
     
-
-    def _print_score_breakdown(self, scores):
-        """
-        Print a detailed breakdown of the scoring components.
-        
-        Parameters:
-        -----------
-        scores : dict
-            Dictionary containing individual score components and the total score.
-        """
-        print("\n----- GPU SCORING BREAKDOWN -----")
-        for key in ['vdw', 'hbond', 'elec', 'desolv', 'hydrophobic', 'clash', 'entropy']:
-            print(f"{key.capitalize():12}: {scores[key]:8.4f} × {self.weights[key]:.2f} = {scores[key] * self.weights[key]:.4f}")
-        print(f"TOTAL SCORE  : {scores['total']:.4f}")
-        print("-------------------------------\n")
-
+    
     def score(self, protein, ligand):
         """
         Calculate binding score using GPU acceleration when available.
-
-        Parameters:
-        -----------
-        protein : Protein
-            Protein object
-        ligand : Ligand
-            Ligand object
-
-        Returns:
-        --------
-        float
-            Binding score (lower is better)
+        Ensures unique per-pose computation to avoid repeated values.
         """
         start_time = time.time()
-
-        # Calculate base terms using the GPU-aware methods of this class
+        
         vdw_score = self._calculate_vdw(protein, ligand)
         hbond_score = self._calculate_hbond(protein, ligand)
         clash_score = self._calculate_clashes(protein, ligand)
-
-        # Calculate additional terms using the GPU-aware methods of this class
         elec_score = self._calculate_electrostatics(protein, ligand)
         desolv_score = self._calculate_desolvation(protein, ligand)
         hydrophobic_score = self._calculate_hydrophobic(protein, ligand)
-        entropy_score = self._calculate_entropy(ligand) # Uses parent
+        entropy_score = self._calculate_entropy(ligand)
 
-        # Combine scores using weights inherited from EnhancedScoringFunction
         total_score = (
             self.weights['vdw'] * vdw_score +
             self.weights['hbond'] * hbond_score +
@@ -176,28 +146,12 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             self.weights['entropy'] * entropy_score
         )
 
-        # Create a dictionary of scores for breakdown
-        scores = {
-            'vdw': vdw_score,
-            'hbond': hbond_score,
-            'elec': elec_score,
-            'desolv': desolv_score,
-            'hydrophobic': hydrophobic_score,
-            'clash': clash_score,
-            'entropy': entropy_score,
-            'total': total_score  # Include total for completeness if needed later
-        }
-
-        # --- ADD THIS LINE ---
-        # Store component scores for reporter access via get_component_scores (inherited)
-        self.last_component_scores = scores
-        # --- END OF ADDED LINE ---
-
         end_time = time.time()
-        # Use self.debug inherited from EnhancedScoringFunction if it exists
-        if hasattr(self, 'debug') and self.debug:
+        if hasattr(self, 'verbose') and self.verbose:
             print(f"Scoring completed in {end_time - start_time:.4f} seconds")
-            self._print_score_breakdown(scores) # Use the local scores dict here
+            print(f"VDW: {vdw_score:.2f}, H-bond: {hbond_score:.2f}, Elec: {elec_score:.2f}, "
+                  f"Desolv: {desolv_score:.2f}, Hydrophobic: {hydrophobic_score:.2f}, "
+                  f"Clash: {clash_score:.2f}, Entropy: {entropy_score:.2f}")
 
         return total_score
     
@@ -210,15 +164,14 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             protein_atoms = protein.active_site['atoms']
         else:
             protein_atoms = protein.atoms
-
+        
         if self.torch_available:
             return self._calculate_vdw_torch(protein_atoms, ligand.atoms)
         elif self.cupy_available:
             return self._calculate_vdw_cupy(protein_atoms, ligand.atoms)
         else:
-            # Fall back to CPU implementation - Use the correct parent method name
-            # return super()._calculate_vdw_energy(protein_atoms, ligand.atoms) # Original - likely wrong name
-            return super()._calculate_vdw_physics(protein_atoms, ligand.atoms) # Corrected name
+            # Fall back to CPU implementation
+            return super()._calculate_vdw_energy(protein_atoms, ligand.atoms)
     
     def _calculate_vdw_torch(self, protein_atoms, ligand_atoms):
         """
@@ -361,7 +314,7 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             return self._calculate_electrostatics_cupy(protein_atoms, ligand.atoms)
         else:
             # Fall back to CPU implementation
-            return super()._calculate_electrostatics_physics(protein, ligand)
+            return super()._calculate_electrostatics(protein, ligand)
     
     def _calculate_electrostatics_torch(self, protein_atoms, ligand_atoms):
         """
@@ -484,7 +437,7 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             return self._calculate_desolvation_cupy(protein_atoms, ligand.atoms)
         else:
             # Fall back to CPU implementation
-            return super()._calculate_desolvation_physics(protein, ligand)
+            return super()._calculate_desolvation(protein, ligand)
     
     def _calculate_desolvation_torch(self, protein_atoms, ligand_atoms):
         """
@@ -609,7 +562,7 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             return self._calculate_hydrophobic_cupy(p_hydrophobic, l_hydrophobic)
         else:
             # Fall back to CPU implementation
-            return super()._calculate_hydrophobic_physics(protein, ligand)
+            return super()._calculate_hydrophobic(protein, ligand)
     
     def _calculate_hydrophobic_torch(self, p_hydrophobic, l_hydrophobic):
         """
@@ -690,7 +643,7 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             return self.hbond_scorer.score(protein, ligand)
         else:
             # Fall back to parent method
-            return super()._calculate_hbond_physics(protein, ligand) if hasattr(super(), '_calculate_hbond_physics') else 0.0
+            return super()._calculate_hbond_energy(protein, ligand) if hasattr(super(), '_calculate_hbond_energy') else 0.0
     
     def _calculate_clashes(self, protein, ligand):
         """
@@ -708,99 +661,117 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
             return self._calculate_clashes_cupy(protein_atoms, ligand.atoms)
         else:
             # Fall back to CPU implementation
-            return super()._calculate_clashes_physics(protein, ligand)
+            return super()._calculate_clashes(protein, ligand)
     
     def _calculate_clashes_torch(self, protein_atoms, ligand_atoms):
         """
-        CDOCKER-style GPU-based clash detection using steep repulsion potential.
+        Calculate steric clashes using PyTorch.
         """
         import torch
-        import numpy as np
-
-        # Coordinates and van der Waals radii
-        p_coords, p_radii = [], []
-        l_coords, l_radii = [], []
-
+        
+        # Extract coordinates and radii
+        p_coords = []
+        p_radii = []
+        
         for atom in protein_atoms:
             p_coords.append(atom['coords'])
             symbol = atom.get('element', atom.get('name', 'C'))[0]
             p_radii.append(self.vdw_radii.get(symbol, 1.7))
-
+        
+        l_coords = []
+        l_radii = []
+        
         for atom in ligand_atoms:
             l_coords.append(atom['coords'])
             symbol = atom.get('symbol', 'C')
             l_radii.append(self.vdw_radii.get(symbol, 1.7))
+        
+        # Convert to PyTorch tensors
+        p_coords = torch.tensor(np.array(p_coords), device=self.device)
+        p_radii = torch.tensor(np.array(p_radii), device=self.device).view(-1, 1)
+        
+        l_coords = torch.tensor(np.array(l_coords), device=self.device)
+        l_radii = torch.tensor(np.array(l_radii), device=self.device).view(1, -1)
 
-        # Convert to tensors
-        p_coords = torch.tensor(np.array(p_coords), dtype=torch.float32, device=self.device)
-        p_radii = torch.tensor(np.array(p_radii), dtype=torch.float32, device=self.device).view(-1, 1)
-        l_coords = torch.tensor(np.array(l_coords), dtype=torch.float32, device=self.device)
-        l_radii = torch.tensor(np.array(l_radii), dtype=torch.float32, device=self.device).view(1, -1)
-
-        # Pairwise distances
-        distances = torch.cdist(p_coords, l_coords) + 1e-6  # add epsilon to avoid div by zero
-
-        # Minimum allowed separation (softened by factor)
-        r_min = 0.7 * (p_radii + l_radii)
-
-        # CDOCKER-style repulsion: (r_min / d)^12
-        clash_energy = ((r_min / distances) ** 12)
-
-        # Only apply if within 1.2 × r_min to avoid over-penalizing loose contacts
-        mask = distances < (1.2 * r_min)
-        clash_energy = clash_energy * mask.float()
-
-        # Normalize
-        return float(clash_energy.sum().item() / distances.numel())
-
-
+        
+        # Calculate all distances at once
+        distances = torch.cdist(p_coords, l_coords)
+        
+        # Calculate minimum allowed distances (allowing some overlap)
+        min_allowed = (p_radii + l_radii) * 0.7
+        
+        # Identify clashes
+        clash_mask = distances < min_allowed
+        
+        # If no clashes, return 0
+        if not torch.any(clash_mask):
+            return 0.0
+        
+        # Calculate clash factor (quadratic penalty)
+        clash_factor = (min_allowed - distances) / min_allowed
+        clash_factor = torch.clamp(clash_factor, min=0.0)
+        clash_factor_squared = clash_factor ** 2
+        
+        # Apply mask and sum
+        clash_score = clash_factor_squared * clash_mask.float()
+        total_clash_score = float(torch.sum(clash_score).item())
+        
+        return total_clash_score
     
     def _calculate_clashes_cupy(self, protein_atoms, ligand_atoms):
         """
-        CDOCKER-style CuPy-based clash detection using repulsive potential.
+        Calculate steric clashes using CuPy.
         """
-        cp = self.cp  # CuPy alias from class
-        cp_dtype = self.cp_dtype  # Preset dtype (float32 or float64)
-
+        cp = self.cp
+        
         # Extract coordinates and radii
-        p_coords, p_radii = [], []
-        l_coords, l_radii = [], []
-
+        p_coords = []
+        p_radii = []
+        
         for atom in protein_atoms:
             p_coords.append(atom['coords'])
             symbol = atom.get('element', atom.get('name', 'C'))[0]
             p_radii.append(self.vdw_radii.get(symbol, 1.7))
-
+        
+        l_coords = []
+        l_radii = []
+        
         for atom in ligand_atoms:
             l_coords.append(atom['coords'])
             symbol = atom.get('symbol', 'C')
             l_radii.append(self.vdw_radii.get(symbol, 1.7))
-
-        # Convert to CuPy arrays
-        p_coords = cp.array(p_coords, dtype=cp_dtype)
-        p_radii = cp.array(p_radii, dtype=cp_dtype).reshape(-1, 1)
-        l_coords = cp.array(l_coords, dtype=cp_dtype)
-        l_radii = cp.array(l_radii, dtype=cp_dtype).reshape(1, -1)
-
-        # Distance matrix with epsilon to avoid divide-by-zero
-        diff = cp.expand_dims(p_coords, 1) - cp.expand_dims(l_coords, 0)
-        distances = cp.sqrt(cp.sum(diff ** 2, axis=2)) + 1e-6
-
-        # Minimum allowed distances (softened)
-        r_min = 0.7 * (p_radii + l_radii)
-
-        # Apply repulsive energy: (r_min / d)^12
-        repulsion = (r_min / distances) ** 12
-
-        # Apply mask for distances < 1.2 * r_min to avoid over-penalizing
-        mask = distances < (1.2 * r_min)
-        repulsion *= mask
-
-        # Normalize over matrix size
-        clash_score = cp.sum(repulsion) / distances.size
-        return float(clash_score)
-
         
+        # Convert to CuPy arrays
+        p_coords = cp.array(p_coords, dtype=self.cp_dtype)
+        p_radii = cp.array(p_radii, dtype=self.cp_dtype).reshape(-1, 1)
+        
+        l_coords = cp.array(l_coords, dtype=self.cp_dtype)
+        l_radii = cp.array(l_radii, dtype=self.cp_dtype).reshape(1, -1)
+        
+        # Calculate all distances at once
+        diff = cp.expand_dims(p_coords, 1) - cp.expand_dims(l_coords, 0)
+        distances = cp.sqrt(cp.sum(diff**2, axis=2))
+        
+        # Calculate minimum allowed distances (allowing some overlap)
+        min_allowed = (p_radii + l_radii) * 0.7
+        
+        # Identify clashes
+        clash_mask = distances < min_allowed
+        
+        # If no clashes, return 0
+        if not cp.any(clash_mask):
+            return 0.0
+        
+        # Calculate clash factor (quadratic penalty)
+        clash_factor = (min_allowed - distances) / min_allowed
+        clash_factor = cp.maximum(clash_factor, 0.0)
+        clash_factor_squared = clash_factor ** 2
+        
+        # Apply mask and sum
+        clash_score = clash_factor_squared * clash_mask
+        total_clash_score = float(cp.sum(clash_score))
+        
+        return total_clash_score
     
     def _calculate_entropy(self, ligand):
         """

@@ -9,7 +9,6 @@ import os
 import json
 import numpy as np
 import matplotlib
-import seaborn as sns
 import matplotlib.pyplot as plt
 from pathlib import Path
 from datetime import datetime
@@ -65,7 +64,6 @@ class DockingReporter:
         self.energy_breakdown = None
         self.validation_results = None
         self.interaction_analysis = None
-        self.scoring_breakdown = None
         
     def add_results(self, results, energy_breakdown=None):
         """
@@ -105,130 +103,31 @@ class DockingReporter:
     
     def extract_energy_components(self, scoring_function, protein, poses, max_poses=10):
         """
-        Extract energy components for top poses.
-        
-        Parameters:
-        -----------
-        scoring_function : ScoringFunction
-            Scoring function object
-        protein : Protein
-            Protein object
-        poses : list
-            List of poses
-        max_poses : int
-            Maximum number of poses to analyze
-                
-        Returns:
-        --------
-        dict
-            Dictionary with energy component breakdowns
+        Extract energy components for top poses with unique per-pose computation.
         """
         energy_breakdown = {}
-        # Check if the scoring function has component methods
-        has_components = hasattr(scoring_function, 'weights')
-        
-        if not has_components:
-            print("Scoring function does not provide component breakdown")
-            return energy_breakdown
-        print("Extracting energy component breakdown...")
-        
-        # Process up to max_poses
+
         for i, pose in enumerate(poses[:min(len(poses), max_poses)]):
             pose_id = f"pose_{i+1}"
-            print(f"  Analyzing pose {i+1}...")
-            
-            # Score the pose
+            print(f"  Analyzing {pose_id}...")
+
             try:
-                # First, check if the scoring function has component tracking
-                if hasattr(scoring_function, 'weights'):
-                    # Create a clean dictionary to store components
-                    components = {
-                        'vdw': 0.0,
-                        'hbond': 0.0,
-                        'elec': 0.0,
-                        'desolv': 0.0,
-                        'hydrophobic': 0.0,
-                        'clash': 0.0,
-                        'entropy': 0.0
-                    }
-                    
-                    # Get active site atoms
-                    if protein.active_site and 'atoms' in protein.active_site:
-                        protein_atoms = protein.active_site['atoms']
-                    else:
-                        protein_atoms = protein.atoms
-                    
-                    # Score the pose to get the total
-                    total_score = scoring_function.score(protein, pose)
-                    
-                    # Try to extract components directly from the scoring function's methods
-                    try:
-                        # Call individual component calculation methods if they exist
-                        if hasattr(scoring_function, '_calculate_vdw_energy'):
-                            components['vdw'] = scoring_function._calculate_vdw_energy(protein, pose)
-                        elif hasattr(scoring_function, '_calculate_vdw_physics'):
-                            components['vdw'] = scoring_function._calculate_vdw_physics(protein_atoms, pose.atoms)
-                            
-                        if hasattr(scoring_function, '_calculate_hbond_energy'):
-                            components['hbond'] = scoring_function._calculate_hbond_energy(protein, pose)
-                        elif hasattr(scoring_function, '_calculate_hbond_physics'):
-                            components['hbond'] = scoring_function._calculate_hbond_physics(protein_atoms, pose.atoms, protein, pose)
-                            
-                        if hasattr(scoring_function, '_calculate_electrostatics_energy'):
-                            components['elec'] = scoring_function._calculate_electrostatics_energy(protein, pose)
-                        elif hasattr(scoring_function, '_calculate_electrostatics_physics'):
-                            components['elec'] = scoring_function._calculate_electrostatics_physics(protein_atoms, pose.atoms)
-                            
-                        if hasattr(scoring_function, '_calculate_desolvation_energy'):
-                            components['desolv'] = scoring_function._calculate_desolvation_energy(protein, pose)
-                        elif hasattr(scoring_function, '_calculate_desolvation_physics'):
-                            components['desolv'] = scoring_function._calculate_desolvation_physics(protein_atoms, pose.atoms)
-                            
-                        if hasattr(scoring_function, '_calculate_hydrophobic_energy'):
-                            components['hydrophobic'] = scoring_function._calculate_hydrophobic_energy(protein, pose)
-                        elif hasattr(scoring_function, '_calculate_hydrophobic_physics'):
-                            components['hydrophobic'] = scoring_function._calculate_hydrophobic_physics(protein_atoms, pose.atoms)
-                            
-                        if hasattr(scoring_function, '_calculate_clash'):
-                            components['clash'] = scoring_function._calculate_clash(protein, pose)
-                        elif hasattr(scoring_function, '_calculate_clash_physics'):
-                            components['clash'] = scoring_function._calculate_clash_physics(protein_atoms, pose.atoms)
-                            
-                        if hasattr(scoring_function, '_calculate_entropy'):
-                            components['entropy'] = scoring_function._calculate_entropy(pose)
-                        elif hasattr(scoring_function, '_calc_entropy_penalty'):
-                            components['entropy'] = scoring_function._calc_entropy_penalty(protein_atoms, pose.atoms)
-                            
-                    except Exception as e:
-                        print(f"    Warning: Could not extract some energy components: {e}")
-                    
-                    # Add the total score
-                    components['total'] = total_score
-                    
-                    # Check if we actually got non-zero components
-                    if all(v == 0.0 for k, v in components.items() if k != 'total'):
-                        print("    Warning: All energy components are zero. Estimating components from weights...")
-                        
-                        # If all components are zero, try to estimate based on total score and weights
-                        # This is a rough approximation assuming equal contribution from components
-                        weight_sum = sum(scoring_function.weights.values())
-                        for component in components:
-                            if component != 'total' and component in scoring_function.weights:
-                                weight_ratio = scoring_function.weights[component] / weight_sum
-                                components[component] = total_score * weight_ratio
-                    
-                    energy_breakdown[pose_id] = components
-                    
-                else:
-                    # No component tracking in scoring function
-                    total_score = scoring_function.score(protein, pose)
-                    energy_breakdown[pose_id] = {'total': total_score}
-                    print("    Warning: Scoring function does not support component breakdown")
-                    
+                components = {
+                    'vdw': scoring_function._calculate_vdw(protein, pose),
+                    'hbond': scoring_function._calculate_hbond(protein, pose),
+                    'elec': scoring_function._calculate_electrostatics(protein, pose),
+                    'desolv': scoring_function._calculate_desolvation(protein, pose),
+                    'hydrophobic': scoring_function._calculate_hydrophobic(protein, pose),
+                    'clash': scoring_function._calculate_clashes(protein, pose),
+                    'entropy': scoring_function._calculate_entropy(pose),
+                }
+                total = scoring_function.score(protein, pose)
+                components['total'] = total
+                energy_breakdown[pose_id] = components
             except Exception as e:
-                print(f"    Error scoring pose {i+1}: {e}")
+                print(f"    Failed to extract energy for {pose_id}: {e}")
                 energy_breakdown[pose_id] = {'total': 0.0}
-        
+
         return energy_breakdown
     
     def analyze_protein_ligand_interactions(self, protein, poses, max_poses=5):
@@ -281,52 +180,52 @@ class DockingReporter:
     
     def _analyze_hbonds(self, protein, ligand, interactions):
         """Analyze hydrogen bonds between protein and ligand."""
-        import numpy as np
-
         # Get active site atoms
         if protein.active_site and 'atoms' in protein.active_site:
             protein_atoms = protein.active_site['atoms']
         else:
             protein_atoms = protein.atoms
-
+        
         # Define donors and acceptors
-        donors = ['N', 'O']  # Extend this list as needed
+        donors = ['N', 'O']  # Simplified; should include -NH, -OH groups
         acceptors = ['N', 'O', 'F']
-        cutoff_distance = 3.8  # Maximum H-bond distance (in Å)
-        angle_cutoff = 30.0  # Maximum deviation from linearity (in degrees)
-
+        cutoff_distance = 3.5  # Maximum H-bond distance
+        
         for p_atom in protein_atoms:
             if 'coords' not in p_atom:
                 continue
-
-            p_coords = np.array(p_atom['coords'])
-            p_element = p_atom.get('element', p_atom.get('name', '')[0])
-
-            if not p_element or p_element not in donors + acceptors:
+                
+            p_coords = p_atom['coords']
+            p_element = None
+            
+            # Get atom element safely
+            if 'element' in p_atom:
+                p_element = p_atom['element']
+            elif 'name' in p_atom and len(p_atom['name']) > 0:
+                p_element = p_atom['name'][0]
+            
+            if not p_element:
                 continue
-
+                
             # Get residue info
             res_name = p_atom.get('residue_name', 'UNK')
             res_id = p_atom.get('residue_id', 0)
             chain_id = p_atom.get('chain_id', 'X')
-
+            
             for l_atom in ligand.atoms:
                 if 'coords' not in l_atom:
                     continue
-
-                l_coords = np.array(l_atom['coords'])
+                    
+                l_coords = l_atom['coords']
                 l_element = l_atom.get('symbol', '')
-
-                if not l_element or l_element not in donors + acceptors:
-                    continue
-
+                
                 # Calculate distance
+                import numpy as np
                 distance = np.linalg.norm(p_coords - l_coords)
-
-                # Check if distance is within cutoff
+                
+                # Check if H-bond is possible
                 if distance <= cutoff_distance:
-                    # Check for linearity (angle between donor-H-acceptor)
-                    # Simplified: Assume H is along the donor-acceptor vector
+                    # Protein donor - Ligand acceptor
                     if p_element in donors and l_element in acceptors:
                         interactions['h_bonds'].append({
                             'type': 'protein_donor',
@@ -343,7 +242,8 @@ class DockingReporter:
                             }
                         })
                         interactions['residues'].add(f"{chain_id}:{res_name}{res_id}")
-
+                    
+                    # Ligand donor - Protein acceptor
                     if l_element in donors and p_element in acceptors:
                         interactions['h_bonds'].append({
                             'type': 'ligand_donor',
@@ -811,12 +711,6 @@ class DockingReporter:
         
         return report_path
     
-    def add_results(self, results, energy_breakdown=None):
-        self.results = results
-        self.energy_breakdown = energy_breakdown
-        self.scoring_breakdown = list(energy_breakdown.values()) if energy_breakdown else None
-
-
     def generate_plots(self, save_dir=None):
         """
         Generate plots visualizing the docking results.
@@ -1041,20 +935,6 @@ class DockingReporter:
         import os
         import datetime  
         
-
-        # Generate and save plots
-        plots_dir = os.path.join(self.output_dir, "plots")
-        os.makedirs(plots_dir, exist_ok=True)
-        plot_paths = self.generate_plots(save_dir=plots_dir)
-        plot_html = "<div class='container'><h2>Visualizations</h2>"
-
-        for path in plot_paths:
-            rel_path = os.path.relpath(path, self.output_dir)
-            plot_html += f"""
-                <div class='plot'>
-                    <img src="{rel_path}" alt="Plot" style="width:100%; max-width:800px;" />
-                </div>"""
-        plot_html += "</div>"
         # Create report path
         report_name = getattr(self.args, 'report_name', None)
         if report_name:
@@ -1186,7 +1066,7 @@ class DockingReporter:
         </div>
     </body>
     </html>"""
-        html_content = html_content.replace("<div class=\"footer\">", plot_html + "<div class=\"footer\">")
+        
         # Write HTML file
         with open(report_path, 'w') as f:
             f.write(html_content)
