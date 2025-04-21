@@ -7,6 +7,8 @@ packaging
 pandas
 tabulate
 tqdm
+seaborn
+weasyprint
 
 [dev]
 pytest>=6.0.0

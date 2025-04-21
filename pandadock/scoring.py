@@ -671,23 +671,11 @@ class EnhancedScoringFunction(CompositeScoringFunction):
             'clash': 1.0,         # Kept the same
             'entropy': 0.25       # Slightly decreased from 0.2983
         }
-    
+    # Initialize last component scores
+    # Add this implementation to scoring.py in EnhancedScoringFunction class
+
     def score(self, protein, ligand):
-        """
-        Calculate full physics-based composite score with component breakdown.
-        
-        Parameters:
-        -----------
-        protein : Protein
-            Protein object
-        ligand : Ligand
-            Ligand object
-        
-        Returns:
-        --------
-        float
-            Total binding score (lower is better)
-        """
+        """Calculate full physics-based composite score with component breakdown."""
         # Initialize component scores
         component_scores = {
             'vdw': 0.0,
@@ -707,50 +695,29 @@ class EnhancedScoringFunction(CompositeScoringFunction):
             else:
                 protein_atoms = protein.atoms
             
-            # Calculate all energy terms with try/except for each component
-            try:
+            # Calculate individual energy terms
+            if hasattr(self, '_calculate_vdw_physics'):
                 component_scores['vdw'] = self._calculate_vdw_physics(protein_atoms, ligand.atoms)
-            except Exception as e:
-                print(f"Warning: Error in VDW calculation: {e}")
-                component_scores['vdw'] = 0.0
             
-            try:
+            if hasattr(self, '_calculate_hbond_physics'):
                 component_scores['hbond'] = self._calculate_hbond_physics(protein_atoms, ligand.atoms, protein, ligand)
-            except Exception as e:
-                print(f"Warning: Error in H-bond calculation: {e}")
-                component_scores['hbond'] = 0.0
             
-            try:
+            if hasattr(self, '_calculate_electrostatics_physics'):
                 component_scores['elec'] = self._calculate_electrostatics_physics(protein_atoms, ligand.atoms)
-            except Exception as e:
-                print(f"Warning: Error in electrostatics calculation: {e}")
-                component_scores['elec'] = 0.0
             
-            try:
+            if hasattr(self, '_calculate_desolvation_physics'):
                 component_scores['desolv'] = self._calculate_desolvation_physics(protein_atoms, ligand.atoms)
-            except Exception as e:
-                print(f"Warning: Error in desolvation calculation: {e}")
-                component_scores['desolv'] = 0.0
             
-            try:
+            if hasattr(self, '_calculate_hydrophobic_physics'):
                 component_scores['hydrophobic'] = self._calculate_hydrophobic_physics(protein_atoms, ligand.atoms)
-            except Exception as e:
-                print(f"Warning: Error in hydrophobic calculation: {e}")
-                component_scores['hydrophobic'] = 0.0
             
-            try:
+            if hasattr(self, '_calculate_clashes_physics'):
                 component_scores['clash'] = self._calculate_clashes_physics(protein_atoms, ligand.atoms)
-            except Exception as e:
-                print(f"Warning: Error in clash calculation: {e}")
-                component_scores['clash'] = 0.0
             
-            try:
+            if hasattr(self, '_calculate_entropy'):
                 component_scores['entropy'] = self._calculate_entropy(ligand)
-            except Exception as e:
-                print(f"Warning: Error in entropy calculation: {e}")
-                component_scores['entropy'] = 0.0
             
-            # Combine scores with improved physics-based weights
+            # Calculate weighted total
             total_score = (
                 self.weights['vdw'] * component_scores['vdw'] +
                 self.weights['hbond'] * component_scores['hbond'] +
@@ -763,19 +730,31 @@ class EnhancedScoringFunction(CompositeScoringFunction):
             
             component_scores['total'] = total_score
             
-            # Store component scores for later analysis
+            # Store for later access
             self.last_component_scores = component_scores
-            
-            # Print score breakdown if debug is enabled
-            if self.debug:
-                self._print_score_breakdown(component_scores)
-            
-            return total_score
-            
         except Exception as e:
-            print(f"Error in scoring calculation: {e}")
-            return 1000.0  # Return a high penalty score on failure
-    
+            print(f"Error in EnhancedScoringFunction.score: {e}")
+            # Calculate total score using parent method if available
+            if hasattr(super(), 'score'):
+                component_scores['total'] = super().score(protein, ligand)
+            else:
+                # Last resort fallback
+                component_scores['total'] = 0.0
+        
+        return component_scores['total']
+
+    def get_component_scores(self, protein, ligand):
+        """Get energy components for a protein-ligand pair."""
+        # Score the complex to populate component scores
+        self.score(protein, ligand)
+        
+        # Return the stored component scores
+        if hasattr(self, 'last_component_scores'):
+            return self.last_component_scores
+        else:
+            # Fallback: return dictionary with only total score
+            return {'total': self.score(protein, ligand)}
+
     def _print_score_breakdown(self, scores):
         """Print detailed breakdown of scoring components."""
         print("\n----- SCORING BREAKDOWN -----")
@@ -788,14 +767,21 @@ class EnhancedScoringFunction(CompositeScoringFunction):
         print(f"Entropy:     {scores['entropy']:.2f} × {self.weights['entropy']:.2f} = {scores['entropy'] * self.weights['entropy']:.2f}")
         print(f"TOTAL SCORE: {scores['total']:.2f}")
         print("-----------------------------\n")
-    
-    def get_component_scores(self):
-        """Return the component scores from the last scoring calculation."""
-        if hasattr(self, 'last_component_scores'):
-            return self.last_component_scores
-        else:
-            return None
-    
+        # Print debug information if enabled
+        if self.debug:
+            print("DEBUG INFORMATION:")
+            print(f"VDW:         {scores['vdw']:.2f}")
+            print(f"H-Bond:      {scores['hbond']:.2f}")
+            print(f"Electro:     {scores['elec']:.2f}")
+            print(f"Desolvation: {scores['desolv']:.2f}")
+            print(f"Hydrophobic: {scores['hydrophobic']:.2f}")
+            print(f"Clashes:     {scores['clash']:.2f}")
+            print(f"Entropy:     {scores['entropy']:.2f}")
+            print("-----------------------------\n")
+        # Initialize debug flag
+        self.debug = False  # Reset after printing
+        if not hasattr(self, 'debug'):
+            self.debug = False
     def enable_debug(self, enable=True):
         """Enable or disable debug output."""
         self.debug = enable

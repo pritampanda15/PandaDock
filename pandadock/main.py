@@ -1,34 +1,27 @@
 """
 Main entry script for PandaDock with GPU/CPU hardware acceleration.
 """
-
 import argparse
 import os
 import time
-import sys
-import json
 from datetime import datetime
 from pathlib import Path
 import numpy as np
-import matplotlib.pyplot as plt
 import traceback
 from .protein import Protein
 from .ligand import Ligand
-from .scoring import CompositeScoringFunction, EnhancedScoringFunction
-from .search import RandomSearch, GeneticAlgorithm
 from .utils import (
     setup_logging,
     save_docking_results,
     create_initial_files,
     update_status,
-    save_intermediate_result,
-    create_descriptive_output_dir
+    save_intermediate_result
 )
 from .preparation import prepare_protein, prepare_ligand
 from .reporting import DockingReporter
 from .validation import validate_against_reference
 from .main_integration import (
-    add_hardware_options, 
+    add_hardware_options,
     configure_hardware,
     setup_hardware_acceleration,
     create_optimized_scoring_function,
@@ -37,18 +30,17 @@ from .main_integration import (
     get_algorithm_type_from_args,
     get_algorithm_kwargs_from_args
 )
-
 from . import __version__
 
-__all__ = ['__version__', 'add_hardware_options', 'configure_hardware', 
-           'setup_hardware_acceleration', 'create_optimized_scoring_function', 
-           'create_optimized_search_algorithm', 'get_scoring_type_from_args', 
+__all__ = ['__version__', 'add_hardware_options', 'configure_hardware',
+           'setup_hardware_acceleration', 'create_optimized_scoring_function',
+           'create_optimized_search_algorithm', 'get_scoring_type_from_args',
            'get_algorithm_type_from_args', 'get_algorithm_kwargs_from_args']
 
 # Import physics-based algorithms
 try:
-    from .physics import (MMFFMinimization, GeneralizedBornSolvation, 
-                          MonteCarloSampling, PhysicsBasedScoring)
+    from .physics import (MMFFMinimization, MonteCarloSampling, PhysicsBasedScoring, GeneralizedBornSolvation)
+    __all__ = ['__version__', 'MMFFMinimization', 'GeneralizedBornSolvation', 'MonteCarloSampling', 'PhysicsBasedScoring']
     PHYSICS_AVAILABLE = True
 except ImportError:
     PHYSICS_AVAILABLE = False
@@ -315,6 +307,9 @@ def write_results_to_txt(results, output_dir, elapsed_time, protein_path, ligand
     
     if logger:
         logger.info(f"Detailed results written to {results_path}")
+        logger.info(f"Results saved in {results_path}")
+    
+    return results_path
 
 def add_advanced_search_options(parser):
     """Add command-line options for advanced search algorithms."""
@@ -759,7 +754,17 @@ def main():
         
         # Initialize reporter
         reporter = DockingReporter(output_dir, args, timestamp=readable_date)
-        
+        if 'all_results' in locals() and all_results:
+            try:
+                print("Extracting energy components for detailed reporting...")
+                energy_breakdown = reporter.extract_energy_components(scoring_function, protein, [pose for pose, _ in all_results[:20]])
+                reporter.add_results(all_results, energy_breakdown)
+            except Exception as e:
+                print(f"Warning: Could not extract energy components: {e}")
+                reporter.add_results(all_results)
+        else:
+            print("No docking results to report.")
+            
         # Get algorithm type and parameters
         algorithm_type = get_algorithm_type_from_args(args)
         algorithm_kwargs = get_algorithm_kwargs_from_args(args)
@@ -1219,6 +1224,9 @@ def main():
                 reporter.generate_json_report()
             elif args.report_format == 'html':
                 reporter.generate_html_report()
+            elif args.report_format == 'plots':
+                reporter.generate_plots(save_dir=os.path.join(output_dir, "plots"))
+
         else:
             # Generate all report formats
             reporter.generate_detailed_report()

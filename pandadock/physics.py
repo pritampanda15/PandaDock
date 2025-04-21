@@ -3,6 +3,8 @@ from copy import deepcopy
 from pathlib import Path
 import os
 import tempfile
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 class MMFFMinimization:
     """
@@ -974,7 +976,15 @@ class PhysicsBasedScoring:
     Provides accurate binding energy by integrating physical interaction models.
     """
 
-    def __init__(self):
+    def __init__(self, use_gpu=True):
+        # GPU flag
+        self.use_gpu = use_gpu
+        if self.use_gpu:
+            print("INFO - Physics-based scoring initialized with GPU")
+        else:
+            print("INFO - Physics-based scoring initialized without GPU")
+
+        # Initialize physical models
         from .physics import ImprovedElectrostatics, GeneralizedBornSolvation
         self.electrostatics = ImprovedElectrostatics()
         self.solvation = GeneralizedBornSolvation()

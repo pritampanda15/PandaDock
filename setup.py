@@ -65,7 +65,8 @@ setup(
         "pandas",
         "tabulate",
         "tqdm",
-        "seaborn"
+        "seaborn",
+        "weasyprint"
     ],
     entry_points={
         'console_scripts': [

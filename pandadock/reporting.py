@@ -14,9 +14,7 @@ from pathlib import Path
 from datetime import datetime
 import pandas as pd
 from tabulate import tabulate
-import csv
-from collections import defaultdict
-from typing import List, Dict, Any, Tuple
+import seaborn as sns
 
 class EnhancedJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder that handles NumPy types and other special types."""
@@ -64,20 +62,39 @@ class DockingReporter:
         self.energy_breakdown = None
         self.validation_results = None
         self.interaction_analysis = None
+
+    def _get_hardware_info(self, args):
+        """Extract hardware configuration information from arguments."""
+        hardware = {}
         
-    def add_results(self, results, energy_breakdown=None):
+        if hasattr(args, 'use_gpu'):
+            hardware["use_gpu"] = args.use_gpu
+        if hasattr(args, 'gpu_id'):
+            hardware["gpu_id"] = args.gpu_id
+        if hasattr(args, 'cpu_workers'):
+            hardware["cpu_workers"] = args.cpu_workers
+        
+        return hardware
+        
+    def add_results(self, results, detailed_energy=None):
         """
-        Add docking results to the reporter.
+        Add docking results to the report.
         
         Parameters:
         -----------
         results : list
             List of (pose, score) tuples
-        energy_breakdown : dict, optional
-            Dictionary with energy component breakdowns
+        detailed_energy : list, optional
+            List of detailed energy breakdowns as dictionaries
         """
         self.results = results
-        self.energy_breakdown = energy_breakdown
+        
+        # If detailed energy information is provided, store it
+        if detailed_energy:
+            self.scoring_breakdown = detailed_energy
+        
+        # Sort results by score if not already sorted
+        self.results.sort(key=lambda x: x[1])
     
     def add_validation_results(self, validation_results):
         """
@@ -101,34 +118,143 @@ class DockingReporter:
         """
         self.interaction_analysis = interaction_analysis
     
-    def extract_energy_components(self, scoring_function, protein, poses, max_poses=10):
-        """
-        Extract energy components for top poses with unique per-pose computation.
-        """
-        energy_breakdown = {}
+        return interaction_analysis
+    
+    # Add to gpu_scoring.py in the GPUAcceleratedScoringFunction class
+    def get_component_scores(self, protein, ligand):
+        """GPU-accelerated version of component score calculation"""
+        # Get protein atoms
+        if protein.active_site and 'atoms' in protein.active_site:
+            protein_atoms = protein.active_site['atoms']
+        else:
+            protein_atoms = protein.atoms
+        
+        components = {}
+        
+        # Use GPU-accelerated methods when available
+        components['vdw'] = self._calculate_vdw(protein, ligand)
+        components['hbond'] = self._calculate_hbond(protein, ligand)
+        components['elec'] = self._calculate_electrostatics(protein, ligand)
+        components['desolv'] = self._calculate_desolvation(protein, ligand)
+        components['hydrophobic'] = self._calculate_hydrophobic(protein, ligand)
+        components['clash'] = self._calculate_clashes(protein, ligand)
+        components['entropy'] = self._calculate_entropy(ligand)
+        
+        # Calculate weighted total
+        components['total'] = (
+            self.weights['vdw'] * components['vdw'] +
+            self.weights['hbond'] * components['hbond'] +
+            self.weights['elec'] * components['elec'] +
+            self.weights['desolv'] * components['desolv'] +
+            self.weights['hydrophobic'] * components['hydrophobic'] +
+            self.weights['clash'] * components['clash'] +
+            self.weights['entropy'] * components['entropy']
+        )
+        
+        return components
 
+
+    # In your reporting.py or DockingReporter class
+    def extract_energy_components(self, scoring_function, protein, poses):
+        """Extract energy components for detailed reporting."""
+        energy_components = []
+        
+        # Debug information
+        print(f"Scoring function type: {type(scoring_function).__name__}")
+        print(f"Available methods: {[method for method in dir(scoring_function) if not method.startswith('_') or method in ['_calculate_vdw', '_calculate_hbond']]}")
+        
+        for pose in poses[:5]:  # Limit to first 5 poses for efficiency
+            # Try multiple approaches to get energy components
+            components = {}
+            
+            # Approach 1: Try get_component_scores method
+            if hasattr(scoring_function, 'get_component_scores'):
+                try:
+                    components = scoring_function.get_component_scores(protein, pose)
+                    print(f"Successfully got components using get_component_scores: {list(components.keys())}")
+                except Exception as e:
+                    print(f"Error using get_component_scores: {e}")
+            
+            # Approach 2: Try accessing last_component_scores attribute
+            elif hasattr(scoring_function, 'last_component_scores'):
+                # Score the pose first to populate last_component_scores
+                scoring_function.score(protein, pose)
+                components = scoring_function.last_component_scores
+                print(f"Got components from last_component_scores: {list(components.keys()) if components else 'None'}")
+            
+            # Approach 3: Try calling individual component methods
+            else:
+                print("Attempting to call individual component methods")
+                try:
+                    # Call score first to ensure any side-effects occur
+                    total_score = scoring_function.score(protein, pose)
+                    components['total'] = total_score
+                    
+                    # Try various method naming conventions
+                    for component_name, method_names in {
+                        'vdw': ['_calculate_vdw', '_calculate_vdw_physics', '_calculate_vdw_energy'],
+                        'hbond': ['_calculate_hbond', '_calculate_hbond_physics', '_calculate_hbond_energy'],
+                        'elec': ['_calculate_electrostatics', '_calculate_electrostatics_physics'],
+                        'desolv': ['_calculate_desolvation', '_calculate_desolvation_physics'],
+                        'hydrophobic': ['_calculate_hydrophobic', '_calculate_hydrophobic_physics'],
+                        'clash': ['_calculate_clashes', '_calculate_clashes_physics'],
+                        'entropy': ['_calculate_entropy']
+                    }.items():
+                        for method_name in method_names:
+                            if hasattr(scoring_function, method_name):
+                                try:
+                                    if method_name == '_calculate_hbond_physics' or method_name == '_calculate_hbond':
+                                        components[component_name] = getattr(scoring_function, method_name)(
+                                            protein_atoms, ligand_atoms, protein, pose)
+                                    else:
+                                        components[component_name] = getattr(scoring_function, method_name)(
+                                            protein_atoms, pose.atoms)
+                                    print(f"Successfully called {method_name}")
+                                    break
+                                except Exception as e:
+                                    print(f"Error calling {method_name}: {e}")
+                except Exception as e:
+                    print(f"Error in approach 3: {e}")
+            
+            # Fallback: Just set total if we have it
+            if not components and hasattr(scoring_function, 'score'):
+                components = {'total': scoring_function.score(protein, pose)}
+                print("Fallback: Only got total score")
+            
+            energy_components.append(components)
+        
+        return energy_components
+    
+    
+    def analyze_ligand_validation(self, ligand, poses, max_poses=5):
+        """
+        Analyze ligand validation for top poses.
+        
+        Parameters:
+        -----------
+        ligand : Ligand
+            Ligand object
+        poses : list
+            List of poses
+        max_poses : int
+            Maximum number of poses to analyze
+            
+        Returns:
+        --------
+        dict
+            Dictionary with validation analysis
+        """
+        validation_results = {}
+        
+        # Process up to max_poses
         for i, pose in enumerate(poses[:min(len(poses), max_poses)]):
             pose_id = f"pose_{i+1}"
-            print(f"  Analyzing {pose_id}...")
-
-            try:
-                components = {
-                    'vdw': scoring_function._calculate_vdw(protein, pose),
-                    'hbond': scoring_function._calculate_hbond(protein, pose),
-                    'elec': scoring_function._calculate_electrostatics(protein, pose),
-                    'desolv': scoring_function._calculate_desolvation(protein, pose),
-                    'hydrophobic': scoring_function._calculate_hydrophobic(protein, pose),
-                    'clash': scoring_function._calculate_clashes(protein, pose),
-                    'entropy': scoring_function._calculate_entropy(pose),
-                }
-                total = scoring_function.score(protein, pose)
-                components['total'] = total
-                energy_breakdown[pose_id] = components
-            except Exception as e:
-                print(f"    Failed to extract energy for {pose_id}: {e}")
-                energy_breakdown[pose_id] = {'total': 0.0}
-
-        return energy_breakdown
+            
+            # Analyze ligand validation
+            validation_results[pose_id] = self._analyze_ligand_validation(ligand, pose)
+            
+        return validation_results
+    
     
     def analyze_protein_ligand_interactions(self, protein, poses, max_poses=5):
         """
@@ -526,42 +652,90 @@ class DockingReporter:
             f.write("\n")
             
             # Energy breakdown
-            if self.energy_breakdown:
+            if hasattr(self, 'energy_breakdown') and self.energy_breakdown:
                 f.write("ENERGY COMPONENT BREAKDOWN\n")
                 f.write("-------------------------\n")
-                f.write("Component       Pose 1     Pose 2     Pose 3     Pose 4     Pose 5\n")
-                f.write("-------------- ---------- ---------- ---------- ---------- ----------\n")
                 
-                components = ['vdw', 'hbond', 'elec', 'desolv', 'hydrophobic', 'clash', 'entropy', 'total']
-                component_names = {
-                    'vdw': 'Van der Waals',
-                    'hbond': 'H-Bond',
-                    'elec': 'Electrostatic',
-                    'desolv': 'Desolvation',
-                    'hydrophobic': 'Hydrophobic',
-                    'clash': 'Steric Clash',
-                    'entropy': 'Entropy',
-                    'total': 'TOTAL'
-                }
+                # Determine if energy_breakdown is a dictionary or list
+                # Check structure of energy_breakdown
+                have_detailed_components = False
+                if isinstance(self.energy_breakdown, dict):
+                    # Dictionary format with pose_id keys
+                    energy_data = self.energy_breakdown
+                    first_pose_data = next(iter(energy_data.values()), {})
+                    have_detailed_components = bool(first_pose_data)
+                elif isinstance(self.energy_breakdown, list) and len(self.energy_breakdown) > 0:
+                    # List format with poses at indices
+                    energy_data = {f"pose_{i+1}": data for i, data in enumerate(self.energy_breakdown) if data}
+                    first_pose_data = self.energy_breakdown[0] if self.energy_breakdown else {}
+                    have_detailed_components = bool(first_pose_data)
+                else:
+                    # Unrecognized format
+                    energy_data = {}
+                    have_detailed_components = False
                 
-                for component in components:
-                    name = component_names.get(component, component)
-                    f.write(f"{name:14s} ")
-                    
-                    for i in range(1, 6):
-                        pose_id = f"pose_{i}"
-                        if pose_id in self.energy_breakdown and component in self.energy_breakdown[pose_id]:
-                            value = self.energy_breakdown[pose_id][component]
-                            f.write(f"{value:10.4f} ")
+                # Make explicit note about CPU vs GPU mode
+                if not gpu_used:
+                    f.write("NOTE: CPU-based calculations do not provide detailed energy components.\n")
+                    f.write("      Use the --use-gpu flag to obtain a detailed energy breakdown.\n")
+                    f.write("      Only total scores are available in CPU mode.\n\n")
+                
+                # Display total energies for each pose
+                f.write("Pose ID    Total Energy (kcal/mol)\n")
+                f.write("---------- --------------------\n")
+                
+                for i in range(1, min(10, len(self.results) + 1)):
+                    pose_id = f"pose_{i}"
+                    if pose_id in energy_data and isinstance(energy_data[pose_id], dict):
+                        if 'total' in energy_data[pose_id]:
+                            total = energy_data[pose_id]['total']
+                            f.write(f"{pose_id:10s} {total:20.4f}\n")
                         else:
-                            f.write(f"{'N/A':10s} ")
-                    
-                    f.write("\n")
+                            f.write(f"{pose_id:10s} {'N/A':20s}\n")
+                    else:
+                        f.write(f"{pose_id:10s} {'N/A':20s}\n")
                 
                 f.write("\n")
+                
+                # Show detailed breakdown only if GPU mode and components available
+                if gpu_used and have_detailed_components:
+                    f.write("DETAILED ENERGY COMPONENTS (GPU-ACCELERATED ANALYSIS)\n")
+                    f.write("---------------------------------------------------\n")
+                    f.write("Component       Pose 1     Pose 2     Pose 3     Pose 4     Pose 5\n")
+                    f.write("-------------- ---------- ---------- ---------- ---------- ----------\n")
+                    
+                    components = ['vdw', 'hbond', 'elec', 'desolv', 'hydrophobic', 'clash', 'entropy', 'total']
+                    component_names = {
+                        'vdw': 'Van der Waals',
+                        'hbond': 'H-Bond',
+                        'elec': 'Electrostatic',
+                        'desolv': 'Desolvation',
+                        'hydrophobic': 'Hydrophobic',
+                        'clash': 'Steric Clash',
+                        'entropy': 'Entropy',
+                        'total': 'TOTAL'
+                    }
+                    
+                    for component in components:
+                        name = component_names.get(component, component)
+                        f.write(f"{name:14s} ")
+                        
+                        for i in range(1, 6):
+                            pose_id = f"pose_{i}"
+                            if (pose_id in energy_data and 
+                                isinstance(energy_data[pose_id], dict) and 
+                                component in energy_data[pose_id]):
+                                value = energy_data[pose_id][component]
+                                f.write(f"{value:10.4f} ")
+                            else:
+                                f.write(f"{'N/A':10s} ")
+                        
+                        f.write("\n")
+                    
+                    f.write("\n")
             
             # Interaction analysis
-            if self.interaction_analysis:
+            if hasattr(self, 'interaction_analysis') and self.interaction_analysis:
                 f.write("PROTEIN-LIGAND INTERACTIONS\n")
                 f.write("--------------------------\n")
                 
@@ -572,16 +746,16 @@ class DockingReporter:
                         interactions = self.interaction_analysis[pose_id]
                         
                         # H-bonds
-                        if interactions['h_bonds']:
+                        if 'h_bonds' in interactions and interactions['h_bonds']:
                             f.write("  Hydrogen Bonds:\n")
                             for hbond in interactions['h_bonds']:
                                 if hbond['type'] == 'protein_donor':
-                                    f.write(f"    {hbond['protein_atom']['chain']}:{hbond['protein_atom']['residue']}{hbond['protein_atom']['residue_id']} → Ligand {hbond['ligand_atom']['element']} ({hbond['distance']} Å)\n")
+                                    f.write(f"    {hbond['protein_atom']['chain']}:{hbond['protein_atom']['residue']}{hbond['protein_atom']['residue_id']} → Ligand {hbond['ligand_atom']['element']} ({hbond['distance']:.2f} Å)\n")
                                 else:
-                                    f.write(f"    Ligand {hbond['ligand_atom']['element']} → {hbond['protein_atom']['chain']}:{hbond['protein_atom']['residue']}{hbond['protein_atom']['residue_id']} ({hbond['distance']} Å)\n")
+                                    f.write(f"    Ligand {hbond['ligand_atom']['element']} → {hbond['protein_atom']['chain']}:{hbond['protein_atom']['residue']}{hbond['protein_atom']['residue_id']} ({hbond['distance']:.2f} Å)\n")
                         
                         # Hydrophobic
-                        if interactions['hydrophobic']:
+                        if 'hydrophobic' in interactions and interactions['hydrophobic']:
                             f.write("  Hydrophobic Interactions:\n")
                             seen = set()
                             for hydro in interactions['hydrophobic']:
@@ -589,7 +763,7 @@ class DockingReporter:
                                 if res_key not in seen:
                                     seen.add(res_key)
                                     
-                                    # Find minimum distance for this residue - calculate separately to avoid nested f-string issues
+                                    # Find minimum distance for this residue
                                     distances = []
                                     for h in interactions['hydrophobic']:
                                         h_res_key = f"{h['protein_atom']['chain']}:{h['protein_atom']['residue']}{h['protein_atom']['residue_id']}"
@@ -598,25 +772,26 @@ class DockingReporter:
                                     
                                     min_distance = min(distances) if distances else 0
                                     
-                                    f.write(f"    {res_key} ({min_distance} Å)\n")
+                                    f.write(f"    {res_key} ({min_distance:.2f} Å)\n")
                                     
                                     if len(seen) >= 5:  # Show only top 5
                                         f.write(f"    ... and {len(interactions['hydrophobic']) - 5} more\n")
                                         break
                         
                         # Ionic
-                        if interactions['ionic']:
+                        if 'ionic' in interactions and interactions['ionic']:
                             f.write("  Ionic Interactions:\n")
                             for ionic in interactions['ionic']:
-                                f.write(f"    {ionic['protein']['chain']}:{ionic['protein']['residue']}{ionic['protein']['residue_id']} ({ionic['protein']['charge']}) ↔ Ligand {ionic['ligand']['atom']} ({ionic['ligand']['charge']}) - {ionic['distance']} Å\n")
+                                f.write(f"    {ionic['protein']['chain']}:{ionic['protein']['residue']}{ionic['protein']['residue_id']} ({ionic['protein']['charge']}) ↔ Ligand {ionic['ligand']['atom']} ({ionic['ligand']['charge']}) - {ionic['distance']:.2f} Å\n")
                         
                         # Summary of interacting residues
-                        f.write("  Interacting Residues: ")
-                        f.write(", ".join(sorted(list(interactions['residues']))))
-                        f.write("\n\n")
+                        if 'residues' in interactions:
+                            f.write("  Interacting Residues: ")
+                            f.write(", ".join(sorted(list(interactions['residues']))))
+                            f.write("\n\n")
                 
             # Validation results
-            if self.validation_results:
+            if hasattr(self, 'validation_results') and self.validation_results:
                 f.write("VALIDATION AGAINST REFERENCE\n")
                 f.write("---------------------------\n")
                 best_rmsd = self.validation_results[0]['rmsd']
@@ -635,6 +810,7 @@ class DockingReporter:
             f.write("Report generated by PandaDock - Python Molecular Docking Tool\n")
         
         return report_path
+    
     
     def _calculate_std_dev(self, values):
         """Calculate standard deviation of a list of values."""

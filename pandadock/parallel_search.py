@@ -21,6 +21,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
                  n_processes=None, batch_size=None, process_pool=None, 
                  output_dir=None, perform_local_opt=False, grid_spacing=1.0, grid_radius=10.0, grid_center=None):
         super().__init__(scoring_function, max_iterations, population_size, mutation_rate)
+        self.scoring_function = scoring_function  # Ensure this is set
         self.output_dir = output_dir
         self.crossover_rate = crossover_rate
         self.tournament_size = tournament_size

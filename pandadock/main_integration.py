@@ -154,8 +154,9 @@ def create_optimized_scoring_function(manager, scoring_type='enhanced'):
                 
         except ImportError:
             print("GPU scoring module not available. Using CPU scoring function.")
+            return CompositeScoringFunction()
     
-    # Fall back to CPU scoring functions
+    # If GPU acceleration is not available, use CPU scoring functions
     if scoring_type == 'standard':
         return CompositeScoringFunction()
     elif scoring_type == 'enhanced':
@@ -169,7 +170,8 @@ def create_optimized_scoring_function(manager, scoring_type='enhanced'):
             return EnhancedScoringFunction()
     else:
         print(f"Unknown scoring type: {scoring_type}. Using enhanced scoring.")
-        return EnhancedScoringFunction()
+        return EnhancedScoringFunction()    
+    
 
 
 def create_optimized_search_algorithm(manager, algorithm_type, scoring_function, **kwargs):
