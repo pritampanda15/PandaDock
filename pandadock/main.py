@@ -754,16 +754,6 @@ def main():
         
         # Initialize reporter
         reporter = DockingReporter(output_dir, args, timestamp=readable_date)
-        if 'all_results' in locals() and all_results:
-            try:
-                print("Extracting energy components for detailed reporting...")
-                energy_breakdown = reporter.extract_energy_components(scoring_function, protein, [pose for pose, _ in all_results[:20]])
-                reporter.add_results(all_results, energy_breakdown)
-            except Exception as e:
-                print(f"Warning: Could not extract energy components: {e}")
-                reporter.add_results(all_results)
-        else:
-            print("No docking results to report.")
             
         # Get algorithm type and parameters
         algorithm_type = get_algorithm_type_from_args(args)
