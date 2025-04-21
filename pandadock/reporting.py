@@ -204,11 +204,10 @@ class DockingReporter:
                             if hasattr(scoring_function, method_name):
                                 try:
                                     if method_name == '_calculate_hbond_physics' or method_name == '_calculate_hbond':
-                                        components[component_name] = getattr(scoring_function, method_name)(
-                                            protein_atoms, ligand_atoms, protein, pose)
+                                        components[component_name] = getattr(scoring_function, method_name)(protein, pose)
                                     else:
                                         components[component_name] = getattr(scoring_function, method_name)(
-                                            protein_atoms, pose.atoms)
+                                            protein, pose.atoms)
                                     print(f"Successfully called {method_name}")
                                     break
                                 except Exception as e:
