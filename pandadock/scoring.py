@@ -671,120 +671,36 @@ class EnhancedScoringFunction(CompositeScoringFunction):
             'clash': 1.0,         # Kept the same
             'entropy': 0.25       # Slightly decreased from 0.2983
         }
-    # Initialize last component scores
-    # Add this implementation to scoring.py in EnhancedScoringFunction class
-
+    
     def score(self, protein, ligand):
-        """Calculate full physics-based composite score with component breakdown."""
-        # Initialize component scores
-        component_scores = {
-            'vdw': 0.0,
-            'hbond': 0.0,
-            'elec': 0.0,
-            'desolv': 0.0,
-            'hydrophobic': 0.0,
-            'clash': 0.0,
-            'entropy': 0.0,
-            'total': 0.0
-        }
-        
-        try:
-            # Get active site atoms
-            if protein.active_site and 'atoms' in protein.active_site:
-                protein_atoms = protein.active_site['atoms']
-            else:
-                protein_atoms = protein.atoms
-            
-            # Calculate individual energy terms
-            if hasattr(self, '_calculate_vdw_physics'):
-                component_scores['vdw'] = self._calculate_vdw_physics(protein_atoms, ligand.atoms)
-            
-            if hasattr(self, '_calculate_hbond_physics'):
-                component_scores['hbond'] = self._calculate_hbond_physics(protein_atoms, ligand.atoms, protein, ligand)
-            
-            if hasattr(self, '_calculate_electrostatics_physics'):
-                component_scores['elec'] = self._calculate_electrostatics_physics(protein_atoms, ligand.atoms)
-            
-            if hasattr(self, '_calculate_desolvation_physics'):
-                component_scores['desolv'] = self._calculate_desolvation_physics(protein_atoms, ligand.atoms)
-            
-            if hasattr(self, '_calculate_hydrophobic_physics'):
-                component_scores['hydrophobic'] = self._calculate_hydrophobic_physics(protein_atoms, ligand.atoms)
-            
-            if hasattr(self, '_calculate_clashes_physics'):
-                component_scores['clash'] = self._calculate_clashes_physics(protein_atoms, ligand.atoms)
-            
-            if hasattr(self, '_calculate_entropy'):
-                component_scores['entropy'] = self._calculate_entropy(ligand)
-            
-            # Calculate weighted total
-            total_score = (
-                self.weights['vdw'] * component_scores['vdw'] +
-                self.weights['hbond'] * component_scores['hbond'] +
-                self.weights['elec'] * component_scores['elec'] +
-                self.weights['desolv'] * component_scores['desolv'] +
-                self.weights['hydrophobic'] * component_scores['hydrophobic'] +
-                self.weights['clash'] * component_scores['clash'] +
-                self.weights['entropy'] * component_scores['entropy']
-            )
-            
-            component_scores['total'] = total_score
-            
-            # Store for later access
-            self.last_component_scores = component_scores
-        except Exception as e:
-            print(f"Error in EnhancedScoringFunction.score: {e}")
-            # Calculate total score using parent method if available
-            if hasattr(super(), 'score'):
-                component_scores['total'] = super().score(protein, ligand)
-            else:
-                # Last resort fallback
-                component_scores['total'] = 0.0
-        
-        return component_scores['total']
-
-    def get_component_scores(self, protein, ligand):
-        """Get energy components for a protein-ligand pair."""
-        # Score the complex to populate component scores
-        self.score(protein, ligand)
-        
-        # Return the stored component scores
-        if hasattr(self, 'last_component_scores'):
-            return self.last_component_scores
+        """Calculate full physics-based composite score."""
+        # Get active site atoms
+        if protein.active_site and 'atoms' in protein.active_site:
+            protein_atoms = protein.active_site['atoms']
         else:
-            # Fallback: return dictionary with only total score
-            return {'total': self.score(protein, ligand)}
-
-    def _print_score_breakdown(self, scores):
-        """Print detailed breakdown of scoring components."""
-        print("\n----- SCORING BREAKDOWN -----")
-        print(f"VDW:         {scores['vdw']:.2f} × {self.weights['vdw']:.2f} = {scores['vdw'] * self.weights['vdw']:.2f}")
-        print(f"H-Bond:      {scores['hbond']:.2f} × {self.weights['hbond']:.2f} = {scores['hbond'] * self.weights['hbond']:.2f}")
-        print(f"Electro:     {scores['elec']:.2f} × {self.weights['elec']:.2f} = {scores['elec'] * self.weights['elec']:.2f}")
-        print(f"Desolvation: {scores['desolv']:.2f} × {self.weights['desolv']:.2f} = {scores['desolv'] * self.weights['desolv']:.2f}")
-        print(f"Hydrophobic: {scores['hydrophobic']:.2f} × {self.weights['hydrophobic']:.2f} = {scores['hydrophobic'] * self.weights['hydrophobic']:.2f}")
-        print(f"Clashes:     {scores['clash']:.2f} × {self.weights['clash']:.2f} = {scores['clash'] * self.weights['clash']:.2f}")
-        print(f"Entropy:     {scores['entropy']:.2f} × {self.weights['entropy']:.2f} = {scores['entropy'] * self.weights['entropy']:.2f}")
-        print(f"TOTAL SCORE: {scores['total']:.2f}")
-        print("-----------------------------\n")
-        # Print debug information if enabled
-        if self.debug:
-            print("DEBUG INFORMATION:")
-            print(f"VDW:         {scores['vdw']:.2f}")
-            print(f"H-Bond:      {scores['hbond']:.2f}")
-            print(f"Electro:     {scores['elec']:.2f}")
-            print(f"Desolvation: {scores['desolv']:.2f}")
-            print(f"Hydrophobic: {scores['hydrophobic']:.2f}")
-            print(f"Clashes:     {scores['clash']:.2f}")
-            print(f"Entropy:     {scores['entropy']:.2f}")
-            print("-----------------------------\n")
-        # Initialize debug flag
-        self.debug = False  # Reset after printing
-        if not hasattr(self, 'debug'):
-            self.debug = False
-    def enable_debug(self, enable=True):
-        """Enable or disable debug output."""
-        self.debug = enable
+            protein_atoms = protein.atoms
+        
+        # Calculate all energy terms using improved physics-based methods
+        vdw_score = self._calculate_vdw_physics(protein_atoms, ligand.atoms)
+        hbond_score = self._calculate_hbond_physics(protein_atoms, ligand.atoms, protein, ligand)
+        elec_score = self._calculate_electrostatics_physics(protein_atoms, ligand.atoms)
+        desolv_score = self._calculate_desolvation_physics(protein_atoms, ligand.atoms)
+        hydrophobic_score = self._calculate_hydrophobic_physics(protein_atoms, ligand.atoms)
+        clash_score = self._calculate_clashes_physics(protein_atoms, ligand.atoms)
+        entropy_score = self._calculate_entropy(ligand)
+        
+        # Combine scores with improved physics-based weights
+        total_score = (
+            self.weights['vdw'] * vdw_score +
+            self.weights['hbond'] * hbond_score +
+            self.weights['elec'] * elec_score +
+            self.weights['desolv'] * desolv_score +
+            self.weights['hydrophobic'] * hydrophobic_score +
+            self.weights['clash'] * clash_score +
+            self.weights['entropy'] * entropy_score
+        )
+        
+        return total_score
 
 
 class TetheredScoringFunction:

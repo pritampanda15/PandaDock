@@ -126,108 +126,51 @@ class GPUAcceleratedScoringFunction(EnhancedScoringFunction):
     def score(self, protein, ligand):
         """
         Calculate binding score using GPU acceleration when available.
-        Ensures unique per-pose computation to avoid repeated values.
+        
+        Parameters:
+        -----------
+        protein : Protein
+            Protein object
+        ligand : Ligand
+            Ligand object
+        
+        Returns:
+        --------
+        float
+            Binding score (lower is better)
         """
         start_time = time.time()
         
-        # Initialize component scores
-        component_scores = {
-            'vdw': 0.0,
-            'hbond': 0.0,
-            'elec': 0.0,
-            'desolv': 0.0,
-            'hydrophobic': 0.0,
-            'clash': 0.0,
-            'entropy': 0.0,
-            'total': 0.0
-        }
+        # Calculate base terms
+        vdw_score = self._calculate_vdw(protein, ligand)
+        hbond_score = self._calculate_hbond(protein, ligand)
+        clash_score = self._calculate_clashes(protein, ligand)
         
-        try:
-            # Calculate components 
-            component_scores['vdw'] = self._calculate_vdw(protein, ligand)
-            component_scores['hbond'] = self._calculate_hbond(protein, ligand)
-            component_scores['elec'] = self._calculate_electrostatics(protein, ligand)
-            component_scores['desolv'] = self._calculate_desolvation(protein, ligand)
-            component_scores['hydrophobic'] = self._calculate_hydrophobic(protein, ligand)
-            component_scores['clash'] = self._calculate_clashes(protein, ligand)
-            component_scores['entropy'] = self._calculate_entropy(ligand)
-            
-            # Calculate total
-            total_score = (
-                self.weights['vdw'] * component_scores['vdw'] +
-                self.weights['hbond'] * component_scores['hbond'] +
-                self.weights['elec'] * component_scores['elec'] +
-                self.weights['desolv'] * component_scores['desolv'] +
-                self.weights['hydrophobic'] * component_scores['hydrophobic'] +
-                self.weights['clash'] * component_scores['clash'] +
-                self.weights['entropy'] * component_scores['entropy']
-            )
-            
-            component_scores['total'] = total_score
-            
-            # Store for later access
-            self.last_component_scores = component_scores
-        except Exception as e:
-            print(f"Error in GPU scoring calculation: {e}")
-            # Try basic scoring as fallback
-            try:
-                component_scores['total'] = super().score(protein, ligand)
-            except:
-                component_scores['total'] = 0.0
+        # Calculate additional terms
+        elec_score = self._calculate_electrostatics(protein, ligand)
+        desolv_score = self._calculate_desolvation(protein, ligand)
+        hydrophobic_score = self._calculate_hydrophobic(protein, ligand)
+        entropy_score = self._calculate_entropy(ligand)
+        
+        # Combine scores
+        total_score = (
+            self.weights['vdw'] * vdw_score +
+            self.weights['hbond'] * hbond_score +
+            self.weights['elec'] * elec_score +
+            self.weights['desolv'] * desolv_score +
+            self.weights['hydrophobic'] * hydrophobic_score +
+            self.weights['clash'] * clash_score +
+            self.weights['entropy'] * entropy_score
+        )
         
         end_time = time.time()
         if hasattr(self, 'verbose') and self.verbose:
             print(f"Scoring completed in {end_time - start_time:.4f} seconds")
+            print(f"VDW: {vdw_score:.2f}, H-bond: {hbond_score:.2f}, Elec: {elec_score:.2f}, "
+                 f"Desolv: {desolv_score:.2f}, Hydrophobic: {hydrophobic_score:.2f}, "
+                 f"Clash: {clash_score:.2f}, Entropy: {entropy_score:.2f}")
         
-        return component_scores['total']
-
-    def get_component_scores(self, protein, pose):
-        """Return the component scores from the last scoring calculation."""
-        components = {}
-        
-        # Get protein atoms
-        if protein.active_site and 'atoms' in protein.active_site:
-            protein_atoms = protein.active_site['atoms']
-        else:
-            protein_atoms = protein.atoms
-        
-        # Get ligand atoms
-        ligand_atoms = pose.atoms
-        
-        # Dictionary mapping component names to method names
-        method_mapping = {
-            'vdw': ['_calculate_vdw', '_calculate_vdw_physics', '_calculate_vdw_energy'],
-            'hbond': ['_calculate_hbond', '_calculate_hbond_physics', '_calculate_hbond_energy'],
-            'elec': ['_calculate_electrostatics', '_calculate_electrostatics_physics'],
-            'desolv': ['_calculate_desolvation', '_calculate_desolvation_physics'],
-            'hydrophobic': ['_calculate_hydrophobic', '_calculate_hydrophobic_physics'],
-            'clash': ['_calculate_clashes', '_calculate_clashes_physics'],
-            'entropy': ['_calculate_entropy']
-        }
-        
-        # Calculate each component
-        for component_name, method_names in method_mapping.items():
-            for method_name in method_names:
-                if hasattr(self, method_name):
-                    try:
-                        if method_name == '_calculate_hbond_physics' or method_name == '_calculate_hbond':
-                            components[component_name] = getattr(self, method_name)(
-                                protein_atoms, ligand_atoms, protein, pose)
-                        elif method_name == '_calculate_entropy':
-                            components[component_name] = getattr(self, method_name)(pose)
-                        else:
-                            components[component_name] = getattr(self, method_name)(
-                                protein_atoms, ligand_atoms)
-                        
-                        # If we successfully calculated this component, move to the next one
-                        break
-                    except Exception as e:
-                        print(f"Error calling {method_name}: {e}")
-        
-        # Calculate total score
-        components['total'] = self.score(protein, pose)
-        
-        return components
+        return total_score
 
     def _calculate_vdw(self, protein, ligand):
         """
