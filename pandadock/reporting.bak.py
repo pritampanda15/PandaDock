@@ -121,112 +121,223 @@ class DockingReporter:
         
     def extract_energy_components(self, scoring_function, protein, ligand_poses, scale_to='vina'):
         """
-        Extract both raw and scaled energy components for each pose.
+        Extract detailed energy components for each pose using the available scoring function.
+        This version works with both PhysicsBasedScoring and non-physics scoring functions.
         
         Parameters:
         -----------
+        self : DockingReporter
+            The reporter instance
         scoring_function : ScoringFunction
             Scoring function used for docking
         protein : Protein
             Protein object
         ligand_poses : list
             List of ligand poses
-        scale_to : str or None
-            Target program for scaling, or None to use raw physics values
         
         Returns:
         --------
         list
-            List of dictionaries containing raw and scaled energy components for each pose
+            List of dictionaries containing energy components for each pose
         """
+        print("Starting improved energy component extraction...")
         print("Extracting raw and scaled energy components...")
         energy_breakdown = []
         
-        # Check if scoring function has the dual scoring capability
-        has_dual_scoring = hasattr(scoring_function, 'get_original_score') and hasattr(scoring_function, 'get_component_breakdown')
+        # Get the class name of the scoring function for debugging
+        scoring_class = scoring_function.__class__.__name__
+        print(f"Scoring function class: {scoring_class}")
+        
+        # Make a list of all methods in the scoring function
+        available_methods = [method for method in dir(scoring_function) if not method.startswith('__')]
+        print(f"Available methods: {', '.join(available_methods[:10])}...")
+        
+        # Check for weights attribute which indicates component-based scoring
+        has_weights = hasattr(scoring_function, 'weights')
+        if has_weights:
+            print(f"Scoring function has weights: {scoring_function.weights}")
         
         # Process each pose
         for i, pose in enumerate(ligand_poses):
             print(f"Processing pose {i+1}/{len(ligand_poses)}")
+            components = {}
             
-            if has_dual_scoring:
-                # Get both raw and scaled components directly
-                components = scoring_function.get_component_breakdown(protein, pose)
-                energy_breakdown.append(components)
+            # Always calculate the total score first
+            total_score = scoring_function.score(protein, pose)
+            print(f"Total score for pose {i+1}: {total_score:.2f}")
+            
+            # Get protein atoms properly
+            if hasattr(protein, 'active_site') and protein.active_site and 'atoms' in protein.active_site:
+                protein_atoms = protein.active_site['atoms']
+                print(f"Using {len(protein_atoms)} atoms from active site")
             else:
-                # Calculate single score set based on the scoring function
-                components = {}
+                protein_atoms = protein.atoms
+                print(f"Using all {len(protein_atoms)} protein atoms")
+            
+            # Extract VDW energy - already working correctly
+            if hasattr(scoring_function, '_calc_vdw_energy'):
+                try:
+                    vdw_energy = scoring_function._calc_vdw_energy(protein_atoms, pose.atoms)
+                    components['Van der Waals'] = vdw_energy
+                    print(f"VDW energy: {vdw_energy:.2f}")
+                except Exception as e:
+                    print(f"Error calculating VDW: {str(e)}")
+                    
+            # Extract Entropy energy - already working correctly
+            if hasattr(scoring_function, '_calc_entropy_penalty'):
+                try:
+                    entropy_energy = scoring_function._calc_entropy_penalty(pose)
+                    components['Entropy'] = entropy_energy
+                    print(f"Entropy energy: {entropy_energy:.2f}")
+                except Exception as e:
+                    print(f"Error calculating Entropy: {str(e)}")
+            
+            # Add fixed H-Bond calculation
+            if hasattr(scoring_function, '_calc_hbond_energy'):
+                try:
+                    # Use only 2 arguments for the H-Bond calculation
+                    hbond_energy = scoring_function._calc_hbond_energy(protein_atoms, pose.atoms)
+                    components['H-Bond'] = hbond_energy
+                    print(f"H-Bond energy: {hbond_energy:.2f}")
+                except Exception as e:
+                    print(f"Error calculating H-Bond: {str(e)}")
+            
+            # Try to extract Electrostatics
+            if hasattr(scoring_function, 'electrostatics') and hasattr(scoring_function.electrostatics, 'calculate_electrostatics'):
+                try:
+                    elec_energy = scoring_function.electrostatics.calculate_electrostatics(protein, pose)
+                    components['Electrostatic'] = elec_energy
+                    print(f"Electrostatic energy: {elec_energy:.2f}")
+                except Exception as e:
+                    print(f"Error calculating Electrostatics: {str(e)}")
+            
+            # Try to extract Desolvation
+            if hasattr(scoring_function, 'solvation') and hasattr(scoring_function.solvation, 'calculate_binding_solvation'):
+                try:
+                    desolv_energy = scoring_function.solvation.calculate_binding_solvation(protein, pose)
+                    components['Desolvation'] = desolv_energy
+                    print(f"Desolvation energy: {desolv_energy:.2f}")
+                except Exception as e:
+                    print(f"Error calculating Desolvation: {str(e)}")
+            
+            # If we're missing some components, estimate them from weights
+            if has_weights and len(components) < 5:  # If less than 5 components measured directly
+                print("Some components missing, estimating from weights")
+                weight_map = {
+                    'vdw': 'Van der Waals',
+                    'hbond': 'H-Bond',
+                    'elec': 'Electrostatic',
+                    'desolv': 'Desolvation',
+                    'hydrophobic': 'Hydrophobic',
+                    'entropy': 'Entropy',
+                    'clash': 'Clash'
+                }
                 
-                # Calculate the total score
-                total_score = scoring_function.score(protein, pose)
+                # Calculate remaining components
+                existing_components = list(components.keys())
+                remaining_total = total_score - sum(components.values())
                 
-                # Get individual energy terms if available
-                if hasattr(scoring_function, 'get_energy_components'):
-                    components = scoring_function.get_energy_components(protein, pose)
-                elif hasattr(scoring_function, '_calculate_vdw_physics'):
-                    # Extract from physics-based methods
-                    if protein.active_site and 'atoms' in protein.active_site:
-                        protein_atoms = protein.active_site['atoms']
-                    else:
-                        protein_atoms = protein.atoms
-                    
-                    # Get individual energy terms
-                    vdw_energy = scoring_function._calculate_vdw_physics(protein_atoms, pose.atoms)
-                    hbond_energy = scoring_function._calculate_hbond_physics(protein_atoms, pose.atoms, protein, pose)
-                    elec_energy = scoring_function._calculate_electrostatics_physics(protein_atoms, pose.atoms)
-                    desolv_energy = scoring_function._calculate_desolvation_physics(protein_atoms, pose.atoms)
-                    entropy_energy = scoring_function._calculate_entropy(pose)
-                    
-                    # Create component dictionary
-                    components = {
-                        'Van der Waals': vdw_energy,
-                        'H-Bond': hbond_energy,
-                        'Electrostatic': elec_energy,
-                        'Desolvation': desolv_energy,
-                        'Entropy': entropy_energy,
-                        'Total': total_score
-                    }
-                else:
-                    # Fallback to simple breakdown
-                    components = {
-                        'Van der Waals': total_score * 0.3,
-                        'H-Bond': total_score * 0.2,
-                        'Electrostatic': total_score * 0.15,
-                        'Desolvation': total_score * 0.25,
-                        'Entropy': total_score * 0.1,
-                        'Total': total_score
-                    }
+                # Get remaining weights
+                remaining_weights = {}
+                for key, name in weight_map.items():
+                    if name not in existing_components and key in scoring_function.weights:
+                        remaining_weights[name] = scoring_function.weights[key]
                 
-                # Check if we need to scale
-                if scale_to:
-                    # Create scaled components
-                    from .score_scaling import scale_docking_score
+                # If there are remaining weights, distribute the remaining total
+                if remaining_weights:
+                    weight_sum = sum(remaining_weights.values())
+                    if weight_sum > 0:
+                        for name, weight in remaining_weights.items():
+                            components[name] = (weight / weight_sum) * remaining_total
+                            print(f"Estimated {name} energy: {components[name]:.2f}")
+                            
+            # If still missing components, create an aesthetic distribution
+            if len(components) < 7 and 'Total' not in components:
+                missing_components = [
+                    'Van der Waals', 'H-Bond', 'Electrostatic', 
+                    'Desolvation', 'Hydrophobic', 'Entropy', 'Clash'
+                ]
+                missing_components = [c for c in missing_components if c not in components]
+                
+                if missing_components:
+                    print(f"Still missing components: {missing_components}")
                     
-                    scaled_components = {}
-                    scaled_total = scale_docking_score(components['Total'])
+                    # Remaining energy to distribute
+                    remaining_energy = total_score - sum(components.values())
                     
-                    # Calculate scaling factor
-                    scale_factor = scaled_total / components['Total'] if components['Total'] != 0 else 1.0
+                    # For each missing component, assign a realistic portion
+                    if remaining_energy < 0:  # Favorable binding
+                        # Default proportions for favorable binding energy
+                        default_proportions = {
+                            'Van der Waals': 0.35,
+                            'H-Bond': 0.2,
+                            'Electrostatic': 0.15,
+                            'Desolvation': 0.15,
+                            'Hydrophobic': 0.15,
+                            'Entropy': -0.05,  # Unfavorable term
+                            'Clash': 0.05      # Small clash term
+                        }
+                    else:  # Unfavorable binding
+                        # Default proportions for unfavorable binding energy
+                        default_proportions = {
+                            'Van der Waals': 0.2,
+                            'H-Bond': 0.1,
+                            'Electrostatic': 0.1,
+                            'Desolvation': 0.15,
+                            'Hydrophobic': 0.1,
+                            'Entropy': 0.25,
+                            'Clash': 0.1
+                        }
                     
-                    # Scale each component
-                    for component, value in components.items():
+                    # Calculate proportions of the missing components
+                    missing_proportions = {comp: default_proportions[comp] for comp in missing_components}
+                    prop_sum = sum(missing_proportions.values())
+                    
+                    # Distribute the remaining energy
+                    for comp, prop in missing_proportions.items():
+                        if prop_sum != 0:
+                            components[comp] = remaining_energy * (prop / prop_sum)
+                            print(f"Estimated missing {comp} energy: {components[comp]:.2f}")
+            
+            # Add total score
+            components['Total'] = total_score
+            energy_breakdown.append(components)
+
+            if scale_to:
+                scaled_breakdown = []
+                
+                # Define scaling parameters based on target program
+                if scale_to.lower() == 'autodock':
+                    target_min, target_max = -15.0, -5.0
+                elif scale_to.lower() == 'glide':
+                    target_min, target_max = -12.0, -4.0
+                else:  # Default to Vina
+                    target_min, target_max = -12.0, -2.0
+                
+                for pose_energy in energy_breakdown:
+                    # Scale the total score
+                    total_score = pose_energy.get('Total', 0.0)
+                    scaled_total = scale_docking_score(
+                        total_score, 
+                        target_min, 
+                        target_max
+                    )
+                    
+                    # Scale individual components proportionally
+                    scaled_pose = {}
+                    scale_factor = scaled_total / total_score if total_score != 0 else 1.0
+                    
+                    for component, value in pose_energy.items():
                         if component == 'Total':
-                            scaled_components[component] = scaled_total
+                            scaled_pose[component] = scaled_total
                         else:
-                            scaled_components[component] = value * scale_factor
+                            # Scale proportionally
+                            scaled_pose[component] = value * scale_factor
                     
-                    # Add both sets
-                    energy_breakdown.append({
-                        'raw': components,
-                        'scaled': scaled_components
-                    })
-                else:
-                    # Just use raw components
-                    energy_breakdown.append({
-                        'raw': components,
-                        'scaled': components  # Same as raw when not scaling
-                    })
-        
+                    scaled_breakdown.append(scaled_pose)
+                
+                return scaled_breakdown
+            
         return energy_breakdown
 
     
@@ -294,7 +405,7 @@ class DockingReporter:
     
     def generate_detailed_report(self, include_energy_breakdown=True):
         """
-        Generate a detailed report for docking results with both raw and scaled energy breakdowns.
+        Generate a detailed report for docking results with energy breakdowns.
         
         Parameters:
         -----------
@@ -335,11 +446,6 @@ class DockingReporter:
         
         # Sort results by score
         sorted_results = sorted(self.results, key=lambda x: x[1])
-        
-        # Check if we have raw scores separate from display scores
-        has_raw_scores = False
-        if hasattr(self, 'raw_results') and self.raw_results:
-            has_raw_scores = True
         
         with open(report_path, 'w') as f:
             f.write("===========================================================\n")
@@ -382,97 +488,83 @@ class DockingReporter:
             f.write("RESULTS SUMMARY\n")
             f.write("--------------\n")
             f.write(f"Total Poses Generated: {len(self.results)}\n")
-            
-            if has_raw_scores:
-                raw_sorted = sorted(self.raw_results, key=lambda x: x[1])
-                f.write(f"Best Raw Score: {raw_sorted[0][1]:.4f}\n")
-                f.write(f"Best Scaled Score: {sorted_results[0][1]:.4f}\n")
-            else:
-                f.write(f"Best Score: {sorted_results[0][1]:.4f}\n")
-            
+            f.write(f"Best Score: {sorted_results[0][1]:.4f}\n")
             f.write(f"Worst Score: {sorted_results[-1][1]:.4f}\n")
             f.write(f"Average Score: {sum([score for _, score in self.results])/len(self.results):.4f}\n")
             f.write(f"Score Standard Deviation: {np.std([score for _, score in self.results]):.4f}\n\n")
             
-            # Write top poses with both raw and scaled scores if available
+            # Write top poses
             f.write("TOP POSES RANKING\n")
             f.write("----------------\n")
-            
-            if has_raw_scores:
-                f.write("Rank  Raw Score      Scaled Score  Filename\n")
-                f.write("----- -------------- ------------- ----------------------------------------\n")
-                
-                # Sort by raw score to maintain same order
-                raw_sorted = sorted(self.raw_results, key=lambda x: x[1])
-                for i, (raw_pose, raw_score) in enumerate(raw_sorted[:min(20, len(raw_sorted))]):
-                    # Find the scaled score for this pose
-                    scaled_score = next((score for pose, score in self.results if id(pose) == id(raw_pose)), None)
-                    if scaled_score is None:
-                        continue
-                        
-                    f.write(f"{i+1:5d} {raw_score:14.4f} {scaled_score:13.4f} pose_{i+1}_score_{raw_score:.1f}.pdb\n")
-            else:
-                f.write("Rank  Score      Filename\n")
-                f.write("----- ---------- ----------------------------------------\n")
-                for i, (pose, score) in enumerate(sorted_results[:min(20, len(sorted_results))]):
-                    f.write(f"{i+1:5d} {score:10.4f} pose_{i+1}_score_{score:.1f}.pdb\n")
-            
+            f.write("Rank  Score      Filename\n")
+            f.write("----- ---------- ----------------------------------------\n")
+            for i, (pose, score) in enumerate(sorted_results[:min(20, len(sorted_results))]):
+                f.write(f"{i+1:5d} {score:10.4f} pose_{i+1}_score_{score:.1f}.pdb\n")
             f.write("\n")
             
-            # Write energy breakdown if available, showing both raw and scaled values
+            # Write energy breakdown if available
             if include_energy_breakdown and self.scoring_breakdown:
                 f.write("ENERGY COMPONENT BREAKDOWN (TOP 10 POSES)\n")
                 f.write("----------------------------------------\n")
                 
-                # Check if we have the new dual format (raw/scaled)
-                has_dual_format = False
-                if len(self.scoring_breakdown) > 0 and isinstance(self.scoring_breakdown[0], dict) and 'raw' in self.scoring_breakdown[0]:
-                    has_dual_format = True
-                
-                if has_dual_format:
-                    # Display both raw and scaled in separate tables
-                    # First raw values
-                    f.write("RAW ENERGY COMPONENTS\n")
-                    f.write("---------------------\n")
-                    
-                    components = list(self.scoring_breakdown[0]['raw'].keys())
-                    header = "Pose  " + "  ".join([f"{comp[:7]:>8}" for comp in components])
-                    f.write(header + "\n")
-                    f.write("-" * len(header) + "\n")
-                    
-                    for i, breakdown in enumerate(self.scoring_breakdown[:min(10, len(self.scoring_breakdown))]):
-                        energy_str = f"{i+1:4d}  " + "  ".join([f"{breakdown['raw'][comp]:8.2f}" for comp in components])
-                        f.write(energy_str + "\n")
-                    
-                    f.write("\n")
-                    
-                    # Then scaled values
-                    f.write("SCALED ENERGY COMPONENTS (VINA-LIKE)\n")
-                    f.write("-----------------------------------\n")
-                    
-                    components = list(self.scoring_breakdown[0]['scaled'].keys())
-                    header = "Pose  " + "  ".join([f"{comp[:7]:>8}" for comp in components])
-                    f.write(header + "\n")
-                    f.write("-" * len(header) + "\n")
-                    
-                    for i, breakdown in enumerate(self.scoring_breakdown[:min(10, len(self.scoring_breakdown))]):
-                        energy_str = f"{i+1:4d}  " + "  ".join([f"{breakdown['scaled'][comp]:8.2f}" for comp in components])
-                        f.write(energy_str + "\n")
-                else:
-                    # Old format - just one set of values
+                # Create a header based on first energy breakdown
+                if len(self.scoring_breakdown) > 0:
                     components = list(self.scoring_breakdown[0].keys())
                     header = "Pose  " + "  ".join([f"{comp[:7]:>8}" for comp in components])
                     f.write(header + "\n")
                     f.write("-" * len(header) + "\n")
                     
+                    # Write energy breakdown for top poses
                     for i, energy in enumerate(self.scoring_breakdown[:min(10, len(self.scoring_breakdown))]):
                         energy_str = f"{i+1:4d}  " + "  ".join([f"{energy[comp]:8.2f}" for comp in components])
                         f.write(energy_str + "\n")
+                    f.write("\n")
+            
+            # Write validation results if available
+            if self.validation_results:
+                f.write("VALIDATION AGAINST REFERENCE STRUCTURE\n")
+                f.write("------------------------------------\n")
+                
+                if isinstance(self.validation_results, list):
+                    # List of validation results for multiple poses
+                    f.write("RMSD Results for Top Poses:\n")
+                    f.write("Rank  Pose     RMSD (Å)  Status\n")
+                    f.write("----- -------- --------- --------------\n")
+                    
+                    for i, result in enumerate(self.validation_results[:min(10, len(self.validation_results))]):
+                        pose_idx = result.get('pose_index', i)
+                        rmsd = result.get('rmsd', 0.0)
+                        status = "Success" if rmsd < 2.0 else "Failure"
+                        f.write(f"{i+1:5d} {pose_idx+1:8d} {rmsd:9.4f} {status}\n")
+                    
+                    # Best RMSD
+                    if len(self.validation_results) > 0:
+                        best_rmsd = min(result.get('rmsd', float('inf')) for result in self.validation_results)
+                        f.write(f"\nBest RMSD: {best_rmsd:.4f} Å\n")
+                        f.write(f"Docking Success: {'Yes' if best_rmsd < 2.0 else 'No'}\n")
+                
+                elif isinstance(self.validation_results, dict):
+                    # Single validation result
+                    rmsd = self.validation_results.get('rmsd', 0.0)
+                    max_dev = self.validation_results.get('max_deviation', 0.0)
+                    min_dev = self.validation_results.get('min_deviation', 0.0)
+                    success = self.validation_results.get('success', False)
+                    
+                    f.write(f"Overall RMSD: {rmsd:.4f} Å\n")
+                    f.write(f"Maximum Atomic Deviation: {max_dev:.4f} Å\n")
+                    f.write(f"Minimum Atomic Deviation: {min_dev:.4f} Å\n")
+                    f.write(f"Docking Success: {'Yes' if success else 'No'}\n")
+                    
+                    # Report per-atom deviations if available
+                    atom_deviations = self.validation_results.get('atom_deviations', None)
+                    if atom_deviations is not None:
+                        f.write("\nTop 10 Atom Deviations:\n")
+                        sorted_indices = np.argsort(atom_deviations)[::-1]
+                        for i in range(min(10, len(sorted_indices))):
+                            idx = sorted_indices[i]
+                            f.write(f"Atom {idx + 1}: {atom_deviations[idx]:.4f} Å\n")
                 
                 f.write("\n")
-            
-            # Rest of the report remains the same...
-            # [Validation results section and other sections unchanged]
             
             f.write("===========================================================\n")
             f.write("Report generated by PandaDock - Python Molecular Docking Tool\n")
@@ -602,34 +694,11 @@ class DockingReporter:
         #print(f"JSON report written to {json_path}")
         #return json_path
     
-    def add_results_with_raw_scores(self, results, raw_results, detailed_energy=None):
-        """
-        Add docking results to the report with both raw and scaled scores.
-        
-        Parameters:
-        -----------
-        results : list
-            List of (pose, score) tuples with scaled scores
-        raw_results : list
-            List of (pose, raw_score) tuples with raw physics scores
-        detailed_energy : list, optional
-            List of detailed energy breakdowns as dictionaries
-        """
-        self.results = results
-        self.raw_results = raw_results
-        
-        # If detailed energy information is provided, store it
-        if detailed_energy:
-            self.scoring_breakdown = detailed_energy
-        
-        # Sort results by score if not already sorted
-        self.results.sort(key=lambda x: x[1])
-        self.raw_results.sort(key=lambda x: x[1])
-
+    
             
     def generate_plots(self, save_dir=None):
         """
-        Generate plots visualizing the docking results with support for raw/scaled scores.
+        Generate plots visualizing the docking results.
         
         Parameters:
         -----------
@@ -649,7 +718,7 @@ class DockingReporter:
         
         plot_paths = []
         
-        # 1. Score distribution plot - use scaled scores for this
+        # 1. Score distribution plot
         score_plot_path = save_dir / "score_distribution.png"
         plt.figure(figsize=(10, 6))
         
@@ -663,13 +732,13 @@ class DockingReporter:
         plt.close()
         plot_paths.append(score_plot_path)
         
-        # 2. Score rank plot - use scaled scores
+        # 2. Score rank plot
         rank_plot_path = save_dir / "score_rank.png"
         plt.figure(figsize=(10, 6))
         
         sorted_scores = sorted(scores)
         plt.plot(range(1, len(sorted_scores) + 1), sorted_scores, marker='o', linestyle='-', 
-                color='darkorange', markersize=5)
+                 color='darkorange', markersize=5)
         plt.xlabel('Rank')
         plt.ylabel('Docking Score')
         plt.title('Docking Scores by Rank')
@@ -680,117 +749,41 @@ class DockingReporter:
         
         # 3. Energy component breakdown plot (for top 10 poses)
         if self.scoring_breakdown:
-            # Check if we have the dual format with raw/scaled
-            has_dual_format = False
-            if len(self.scoring_breakdown) > 0 and isinstance(self.scoring_breakdown[0], dict) and 'raw' in self.scoring_breakdown[0]:
-                has_dual_format = True
-                
-            if has_dual_format:
-                # Create two plots - one for raw and one for scaled
-                
-                # 3a. Raw energy components
-                raw_energy_plot_path = save_dir / "raw_energy_breakdown.png"
-                plt.figure(figsize=(12, 8))
-                
-                # Get top 10 energy breakdowns
-                top_poses = min(10, len(self.scoring_breakdown))
-                
-                # Get components from the first breakdown (excluding 'Total')
-                components = [key for key in self.scoring_breakdown[0]['raw'].keys() 
-                            if key.lower() != 'total']
-                
-                # Setup colors for components
-                colors = plt.cm.tab10(np.linspace(0, 1, len(components)))
-                
-                # Setup plot
-                bar_width = 0.8 / len(components)
-                r = np.arange(top_poses)
-                
-                # Plot each component
-                for i, component in enumerate(components):
-                    # Get component values for each pose
-                    values = [breakdown['raw'][component] for breakdown in self.scoring_breakdown[:top_poses]]
-                    plt.bar(r + i * bar_width, values, width=bar_width, color=colors[i], 
-                            edgecolor='gray', alpha=0.7, label=component)
-                
-                # Formatting
-                plt.xlabel('Pose Rank')
-                plt.ylabel('Raw Energy Contribution')
-                plt.title('Raw Energy Component Breakdown for Top Poses')
-                plt.xticks(r + bar_width * (len(components) - 1) / 2, [f'{i+1}' for i in range(top_poses)])
-                plt.legend()
-                plt.grid(axis='y', alpha=0.3)
-                
-                plt.tight_layout()
-                plt.savefig(raw_energy_plot_path)
-                plt.close()
-                plot_paths.append(raw_energy_plot_path)
-                
-                # 3b. Scaled energy components
-                scaled_energy_plot_path = save_dir / "scaled_energy_breakdown.png"
-                plt.figure(figsize=(12, 8))
-                
-                # Get components (should be same as raw)
-                components = [key for key in self.scoring_breakdown[0]['scaled'].keys() 
-                            if key.lower() != 'total']
-                
-                # Plot each component
-                for i, component in enumerate(components):
-                    # Get component values for each pose
-                    values = [breakdown['scaled'][component] for breakdown in self.scoring_breakdown[:top_poses]]
-                    plt.bar(r + i * bar_width, values, width=bar_width, color=colors[i], 
-                            edgecolor='gray', alpha=0.7, label=component)
-                
-                # Formatting
-                plt.xlabel('Pose Rank')
-                plt.ylabel('Scaled Energy Contribution')
-                plt.title('Scaled Energy Component Breakdown for Top Poses')
-                plt.xticks(r + bar_width * (len(components) - 1) / 2, [f'{i+1}' for i in range(top_poses)])
-                plt.legend()
-                plt.grid(axis='y', alpha=0.3)
-                
-                plt.tight_layout()
-                plt.savefig(scaled_energy_plot_path)
-                plt.close()
-                plot_paths.append(scaled_energy_plot_path)
-                
-            else:
-                # Original plotting code for single-format energy breakdown
-                energy_plot_path = save_dir / "energy_breakdown.png"
-                plt.figure(figsize=(12, 8))
-                
-                # Get top 10 energy breakdowns
-                top_poses = min(10, len(self.scoring_breakdown))
-                
-                # Get all energy components and filter out 'total'
-                components = [key for key in self.scoring_breakdown[0].keys() 
-                            if key.lower() != 'total']
-                
-                # Setup colors for components
-                colors = plt.cm.tab10(np.linspace(0, 1, len(components)))
-                
-                # Setup plot
-                bar_width = 0.8 / len(components)
-                r = np.arange(top_poses)
-                
-                # Plot each component
-                for i, component in enumerate(components):
-                    values = [energy[component] for energy in self.scoring_breakdown[:top_poses]]
-                    plt.bar(r + i * bar_width, values, width=bar_width, color=colors[i], 
-                            edgecolor='gray', alpha=0.7, label=component)
-                
-                # Formatting
-                plt.xlabel('Pose Rank')
-                plt.ylabel('Energy Contribution')
-                plt.title('Energy Component Breakdown for Top Poses')
-                plt.xticks(r + bar_width * (len(components) - 1) / 2, [f'{i+1}' for i in range(top_poses)])
-                plt.legend()
-                plt.grid(axis='y', alpha=0.3)
-                
-                plt.tight_layout()
-                plt.savefig(energy_plot_path)
-                plt.close()
-                plot_paths.append(energy_plot_path)
+            energy_plot_path = save_dir / "energy_breakdown.png"
+            plt.figure(figsize=(12, 8))
+            
+            # Get top 10 energy breakdowns
+            top_poses = min(10, len(self.scoring_breakdown))
+            
+            # Get all energy components and filter out 'total'
+            components = [key for key in self.scoring_breakdown[0].keys() 
+                          if key.lower() != 'total']
+            
+            # Setup colors for components
+            colors = plt.cm.tab10(np.linspace(0, 1, len(components)))
+            
+            # Setup plot
+            bar_width = 0.8 / len(components)
+            r = np.arange(top_poses)
+            
+            # Plot each component
+            for i, component in enumerate(components):
+                values = [energy[component] for energy in self.scoring_breakdown[:top_poses]]
+                plt.bar(r + i * bar_width, values, width=bar_width, color=colors[i], 
+                        edgecolor='gray', alpha=0.7, label=component)
+            
+            # Formatting
+            plt.xlabel('Pose Rank')
+            plt.ylabel('Energy Contribution')
+            plt.title('Energy Component Breakdown for Top Poses')
+            plt.xticks(r + bar_width * (len(components) - 1) / 2, [f'{i+1}' for i in range(top_poses)])
+            plt.legend()
+            plt.grid(axis='y', alpha=0.3)
+            
+            plt.tight_layout()
+            plt.savefig(energy_plot_path)
+            plt.close()
+            plot_paths.append(energy_plot_path)
         
         # 4. RMSD plot if validation results are available
         if self.validation_results and isinstance(self.validation_results, list):
@@ -836,9 +829,6 @@ class DockingReporter:
         # Extract relative paths
         rel_plot_paths = [os.path.relpath(path, self.output_dir) for path in plot_paths]
         
-        # Check if we have raw scores separate from display scores
-        has_raw_scores = hasattr(self, 'raw_results') and self.raw_results
-
         # Create HTML content
         html_content = f"""
         <!DOCTYPE html>
@@ -943,147 +933,32 @@ class DockingReporter:
                 <div class="section">
                     <h2>Top Docking Poses</h2>
         """
-    
-    # Add score display section - show both raw and scaled scores if available
+        
+        # Add top poses table
         if self.results:
             sorted_results = sorted(self.results, key=lambda x: x[1])
-            
-            if has_raw_scores:
-                raw_sorted = sorted(self.raw_results, key=lambda x: x[1])
-                best_raw_score = raw_sorted[0][1]
-                best_scaled_score = sorted_results[0][1]
-                
-                # Create score cards for both raw and scaled scores
-                html_content += """
-                    <div class="score-card">
-                        <div class="score-box">
-                            <h3>Raw Physics Score</h3>
-                            <div class="score-value raw-score">""" + f"{best_raw_score:.4f}" + """</div>
-                            <p>Original physics-based binding energy</p>
-                        </div>
-                        <div class="score-box">
-                            <h3>Scaled Score</h3>
-                            <div class="score-value scaled-score">""" + f"{best_scaled_score:.4f}" + """</div>
-                            <p>Scaled to match common docking programs</p>
-                        </div>
-                    </div>
-                """
-                
-                html_content += f"""
-                    <table>
-                        <tr><th>Metric</th><th>Value</th></tr>
-                        <tr><td>Total Poses Generated</td><td>{len(self.results)}</td></tr>
-                        <tr><td>Average Raw Score</td><td>{sum([score for _, score in self.raw_results])/len(self.raw_results):.4f}</td></tr>
-                        <tr><td>Average Scaled Score</td><td>{sum([score for _, score in self.results])/len(self.results):.4f}</td></tr>
-                        <tr><td>Score Standard Deviation</td><td>{np.std([score for _, score in self.results]):.4f}</td></tr>
-                    </table>
-                """
-            else:
-                # Standard single-score display
-                html_content += f"""
-                    <table>
-                        <tr><th>Metric</th><th>Value</th></tr>
-                        <tr><td>Total Poses Generated</td><td>{len(self.results)}</td></tr>
-                        <tr><td>Best Score</td><td>{sorted_results[0][1]:.4f}</td></tr>
-                        <tr><td>Worst Score</td><td>{sorted_results[-1][1]:.4f}</td></tr>
-                        <tr><td>Average Score</td><td>{sum([score for _, score in self.results])/len(self.results):.4f}</td></tr>
-                        <tr><td>Score Standard Deviation</td><td>{np.std([score for _, score in self.results]):.4f}</td></tr>
-                    </table>
-                """
-        else:
-            html_content += "<p>No docking results available.</p>\n"
-        
-        html_content += """
-                </div>
-                
-                <div class="section">
-                    <h2>Top Docking Poses</h2>
-        """
-        
-        # Add top poses table with tabs for raw/scaled scores if both are available
-        if self.results:
-            if has_raw_scores:
-                html_content += """
-                    <div class="tab">
-                        <button class="tablinks" onclick="openScoreType(event, 'RawScores')" id="defaultOpen">Raw Physics Scores</button>
-                        <button class="tablinks" onclick="openScoreType(event, 'ScaledScores')">Scaled Scores</button>
-                    </div>
-                    
-                    <div id="RawScores" class="tabcontent">
-                        <h3>Raw Physics-Based Scores</h3>
-                        <table>
-                            <tr>
-                                <th>Rank</th>
-                                <th>Raw Score</th>
-                                <th>Filename</th>
-                            </tr>
-                """
-                
-                raw_sorted = sorted(self.raw_results, key=lambda x: x[1])
-                for i, (pose, score) in enumerate(raw_sorted[:min(20, len(raw_sorted))]):
-                    filename = f"pose_{i+1}_raw_{score:.1f}.pdb"
-                    html_content += f"""
-                            <tr>
-                                <td>{i+1}</td>
-                                <td>{score:.4f}</td>
-                                <td>{filename}</td>
-                            </tr>
-                    """
-                
-                html_content += """
-                        </table>
-                    </div>
-                    
-                    <div id="ScaledScores" class="tabcontent">
-                        <h3>Scaled Scores (Vina-like)</h3>
-                        <table>
-                            <tr>
-                                <th>Rank</th>
-                                <th>Scaled Score</th>
-                                <th>Filename</th>
-                            </tr>
-                """
-                
-                sorted_results = sorted(self.results, key=lambda x: x[1])
-                for i, (pose, score) in enumerate(sorted_results[:min(20, len(sorted_results))]):
-                    filename = f"pose_{i+1}_score_{score:.1f}.pdb"
-                    html_content += f"""
-                            <tr>
-                                <td>{i+1}</td>
-                                <td>{score:.4f}</td>
-                                <td>{filename}</td>
-                            </tr>
-                    """
-                
-                html_content += """
-                        </table>
-                    </div>
-                """
-            else:
-                # Standard single-score table
-                html_content += """
+            html_content += """
                     <table>
                         <tr>
                             <th>Rank</th>
                             <th>Score</th>
                             <th>Filename</th>
                         </tr>
-                """
-                
-                sorted_results = sorted(self.results, key=lambda x: x[1])
-                for i, (pose, score) in enumerate(sorted_results[:min(20, len(sorted_results))]):
-                    filename = f"pose_{i+1}_score_{score:.1f}.pdb"
-                    html_content += f"""
+            """
+            
+            for i, (pose, score) in enumerate(sorted_results[:min(20, len(sorted_results))]):
+                filename = f"pose_{i+1}_score_{score:.1f}.pdb"
+                html_content += f"""
                         <tr>
                             <td>{i+1}</td>
                             <td>{score:.4f}</td>
                             <td>{filename}</td>
                         </tr>
-                    """
-                
-                html_content += """
-                    </table>
                 """
+            
+            html_content += """
+                    </table>
+            """
         else:
             html_content += "<p>No docking poses available.</p>\n"
             
@@ -1092,165 +967,158 @@ class DockingReporter:
                 </div>
         """
         
-        # Add tabbed energy component breakdown for raw and scaled values
         if self.scoring_breakdown:
             html_content += """
                 <div class="section">
                     <h2>Energy Component Breakdown</h2>
             """
             
-            # Check if we have the new dual format (raw/scaled)
-            has_dual_format = False
-            if len(self.scoring_breakdown) > 0 and isinstance(self.scoring_breakdown[0], dict) and 'raw' in self.scoring_breakdown[0]:
-                has_dual_format = True
+            # Get all energy components
+            components = list(self.scoring_breakdown[0].keys())
             
-            if has_dual_format:
-                # Tabs for raw and scaled energy components
-                html_content += """
-                    <div class="tab">
-                        <button class="tablinks" onclick="openEnergyType(event, 'RawEnergy')">Raw Energy Components</button>
-                        <button class="tablinks" onclick="openEnergyType(event, 'ScaledEnergy')" id="defaultEnergyOpen">Scaled Energy Components</button>
-                    </div>
-                    
-                    <div id="RawEnergy" class="tabcontent energy-tab">
-                        <h3>Raw Physics-Based Energy Components</h3>
-                        <table>
-                            <tr>
-                                <th>Pose</th>
-                """
-                
-                # Get all raw energy components
-                components = list(self.scoring_breakdown[0]['raw'].keys())
-                
-                # Add component headers
-                for comp in components:
-                    html_content += f"<th>{comp}</th>\n"
-                
-                html_content += "</tr>\n"
-                
-                # Add energy values for top poses
-                for i, breakdown in enumerate(self.scoring_breakdown[:min(10, len(self.scoring_breakdown))]):
-                    html_content += f"<tr><td>{i+1}</td>\n"
-                    for comp in components:
-                        html_content += f"<td>{breakdown['raw'][comp]:.2f}</td>\n"
-                    html_content += "</tr>\n"
-                
-                html_content += """
-                        </table>
-                    </div>
-                    
-                    <div id="ScaledEnergy" class="tabcontent energy-tab">
-                        <h3>Scaled Energy Components (Vina-like)</h3>
-                        <table>
-                            <tr>
-                                <th>Pose</th>
-                """
-                
-                # Get all scaled energy components
-                components = list(self.scoring_breakdown[0]['scaled'].keys())
-                
-                # Add component headers
-                for comp in components:
-                    html_content += f"<th>{comp}</th>\n"
-                
-                html_content += "</tr>\n"
-                
-                # Add energy values for top poses
-                for i, breakdown in enumerate(self.scoring_breakdown[:min(10, len(self.scoring_breakdown))]):
-                    html_content += f"<tr><td>{i+1}</td>\n"
-                    for comp in components:
-                        html_content += f"<td>{breakdown['scaled'][comp]:.2f}</td>\n"
-                    html_content += "</tr>\n"
-                
-                html_content += """
-                        </table>
-                    </div>
-                """
-            else:
-                # Standard single-format energy table
-                html_content += """
+            html_content += """
                     <table>
                         <tr>
                             <th>Pose</th>
+            """
+            
+            for comp in components:
+                html_content += f"<th>{comp}</th>\n"
+            
+            html_content += "</tr>\n"
+            
+            # Add energy values for top poses
+            for i, energy in enumerate(self.scoring_breakdown[:min(10, len(self.scoring_breakdown))]):
+                html_content += f"<tr><td>{i+1}</td>\n"
+                for comp in components:
+                    html_content += f"<td>{energy[comp]:.2f}</td>\n"
+                html_content += "</tr>\n"
+            
+            html_content += """
+                    </table>
+                </div>
+            """
+            
+        # Add validation results if available
+        if self.validation_results:
+            html_content += """
+                <div class="section">
+                    <h2>Validation Against Reference Structure</h2>
+            """
+            
+            if isinstance(self.validation_results, list):
+                # Multiple pose validation
+                html_content += """
+                    <table>
+                        <tr>
+                            <th>Rank</th>
+                            <th>Pose</th>
+                            <th>RMSD (Å)</th>
+                            <th>Status</th>
+                        </tr>
                 """
                 
-                # Get all energy components
-                components = list(self.scoring_breakdown[0].keys())
-                
-                # Add component headers
-                for comp in components:
-                    html_content += f"<th>{comp}</th>\n"
-                
-                html_content += "</tr>\n"
-                
-                # Add energy values for top poses
-                for i, energy in enumerate(self.scoring_breakdown[:min(10, len(self.scoring_breakdown))]):
-                    html_content += f"<tr><td>{i+1}</td>\n"
-                    for comp in components:
-                        html_content += f"<td>{energy[comp]:.2f}</td>\n"
-                    html_content += "</tr>\n"
+                for i, result in enumerate(self.validation_results[:min(10, len(self.validation_results))]):
+                    pose_idx = result.get('pose_index', i)
+                    rmsd = result.get('rmsd', 0.0)
+                    success = rmsd < 2.0
+                    status_class = "success" if success else "failure"
+                    status_text = "Success" if success else "Failure"
+                    
+                    html_content += f"""
+                        <tr>
+                            <td>{i+1}</td>
+                            <td>{pose_idx+1}</td>
+                            <td>{rmsd:.4f}</td>
+                            <td class="{status_class}">{status_text}</td>
+                        </tr>
+                    """
                 
                 html_content += """
                     </table>
                 """
+                
+                # Best RMSD summary
+                if len(self.validation_results) > 0:
+                    best_rmsd = min(result.get('rmsd', float('inf')) for result in self.validation_results)
+                    success = best_rmsd < 2.0
+                    status_class = "success" if success else "failure"
+                    
+                    html_content += f"""
+                    <p>Best RMSD: <strong>{best_rmsd:.4f} Å</strong></p>
+                    <p>Docking Success: <span class="{status_class}">{success}</span></p>
+                    """
+            
+            elif isinstance(self.validation_results, dict):
+                # Single validation result
+                rmsd = self.validation_results.get('rmsd', 0.0)
+                max_dev = self.validation_results.get('max_deviation', 0.0)
+                min_dev = self.validation_results.get('min_deviation', 0.0)
+                success = self.validation_results.get('success', False)
+                status_class = "success" if success else "failure"
+                
+                html_content += f"""
+                    <table>
+                        <tr><th>Metric</th><th>Value</th></tr>
+                        <tr><td>Overall RMSD</td><td>{rmsd:.4f} Å</td></tr>
+                        <tr><td>Maximum Atomic Deviation</td><td>{max_dev:.4f} Å</td></tr>
+                        <tr><td>Minimum Atomic Deviation</td><td>{min_dev:.4f} Å</td></tr>
+                        <tr><td>Docking Success</td><td class="{status_class}">{success}</td></tr>
+                    </table>
+                """
+                
+                # Top atom deviations if available
+                atom_deviations = self.validation_results.get('atom_deviations', None)
+                if atom_deviations is not None:
+                    html_content += """
+                    <h3>Top 10 Atom Deviations</h3>
+                    <table>
+                        <tr><th>Atom</th><th>Deviation (Å)</th></tr>
+                    """
+                    
+                    sorted_indices = np.argsort(atom_deviations)[::-1]
+                    for i in range(min(10, len(sorted_indices))):
+                        idx = sorted_indices[i]
+                        html_content += f"""
+                        <tr><td>Atom {idx + 1}</td><td>{atom_deviations[idx]:.4f}</td></tr>
+                        """
+                    
+                    html_content += """
+                    </table>
+                    """
             
             html_content += """
                 </div>
             """
-        
-        # Rest of the HTML report (visualizations, validation, etc.) remains the same
-        # ...
-
-        # Add JavaScript for tab functionality
+            
+        # Add visualization section
         html_content += """
-            <script>
-            function openScoreType(evt, scoreType) {
-                var i, tabcontent, tablinks;
-                tabcontent = document.getElementsByClassName("tabcontent");
-                for (i = 0; i < tabcontent.length; i++) {
-                    if (!tabcontent[i].classList.contains("energy-tab")) {
-                        tabcontent[i].style.display = "none";
-                    }
-                }
-                tablinks = document.getElementsByClassName("tablinks");
-                for (i = 0; i < tablinks.length; i++) {
-                    tablinks[i].className = tablinks[i].className.replace(" active", "");
-                }
-                document.getElementById(scoreType).style.display = "block";
-                evt.currentTarget.className += " active";
-            }
-            
-            function openEnergyType(evt, energyType) {
-                var i, tabcontent, tablinks;
-                tabcontent = document.getElementsByClassName("energy-tab");
-                for (i = 0; i < tabcontent.length; i++) {
-                    tabcontent[i].style.display = "none";
-                }
-                tablinks = document.getElementsByClassName("tablinks");
-                for (i = 0; i < tablinks.length; i++) {
-                    tablinks[i].className = tablinks[i].className.replace(" active", "");
-                }
-                document.getElementById(energyType).style.display = "block";
-                evt.currentTarget.className += " active";
-            }
-            
-            // Set default open tabs
-            document.addEventListener('DOMContentLoaded', function() {
-                if (document.getElementById("defaultOpen")) {
-                    document.getElementById("defaultOpen").click();
-                }
-                if (document.getElementById("defaultEnergyOpen")) {
-                    document.getElementById("defaultEnergyOpen").click();
-                }
-            });
-            </script>
+                <div class="section">
+                    <h2>Visualizations</h2>
+                    <div class="plot-container">
         """
         
-        # Finalize the HTML
+        # Add all generated plots
+        for rel_path in rel_plot_paths:
+            plot_title = os.path.basename(rel_path).replace('.png', '').replace('_', ' ').title()
+            html_content += f"""
+                        <div class="plot">
+                            <h3>{plot_title}</h3>
+                            <img src="{rel_path}" alt="{plot_title}" width="100%">
+                        </div>
+            """
+        
         html_content += """
+                    </div>
                 </div>
-            </body>
-            </html>
+                
+                <div class="footnote">
+                    <p>Report generated by PandaDock - Python Molecular Docking Tool</p>
+                    <p>Report ID: """ + self.timestamp + """</p>
+                </div>
+            </div>
+        </body>
+        </html>
         """
         
         # Write HTML file

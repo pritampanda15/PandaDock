@@ -20,7 +20,9 @@ pandadock/parallel_search.py
 pandadock/physics.py
 pandadock/preparation.py
 pandadock/protein.py
+pandadock/reporting copy.py
 pandadock/reporting.py
+pandadock/score_scaling.py
 pandadock/scoring.py
 pandadock/search.py
 pandadock/utils.py

@@ -5,7 +5,7 @@ import os
 import tempfile
 import seaborn as sns
 import matplotlib.pyplot as plt
-
+from .score_scaling import scale_docking_score
 class MMFFMinimization:
     """
     MMFF94 Force Field minimization for ligands using RDKit.
@@ -1092,6 +1092,36 @@ class PhysicsBasedScoring:
                     count += 1
         energy = min(count * penalty, 100.0)
         return max(energy, 0.0)
+
+    
+    def get_scaled_score(self, protein, ligand, target_program='vina'):
+        """
+        Return a scaled score comparable to standard docking programs.
+        
+        Parameters:
+        -----------
+        protein : Protein
+            Protein object
+        ligand : Ligand
+            Ligand object
+        target_program : str
+            Target program to scale scores for ('vina', 'autodock', or 'glide')
+            
+        Returns:
+        --------
+        float
+            Scaled score comparable to the target program
+        """
+        # Get the raw physics-based score
+        raw_score = self.score(protein, ligand)
+        
+        # Scale ranges based on target program
+        if target_program.lower() == 'autodock':
+            return scale_docking_score(raw_score, -15.0, -5.0)
+        elif target_program.lower() == 'glide':
+            return scale_docking_score(raw_score, -12.0, -4.0)
+        else:  # Default to Vina
+            return scale_docking_score(raw_score, -12.0, -2.0)
 
 
 class PhysicsBasedScoringFunction(PhysicsBasedScoring):

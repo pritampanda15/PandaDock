@@ -19,6 +19,7 @@ from .utils import (
 )
 from .preparation import prepare_protein, prepare_ligand
 from .reporting import DockingReporter
+from .score_scaling import ScaledPhysicsBasedScoring
 from .validation import validate_against_reference
 from .main_integration import (
     add_hardware_options,
@@ -35,7 +36,8 @@ from . import __version__
 __all__ = ['__version__', 'add_hardware_options', 'configure_hardware',
            'setup_hardware_acceleration', 'create_optimized_scoring_function',
            'create_optimized_search_algorithm', 'get_scoring_type_from_args',
-           'get_algorithm_type_from_args', 'get_algorithm_kwargs_from_args']
+           'get_algorithm_type_from_args', 'get_algorithm_kwargs_from_args',
+           'save_docking_results', 'save_intermediate_result']
 
 # Import physics-based algorithms
 try:
@@ -398,6 +400,7 @@ def add_analysis_options(parser):
                         choices=['summary', 'clusters', 'interactions', 'energetics'],
                         default=['summary', 'clusters', 'interactions', 'energetics'],
                         help='Sections to include in the analysis report')
+    
 
 def main():
     # Initialize return value
@@ -522,6 +525,8 @@ def main():
                                 help='Include detailed energy component breakdown in reports')
         report_group.add_argument('--skip-plots', action='store_true',
                                 help='Skip generating plots for reports')
+        parser.add_argument('--scale-scores', choices=['vina', 'autodock', 'glide', 'none'], 
+                    default='none', help='Scale scores to be comparable with other docking programs')
         
         # Add hardware acceleration options
         add_hardware_options(parser)
@@ -740,18 +745,38 @@ def main():
         if scoring_type == 'physics' and PHYSICS_AVAILABLE:
             logger.info("\nUsing physics-based scoring function (MM-GBSA inspired)")
             scoring_function = PhysicsBasedScoring()
-            update_status(output_dir, scoring_function="physics-based")
+            # Apply scaling if requested
+            if hasattr(args, 'scale_scores') and args.scale_scores != 'none':
+                from .score_scaling import ScaledPhysicsBasedScoring
+                scoring_function = ScaledPhysicsBasedScoring(
+                    base_scoring_function=scoring_function,
+                    target_program=args.scale_scores
+                )
+                logger.info(f"Scores will be scaled to be comparable with {args.scale_scores.upper()}")
+                update_status(output_dir, scoring_function="physics-based")
         else:
             # Use hardware-optimized scoring function
             scoring_function = create_optimized_scoring_function(hybrid_manager, scoring_type)
+
+            # Scale scores if requested
+            # Apply scaling if requested
+            if hasattr(args, 'scale_scores') and args.scale_scores != 'none':
+                from .score_scaling import ScaledPhysicsBasedScoring
+                scoring_function = ScaledPhysicsBasedScoring(
+                    base_scoring_function=scoring_function,
+                    target_program=args.scale_scores
+                )
+                logger.info(f"Scores will be scaled to be comparable with {args.scale_scores.upper()}")
+                print(f"Scores will be scaled to be comparable with {args.scale_scores.upper()}")
+                
+                if scoring_type == 'enhanced':
+                    logger.info("\nUsing enhanced scoring function with hardware acceleration")
+                    update_status(output_dir, scoring_function="enhanced")
+                else:
+                    logger.info("\nUsing standard composite scoring function with hardware acceleration")
+                    update_status(output_dir, scoring_function="standard")
             
-            if scoring_type == 'enhanced':
-                logger.info("\nUsing enhanced scoring function with hardware acceleration")
-                update_status(output_dir, scoring_function="enhanced")
-            else:
-                logger.info("\nUsing standard composite scoring function with hardware acceleration")
-                update_status(output_dir, scoring_function="standard")
-        
+            # Set up docked poses reporter    
         # Initialize reporter
         reporter = DockingReporter(output_dir, args, timestamp=readable_date)
             
@@ -1113,9 +1138,9 @@ def main():
             else:
                 logger.info("\nSkipping analysis as no valid docking solutions were found.")
 
-        # Extract energy components for reporting if possible
         try:
             if all_results:
+                from .score_scaling import scale_energy_components
                 logger.info("Extracting energy components for detailed reporting...")
                 update_status(output_dir, status="extracting_energy_components")
                 energy_breakdown = reporter.extract_energy_components(
@@ -1123,6 +1148,11 @@ def main():
                     protein, 
                     [pose for pose, _ in all_results[:min(20, len(all_results))]]
                 )
+                if hasattr(args, 'scale_scores') and args.scale_scores != 'none':
+                    energy_breakdown = scale_energy_components(
+                        energy_breakdown,
+                        target_program=args.scale_scores
+            )
                 reporter.add_results(all_results, energy_breakdown)
             else:
                 reporter.add_results([])  # Add empty results
@@ -1227,6 +1257,12 @@ def main():
             if not (hasattr(args, 'skip_plots') and args.skip_plots):
                 html_report = reporter.generate_html_report()
                 logger.info(f"Comprehensive HTML report with visualizations saved to: {html_report}")
+            
+            if hasattr(args, 'scale_scores') and args.scale_scores != 'none' and hasattr(scoring_function, 'get_original_score'):
+                print(f"\nScores scaled to be comparable with {args.scale_scores.upper()}:")
+                for i, (pose, score) in enumerate(unique_results[:min(10, len(unique_results))]):
+                    original_score = scoring_function.get_original_score(protein, pose)
+                    print(f"  Pose {i+1}: {score:.2f} kcal/mol (Original: {original_score:.2f})")
         
         # Final status update
         update_status(
