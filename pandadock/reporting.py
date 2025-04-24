@@ -270,13 +270,13 @@ class DockingReporter:
 
             
             # Try to extract all components
-            try_component('Van der Waals', ['_calculate_vdw', '_calculate_vdw_physics', '_calculate_vdw_energy'])
-            try_component('H-Bond', ['_calculate_hbond', '_calculate_hbond_physics', '_calculate_hbond_energy'])
-            try_component('Electrostatic', ['_calculate_electrostatics', '_calculate_electrostatics_physics'])
-            try_component('Desolvation', ['_calculate_desolvation', '_calculate_desolvation_physics'])
-            try_component('Hydrophobic', ['_calculate_hydrophobic', '_calculate_hydrophobic_physics'])
-            try_component('Clash', ['_calculate_clashes', '_calculate_clashes_physics'])
-            try_component('Entropy', ['_calculate_entropy', '_calculate_entropy_penalty'])
+            try_component('Van der Waals', ['_calculate_vdw', '_calculate_vdw_physics', '_calculate_vdw_energy', '_calculate_vdw_energy_physics'])
+            try_component('H-Bond', ['_calculate_hbond', '_calculate_hbond_physics', '_calculate_hbond_energy', '_calculate_hbond_energy_physics'])
+            try_component('Electrostatic', ['_calculate_electrostatics', '_calculate_electrostatics_physics', '_calculate_electrostatics_energy'])
+            try_component('Desolvation', ['_calculate_desolvation', '_calculate_desolvation_physics', '_calculate_desolvation_energy'])
+            try_component('Hydrophobic', ['_calculate_hydrophobic', '_calculate_hydrophobic_physics', '_calculate_hydrophobic_energy'])
+            try_component('Clash', ['_calculate_clashes', '_calculate_clashes_physics', '_calculate_clashes_energy'])
+            try_component('Entropy', ['_calculate_entropy', '_calculate_entropy_penalty', '_calculate_entropy_energy'])
             
             # If the scoring function has weights, estimate missing components
             if hasattr(scoring_function, 'weights'):
