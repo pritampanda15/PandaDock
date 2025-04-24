@@ -193,6 +193,9 @@ class DockingReporter:
             print(f"Error in get_component_scores: {e}")
         
         return components
+
+    
+
     def extract_energy_components(self, scoring_function, protein, ligand_poses):
         """
         Enhanced extraction of energy components with robust error handling.
@@ -227,30 +230,44 @@ class DockingReporter:
             total_score = scoring_function.score(protein, pose)
             components['Total'] = total_score
             print(f"Total score: {total_score:.2f}")
-            
-            # Helper function to safely try component calculations
+            components['Pose'] = i + 1
+            components['Score'] = total_score
+
+            # Helper function to safely try component calculations  
+            # and handle exceptions
             def try_component(name, method_names):
                 for method in method_names:
                     if hasattr(scoring_function, method):
                         try:
-                            method_func = getattr(scoring_function, method)
-                            if method.endswith('_energy') or method.endswith('_physics'):
-                                # Methods taking atom lists
-                                protein_atoms = protein.active_site.get('atoms', protein.atoms) if hasattr(protein, 'active_site') else protein.atoms
-                                value = method_func(protein_atoms, pose.atoms)
-                            elif method == '_calculate_entropy':
-                                # Methods taking only ligand
-                                value = method_func(pose)
+                            func = getattr(scoring_function, method)
+                            from inspect import signature
+                            params = signature(func).parameters
+
+                            if method == '_calculate_entropy':
+                                value = func(pose)  # pose is a Ligand object
+                            elif method.endswith('_physics'):
+                                if len(params) == 2:
+                                    # Use atoms
+                                    value = func(protein.active_site.get('atoms', protein.atoms), pose.atoms)
+                                elif len(params) == 4:
+                                    value = func(protein.active_site.get('atoms', protein.atoms), pose.atoms, protein, pose)
+                            elif method.endswith('_energy'):
+                                if len(params) == 2:
+                                    # Use atoms
+                                    value = func(protein.active_site.get('atoms', protein.atoms), pose.atoms)
+                                elif len(params) == 4:
+                                    value = func(protein.active_site.get('atoms', protein.atoms), pose.atoms, protein, pose)
                             else:
-                                # Methods taking protein, ligand
-                                value = method_func(protein, pose)
-                            
+                                value = func(protein, pose)
+
                             components[name] = value
                             print(f"  {name}: {value:.2f} via {method}")
                             return True
                         except Exception as e:
                             print(f"  Error in {name} via {method}: {e}")
                 return False
+
+
             
             # Try to extract all components
             try_component('Van der Waals', ['_calculate_vdw', '_calculate_vdw_physics', '_calculate_vdw_energy'])

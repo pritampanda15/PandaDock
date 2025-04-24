@@ -7,5 +7,5 @@ class TestBasic(unittest.TestCase):
         import pandadock
         import pandadock.protein
         import pandadock.ligand
-        import pandadock.scoring
+        import pandadock.unified_scoring
         import pandadock.search

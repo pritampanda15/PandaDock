@@ -288,56 +288,40 @@ def save_intermediate_result(pose, score, iteration, output_dir, total_iteration
         except Exception as e:
             logger.warning(f"Could not save intermediate pose: {e}")
 
-def save_complex_to_pdb(protein, pose, output_file):
+def save_complex_to_pdb(protein, ligand, output_path):
     """
-    Save protein-ligand complex to PDB file.
+    Save the full protein-ligand complex as a single PDB file.
     
     Parameters:
     -----------
     protein : Protein
         Protein object
-    pose : Ligand
-        Ligand pose
-    output_file : str or Path
-        Output file path
+    ligand : Ligand
+        Ligand object
+    output_path : str or Path
+        File path to save the complex
     """
-    def save_complex_to_pdb(protein, ligand, output_path):
-        """
-        Save the full protein-ligand complex as a single PDB file.
+    with open(output_path, 'w') as f:
+        # Write protein atoms
+        for i, atom in enumerate(protein.atoms):
+            coords = atom['coords']
+            name = atom.get('name', 'X')
+            resname = atom.get('residue_name', 'UNK')
+            chain = atom.get('chain_id', 'A')
+            resid = atom.get('residue_id', 1)
+            f.write(f"ATOM  {i+1:5d} {name:<4} {resname:<3} {chain}{resid:4d}    "
+                    f"{coords[0]:8.3f}{coords[1]:8.3f}{coords[2]:8.3f}  1.00  0.00\n")
         
-        Parameters:
-        -----------
-        protein : Protein
-            Protein object
-        ligand : Ligand
-            Ligand object
-        output_path : str or Path
-            File path to save the complex
-        """
-        with open(output_path, 'w') as f:
-            # Write protein atoms
-            for i, atom in enumerate(protein.atoms):
-                coords = atom['coords']
-                name = atom.get('name', 'X')
-                resname = atom.get('residue_name', 'UNK')
-                chain = atom.get('chain_id', 'A')
-                resid = atom.get('residue_id', 1)
-                f.write(f"ATOM  {i+1:5d} {name:<4} {resname:<3} {chain}{resid:4d}    "
-                        f"{coords[0]:8.3f}{coords[1]:8.3f}{coords[2]:8.3f}  1.00  0.00\n")
-            
-            # Write ligand atoms
-            for j, atom in enumerate(ligand.atoms):
-                coords = atom['coords']
-                symbol = atom.get('symbol', 'C')
-                f.write(f"HETATM{j+1:5d} {symbol:<4} LIG A{1:4d}    "
-                        f"{coords[0]:8.3f}{coords[1]:8.3f}{coords[2]:8.3f}  1.00  0.00          {symbol:>2}\n")
-            
-            f.write("END\n")
-    
-    
-    save_complex_to_pdb(protein, pose, output_file)
-    print(f"Complex saved to {output_file}")
-    print(f"Complex saved to {output_file} with {len(protein.atoms)} protein atoms and {len(pose.atoms)} ligand atoms")
+        # Write ligand atoms
+        for j, atom in enumerate(ligand.atoms):
+            coords = atom['coords']
+            symbol = atom.get('symbol', 'C')
+            f.write(f"HETATM{j+1:5d} {symbol:<4} LIG A{1:4d}    "
+                    f"{coords[0]:8.3f}{coords[1]:8.3f}{coords[2]:8.3f}  1.00  0.00          {symbol:>2}\n")
+        
+        f.write("END\n")
+        
+    print(f"Saved complex to {output_path}")
     
 def update_status(output_dir, **kwargs):
     """
@@ -410,6 +394,35 @@ def create_descriptive_output_dir(args):
     
     # Get algorithm name
     algo_name = args.algorithm
+    if args.monte_carlo:
+        algo_name = "monte-carlo"
+    elif args.genetic_algorithm:
+        algo_name = "genetic-algorithm"
+    elif args.pandadock:
+        algo_name = "pandadock"
+    elif args.random:
+        algo_name = "random"
+    elif args.default:
+        algo_name = "default-algorithm"
+    elif args.enhanced_scoring:
+        algo_name = "enhanced-scoring"
+    elif args.physics_based:
+        algo_name = "physics-based"
+    elif args.standard_scoring:
+        algo_name = "standard-scoring"
+    elif args.docking:
+        algo_name = "docking"
+    else:
+        algo_name = "default-algorithm"
+    # Check if algorithm is valid
+    if algo_name not in ["default-algorithm", "genetic-algorithm", "monte-carlo"]:
+        raise ValueError(f"Invalid algorithm: {algo_name}")
+    # Check if output directory is provided
+    if args.output is None:
+        raise ValueError("Output directory is not provided")
+    # Check if output directory is valid
+    if not os.path.exists(args.output):
+        raise ValueError(f"Output directory does not exist: {args.output}")
     
     # Create readable timestamp
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")

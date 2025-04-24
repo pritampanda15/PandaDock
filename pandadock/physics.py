@@ -1056,7 +1056,7 @@ class PhysicsBasedScoring:
             self.weights['hbond'] * hbond +
             self.weights['elec'] * elec +
             self.weights['desolv'] * desolv +
-            self.weights['entropy'] * (entropy + entropy_penalty) +
+            self.weights['entropy'] * (entropy) +
             self.weights['hydrophobic'] * hydrophobic +
             self.weights['clash'] * clash
         )
@@ -1185,36 +1185,41 @@ class PhysicsBasedScoring:
         
         return capped_score
 
-            # Standardized energy component interfaces for compatibility with reporter
-    def _calculate_vdw_energy(self, protein_atoms, ligand_atoms):
-        return self._calculate_vdw_physics(protein_atoms, ligand_atoms)
 
-    def _calculate_hbond_energy(self, protein_atoms, ligand_atoms, protein=None, ligand=None):
-        return self._calculate_hbond_physics(protein_atoms, ligand_atoms, protein, ligand)
 
-    def _calculate_electrostatics_energy(self, protein_atoms, ligand_atoms):
-        return self._calculate_electrostatics_physics(protein_atoms, ligand_atoms)
 
-    def _calculate_desolvation_energy(self, protein_atoms, ligand_atoms):
-        return self._calculate_desolvation_physics(protein_atoms, ligand_atoms)
+# Standardized energy component interfaces for compatibility with reporter
+    def _calculate_electrostatics_physics(self, protein_atoms, ligand_atoms):
+        from types import SimpleNamespace
+        protein = SimpleNamespace(active_site={'atoms': protein_atoms})
+        ligand = SimpleNamespace(atoms=ligand_atoms)
+        return self.electrostatics.calculate_electrostatics(protein, ligand)
 
-    def _calculate_hydrophobic_energy(self, protein_atoms, ligand_atoms):
-        return self._calculate_hydrophobic_physics(protein_atoms, ligand_atoms)
-
-    def _calculate_clashes_energy(self, protein_atoms, ligand_atoms):
-        return self._calculate_clash_physics(protein_atoms, ligand_atoms)
-
-    def _calculate_entropy(self, ligand, protein=None):
-        return self._calculate_entropy_penalty(ligand, protein)
+    def _calculate_desolvation_physics(self, protein_atoms, ligand_atoms):
+        from types import SimpleNamespace
+        protein = SimpleNamespace(active_site={'atoms': protein_atoms})
+        ligand = SimpleNamespace(atoms=ligand_atoms)
+        return self.solvation.calculate_binding_solvation(protein, ligand)
 
     def _calculate_vdw_physics(self, protein_atoms, ligand_atoms):
-        return self._calculate_vdw_energy(protein_atoms, ligand_atoms)
+        return self._calc_vdw_energy(protein_atoms, ligand_atoms)
 
     def _calculate_hbond_physics(self, protein_atoms, ligand_atoms, protein, ligand):
-        return self._calculate_hbond_energy(protein_atoms, ligand_atoms, protein, ligand)
+        return self._calc_hbond_energy(protein_atoms, ligand_atoms)
 
-    def _calculate_entropy(self, ligand):
-        return self._calculate_entropy_penalty(ligand)
+    def _calculate_entropy(self, ligand, protein=None):
+        return self._calc_entropy_penalty(ligand, protein)
+
+    def _calculate_entropy_penalty(self, ligand, protein=None):
+        return self._calc_entropy_penalty(ligand, protein)
+
+    def _calculate_clashes_physics(self, protein_atoms, ligand_atoms, protein=None, ligand=None):
+        return self._calc_clash_energy(protein_atoms, ligand_atoms)
+
+    def _calculate_hydrophobic_physics(self, protein_atoms, ligand_atoms):
+        return self._calc_hydrophobic_interactions(protein_atoms, ligand_atoms)
+
+
         
 class PhysicsBasedScoringFunction(PhysicsBasedScoring):
     """
@@ -1755,54 +1760,4 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
         return max(0.1, min(1.0, flexibility_factor))
 
 
-        # Standardized energy component interfaces for compatibility with reporter
-    def _calculate_vdw_energy(self, protein_atoms, ligand_atoms):
-        return self._calculate_vdw_physics(protein_atoms, ligand_atoms)
-
-    def _calculate_hbond_energy(self, protein_atoms, ligand_atoms, protein=None, ligand=None):
-        return self._calculate_hbond_physics(protein_atoms, ligand_atoms, protein, ligand)
-
-    def _calculate_electrostatics_energy(self, protein_atoms, ligand_atoms):
-        return self._calculate_electrostatics_physics(protein_atoms, ligand_atoms)
-
-    def _calculate_desolvation_energy(self, protein_atoms, ligand_atoms):
-        return self._calculate_desolvation_physics(protein_atoms, ligand_atoms)
-
-    def _calculate_hydrophobic_energy(self, protein_atoms, ligand_atoms):
-        return self._calculate_hydrophobic_physics(protein_atoms, ligand_atoms)
-
-    def _calculate_clashes_energy(self, protein_atoms, ligand_atoms):
-        return self._calculate_clash_physics(protein_atoms, ligand_atoms)
-
-    def _calculate_entropy(self, ligand, protein=None):
-        return self._calculate_entropy_penalty(ligand, protein)
-
-    def _calculate_vdw_energy(self, protein_atoms, ligand_atoms):
-        return self._calculate_vdw_physics(protein_atoms, ligand_atoms)
-
-    def _calculate_hbond_energy(self, protein_atoms, ligand_atoms, protein=None, ligand=None):
-        return self._calculate_hbond_physics(protein_atoms, ligand_atoms, protein, ligand)
-
-    def _calculate_electrostatics_energy(self, protein_atoms, ligand_atoms):
-        return self._calculate_electrostatics_physics(protein_atoms, ligand_atoms)
-
-    def _calculate_desolvation_energy(self, protein_atoms, ligand_atoms):
-        return self._calculate_desolvation_physics(protein_atoms, ligand_atoms)
-
-    def _calculate_hydrophobic_energy(self, protein_atoms, ligand_atoms):
-        return self._calculate_hydrophobic_physics(protein_atoms, ligand_atoms)
-
-    def _calculate_clashes_energy(self, protein_atoms, ligand_atoms):
-        return self._calculate_clash_physics(protein_atoms, ligand_atoms)
-
-    def _calculate_entropy(self, ligand, protein=None):
-        return self._calculate_entropy_penalty(ligand, protein)
-
-    def _calculate_vdw_physics(self, protein_atoms, ligand_atoms):
-        return self._calculate_vdw_energy(protein_atoms, ligand_atoms)
-
-    def _calculate_hbond_physics(self, protein_atoms, ligand_atoms, protein, ligand):
-        return self._calculate_hbond_energy(protein_atoms, ligand_atoms, protein, ligand)
-
-    def _calculate_entropy(self, ligand):
-        return self._calculate_entropy_penalty(ligand)
+       
