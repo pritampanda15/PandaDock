@@ -6,8 +6,8 @@ from pandadock.ligand import Ligand
 
 def test_unified_scoring():
     # Load a test protein and ligand
-    protein = Protein("receptor.pdb")
-    ligand = Ligand("ligand.sdf")
+    protein = Protein("tests/receptor.pdb")
+    ligand = Ligand("tests/ligand.sdf")
     
     # Create different scoring functions
     cpu_scorer = create_scoring_function(use_gpu=False, enhanced=True)
