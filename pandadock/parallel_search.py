@@ -19,7 +19,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
     def __init__(self, scoring_function, max_iterations=100, population_size=50, 
                  mutation_rate=0.2, crossover_rate=0.8, tournament_size=3, 
                  n_processes=None, batch_size=None, process_pool=None, 
-                 output_dir=None, perform_local_opt=False, grid_spacing=1.0, grid_radius=10.0, grid_center=None):
+                 output_dir=None, perform_local_opt=False, grid_spacing=0.375, grid_radius=5.0, grid_center=None):
         super().__init__(scoring_function, max_iterations, population_size, mutation_rate)
         self.scoring_function = scoring_function  # Ensure this is set
         self.output_dir = output_dir
@@ -423,10 +423,10 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         Ligand
             Repaired ligand or a new random pose if repair fails
         """
-        print("Attempting to repair ligand conformation...")
+        #print("Attempting to repair ligand conformation...")
         
         for attempt in range(max_attempts):
-            print(f"Repair attempt {attempt + 1}/{max_attempts}...")
+            #print(f"Repair attempt {attempt + 1}/{max_attempts}...")
             
             # Apply small random perturbations to atom positions
             perturbation = np.random.normal(0, 0.2, ligand.xyz.shape)  # 0.2 Å standard deviation
@@ -439,7 +439,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
             
             # Attempt to resolve steric clashes by energy minimization
             try:
-                print("Applying energy minimization to repair ligand...")
+                #print("Applying energy minimization to repair ligand...")
                 ligand = self._minimize_energy(ligand, max_iterations=200)
                 if self._validate_conformation(ligand):
                     print("Repair successful after energy minimization.")

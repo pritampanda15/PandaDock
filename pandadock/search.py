@@ -4,6 +4,33 @@ from scipy.spatial.transform import Rotation
 import random
 import copy
 from .utils import setup_logging
+from .unified_scoring import TetheredScoringFunction
+from .protein import Protein
+from .ligand import Ligand
+from .unified_scoring import (
+    ScoringFunction, 
+    CompositeScoringFunction,
+    EnhancedScoringFunction,
+    GPUScoringFunction,
+    EnhancedGPUScoringFunction,
+    PhysicsScoringFunction,
+    EnhancedPhysicsScoringFunction,
+    TetheredScoringFunction,
+    create_scoring_function
+)
+
+# Physics-based components (defined in physics.py)
+from .physics import (
+    MMFFMinimization,
+    MonteCarloSampling,
+    PhysicsBasedScoring,
+    GeneralizedBornSolvation
+)
+
+from .utils import save_docking_results, calculate_rmsd
+from .preparation import prepare_protein, prepare_ligand
+from .validation import validate_docking, calculate_ensemble_rmsd
+
 
 class DockingSearch:
     """Base class for docking search algorithms."""
@@ -28,8 +55,8 @@ class DockingSearch:
     # Set up logger
         self.logger = setup_logging(output_dir)
         self.grid_points = None
-        self.grid_radius = 10.0
-        self.grid_spacing = 1.0
+        self.grid_radius = 5.0
+        self.grid_spacing = 0.375
         
     # Define a method to set up the grid
     def initialize_grid_points(self, center):
@@ -1189,9 +1216,10 @@ class DockingSearch:
         exact_aligned_pose = copy.deepcopy(aligned_pose)
         
         # Import the tethered scoring function
-        from .scoring import TetheredScoringFunction
+        from .unified_scoring import TetheredScoringFunction
         
         # Create a tethered scoring function
+        # Create a tethered scoring function using the unified approach
         tethered_scoring = TetheredScoringFunction(
             self.scoring_function,
             reference_ligand,

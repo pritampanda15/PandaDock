@@ -5,6 +5,12 @@ This module extends the main.py command-line interface with GPU/CPU options.
 
 import argparse
 import os
+from .unified_scoring import (
+    create_scoring_function,
+    CompositeScoringFunction
+)
+from .physics import (MMFFMinimization, MonteCarloSampling, PhysicsBasedScoring, GeneralizedBornSolvation)
+from .unified_scoring import PhysicsScoringFunction, EnhancedPhysicsScoringFunction
 
 def add_hardware_options(parser):
     """
@@ -110,76 +116,36 @@ def setup_hardware_acceleration(hw_config):
     return manager
 
 
-def create_optimized_scoring_function(manager, scoring_type='enhanced'):
+def create_optimized_scoring_function(args):
     """
-    Create an optimized scoring function based on available hardware.
-    
-    Parameters:
-    -----------
-    manager : HybridDockingManager
-        Hybrid docking manager
-    scoring_type : str
-        Type of scoring function ('standard', 'enhanced', or 'physics')
-    
-    Returns:
-    --------
-    ScoringFunction
-        Optimized scoring function
+    Create an optimized scoring function based on user arguments.
+    Automatically selects CPU/GPU/physics-based implementation.
     """
-    # Import appropriate scoring functions
-    from .scoring import CompositeScoringFunction, EnhancedScoringFunction
-    
-    # Check if GPU acceleration is available
-    if manager.has_gpu:
-        # Import GPU scoring function
-        try:
-            from .gpu_scoring import GPUAcceleratedScoringFunction
-            
-            # Create GPU-accelerated scoring function
-            if scoring_type == 'standard':
-                return manager.prepare_gpu_scoring_function(GPUAcceleratedScoringFunction)
-            elif scoring_type == 'enhanced':
-                return manager.prepare_gpu_scoring_function(GPUAcceleratedScoringFunction)
-            elif scoring_type == 'physics':
-                try:
-                    from .physics import PhysicsBasedScoring
-                    # Note: Physics-based scoring might not be GPU-accelerated yet
-                    return PhysicsBasedScoring()
-                except ImportError:
-                    print("Physics-based scoring not available. Using enhanced scoring instead.")
-                    return manager.prepare_gpu_scoring_function(GPUAcceleratedScoringFunction)
-            else:
-                print(f"Unknown scoring type: {scoring_type}. Using enhanced scoring.")
-                return manager.prepare_gpu_scoring_function(GPUAcceleratedScoringFunction)
-                
-        except ImportError:
-            print("GPU scoring module not available. Using CPU scoring function.")
-            return CompositeScoringFunction()
-    
-    # If GPU acceleration is not available, use CPU scoring functions
-    if scoring_type == 'standard':
+    try:
+        scoring_function = create_scoring_function(
+            use_gpu=getattr(args, 'use_gpu', False),
+            physics_based=getattr(args, 'physics_based', False),
+            enhanced=getattr(args, 'enhanced_scoring', True),
+            tethered=getattr(args, 'tethered_scoring', False),
+            reference_ligand=getattr(args, 'reference_ligand', None),
+            weights=getattr(args, 'scoring_weights', None),
+            device=getattr(args, 'gpu_device', 'cuda'),
+            precision=getattr(args, 'gpu_precision', 'float32'),
+            verbose=getattr(args, 'verbose', False)
+        )
+        print(f"[DEBUG] Created scoring function: {type(scoring_function).__name__}")
+        return scoring_function
+
+    except Exception as e:
+        print("[ERROR] Could not initialize physics-based scoring:", str(e))
+        print("Warning: Physics-based modules not available. Some features will be disabled.")
         return CompositeScoringFunction()
-    elif scoring_type == 'enhanced':
-        return EnhancedScoringFunction()
-    elif scoring_type == 'physics':
-        try:
-            from .physics import PhysicsBasedScoring
-            return PhysicsBasedScoring()
-        except ImportError:
-            print("Physics-based scoring not available. Using enhanced scoring instead.")
-            return EnhancedScoringFunction()
-    else:
-        print(f"Unknown scoring type: {scoring_type}. Using enhanced scoring.")
-        return EnhancedScoringFunction()    
-    
-
-
 def create_optimized_search_algorithm(manager, algorithm_type, scoring_function, **kwargs):
     """
     Create an optimized search algorithm based on available hardware.
     """
     # Extract grid-related settings from kwargs
-    grid_spacing = kwargs.pop('grid_spacing', 1.0)  # Remove grid_spacing from kwargs
+    grid_spacing = kwargs.pop('grid_spacing', 0.375)  # Remove grid_spacing from kwargs
 
     # Standard algorithm types
     if algorithm_type == 'genetic':
@@ -190,6 +156,19 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
             kwargs.pop('grid_spacing', None)
             kwargs.pop('grid_center', None)
             kwargs.pop('use_spherical_grid', None)
+           
+            # Remove unsupported 'n_steps' argument if present
+            kwargs.pop('n_steps', None)
+            kwargs.pop('temperature', None)
+            kwargs.pop('cooling_factor', None)
+            kwargs.pop('high_temp', None)
+            kwargs.pop('target_temp', None)
+            kwargs.pop('num_conformers', None)
+            kwargs.pop('num_orientations', None)
+            kwargs.pop('md_steps', None)
+            kwargs.pop('minimize_steps', None)
+            kwargs.pop('use_grid', None)
+                
             return ParallelGeneticAlgorithm(
                 scoring_function=scoring_function,
                 grid_spacing=grid_spacing,  # Pass grid_spacing explicitly
@@ -223,7 +202,7 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
             
     elif algorithm_type == 'monte-carlo':
         try:
-            from .physics import MonteCarloSampling
+            from .unified_scoring import MonteCarloSampling
              # Remove unsupported kwargs for this algorithm
             kwargs.pop('grid_radius', None)
             kwargs.pop('grid_spacing', None)
@@ -233,6 +212,8 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
             kwargs.pop('workload_balance', None)            
             kwargs.pop('num_processes', None)
             kwargs.pop('output_dir', None)
+            kwargs.pop('mc_steps', None)
+            kwargs.pop('temperature', None)
             return MonteCarloSampling(
                 scoring_function=scoring_function,
                 **kwargs

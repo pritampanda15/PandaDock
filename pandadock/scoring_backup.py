@@ -1,4 +1,4 @@
-# scoring_physics_improved.py
+# scoring.py
 import numpy as np
 from scipy.spatial.distance import cdist
 
@@ -140,7 +140,7 @@ class ScoringFunction:
         }
         
         # Constants for desolvation
-        self.solpar = 0.005   # Reduced from 0.01097 kcal/mol per Å²
+        self.solpar = 0.005   # FIXED: Set to same value as GPU version (0.005)
         self.solvation_k = 3.5  # Å, solvation radius
         
         # Distance cutoffs
@@ -149,7 +149,10 @@ class ScoringFunction:
         self.elec_cutoff = 20.0  # Å for electrostatics
         self.desolv_cutoff = 8.0  # Å for desolvation
         self.hydrophobic_cutoff = 4.5  # Å for hydrophobic interactions
-    
+        
+        # Add verbose flag for debugging
+        self.verbose = False
+
     def score(self, protein, ligand):
         """
         Calculate binding score between protein and ligand.
@@ -192,6 +195,54 @@ class ScoringFunction:
         
         # Default fallback
         return default
+    
+    # Rest of the methods remain unchanged...
+
+    def _calculate_entropy(self, ligand, protein=None):
+        """
+        Estimate entropy penalty based on ligand flexibility using physics-based approach.
+        """
+        # ADDED: Support for protein parameter to match GPU implementation
+        n_rotatable = len(getattr(ligand, 'rotatable_bonds', []))
+        n_atoms = len(ligand.atoms)
+        flexibility = self._estimate_pose_restriction(ligand, protein)
+        entropy_penalty = 0.5 * n_rotatable * flexibility * (1.0 + 0.05 * n_atoms)
+        return entropy_penalty
+    
+    def _estimate_pose_restriction(self, ligand, protein=None):
+        """
+        Estimate pose-specific conformational restriction.
+        Returns a factor between 0 (fully restricted) and 1 (fully flexible).
+        Currently based on fraction of ligand atoms buried in protein.
+        
+        Parameters:
+        -----------
+        ligand : Ligand
+        protein : Protein (optional)
+        
+        Returns:
+        --------
+        float : Restriction factor (0.0 to 1.0)
+        """
+        if not protein or not hasattr(protein, 'active_site'):
+            return 0.5  # Fallback if no protein info
+
+        ligand_coords = np.array([atom['coords'] for atom in ligand.atoms])
+        protein_coords = np.array([atom['coords'] for atom in protein.active_site['atoms']])
+
+        # Compute pairwise distances
+        from scipy.spatial import cKDTree
+        kdtree = cKDTree(protein_coords)
+        close_contacts = kdtree.query_ball_point(ligand_coords, r=4.0)  # 4Å cutoff
+
+        buried_atoms = sum(1 for contacts in close_contacts if len(contacts) > 0)
+        burial_fraction = buried_atoms / len(ligand.atoms)
+
+        # Heuristic: more burial → more restriction
+        flexibility_factor = 1.0 - burial_fraction  # 0 = buried, 1 = exposed
+
+        # Clamp to [0.1, 1.0] for numerical stability
+        return max(0.1, min(1.0, flexibility_factor))
     
     def _calculate_vdw_physics(self, protein_atoms, ligand_atoms):
         """
@@ -517,23 +568,7 @@ class ScoringFunction:
         
         return hydrophobic_score
     
-    def _calculate_entropy(self, ligand):
-        """
-        Estimate entropy penalty based on ligand flexibility using physics-based approach.
-        """
-        # Detailed entropy term based on rotatable bonds and molecule size
-        if hasattr(ligand, 'rotatable_bonds'):
-            n_rotatable = len(ligand.rotatable_bonds)
-            # Scale based on number of atoms (larger molecules have more internal modes)
-            n_atoms = len(ligand.atoms)
-            # Physics-based relationship between conformational entropy and rotatable bonds
-            entropy_penalty = 0.5 * n_rotatable * (1.0 + 0.05 * n_atoms)
-        else:
-            # Rough estimate based on number of atoms if rotatable bonds not defined
-            n_atoms = len(ligand.atoms)
-            entropy_penalty = 0.1 * n_atoms
-        
-        return entropy_penalty
+
 
 
 class VdwScoringFunction(ScoringFunction):
@@ -578,14 +613,14 @@ class CompositeScoringFunction(ScoringFunction):
         
         # Calibrated weights
         self.weights = {
-            'vdw': 1.0,
-            'hbond': 1.0,
-            'elec': 1.0,
-            'desolv': 1.0,
-            'hydrophobic': 1.0,
-            'clash': 5.0,  # ⬅️ Increase clash weight to strengthen repulsion
-            'entropy': 0.25
-    }
+            'vdw': 0.3,           # Increased from 0.1662
+            'hbond': 0.2,         # Increased from 0.1209
+            'elec': 0.2,          # Increased from 0.1406
+            'desolv': 0.005,       # Decreased from 0.1322 to reduce domination
+            'hydrophobic': 0.2,   # Increased from 0.1418  
+            'clash': 1.0,         # Kept the same
+            'entropy': 0.25       # Slightly decreased from 0.2983
+        }
 
     
     def score(self, protein, ligand):
@@ -603,7 +638,7 @@ class CompositeScoringFunction(ScoringFunction):
         desolv_score = self._calculate_desolvation_physics(protein_atoms, ligand.atoms)
         hydrophobic_score = self._calculate_hydrophobic_physics(protein_atoms, ligand.atoms)
         clash_score = self._calculate_clashes_physics(protein_atoms, ligand.atoms)
-        entropy_score = self._calculate_entropy(ligand)
+        entropy_score = self._calculate_entropy(ligand, protein)
         
         # Combine scores
         total_score = (
@@ -661,16 +696,18 @@ class EnhancedScoringFunction(CompositeScoringFunction):
     def __init__(self):
         super().__init__()
         
-        # Improved physics-based calibrated weights for better balance
+        # FIXED: Set weights to match GPU version
         self.weights = {
-            'vdw': 0.3,           # Increased from 0.1662
-            'hbond': 0.2,         # Increased from 0.1209
-            'elec': 0.2,          # Increased from 0.1406
-            'desolv': 0.05,       # Decreased from 0.1322 to reduce domination
-            'hydrophobic': 0.2,   # Increased from 0.1418  
-            'clash': 1.0,         # Kept the same
-            'entropy': 0.25       # Slightly decreased from 0.2983
+            'vdw': 0.3,           
+            'hbond': 0.2,         
+            'elec': 0.2,          
+            'desolv': 0.005,      # FIXED: Changed from 0.1322 to 0.005 to match GPU
+            'hydrophobic': 0.2,   
+            'clash': 1.0,         
+            'entropy': 0.25       
         }
+        # Add verbose flag for debugging
+        self.verbose = False
     
     def score(self, protein, ligand):
         """Calculate full physics-based composite score."""
@@ -687,7 +724,7 @@ class EnhancedScoringFunction(CompositeScoringFunction):
         desolv_score = self._calculate_desolvation_physics(protein_atoms, ligand.atoms)
         hydrophobic_score = self._calculate_hydrophobic_physics(protein_atoms, ligand.atoms)
         clash_score = self._calculate_clashes_physics(protein_atoms, ligand.atoms)
-        entropy_score = self._calculate_entropy(ligand)
+        entropy_score = self._calculate_entropy(ligand, protein)  # Pass protein parameter
         
         # Combine scores with improved physics-based weights
         total_score = (
@@ -699,6 +736,13 @@ class EnhancedScoringFunction(CompositeScoringFunction):
             self.weights['clash'] * clash_score +
             self.weights['entropy'] * entropy_score
         )
+        
+        # ADDED: Print component values for debugging
+        if self.verbose:
+            print(f"CPU Components: VDW: {vdw_score:.2f}, H-bond: {hbond_score:.2f}, Elec: {elec_score:.2f}, "
+                 f"Desolv: {desolv_score:.2f}, Hydrophobic: {hydrophobic_score:.2f}, "
+                 f"Clash: {clash_score:.2f}, Entropy: {entropy_score:.2f}")
+            print(f"CPU Total: {total_score:.2f}")
         
         return total_score
 
@@ -725,7 +769,7 @@ class TetheredScoringFunction:
         # Apply RMSD penalty, capped at max_penalty
         rmsd_penalty = min(self.weight * rmsd, self.max_penalty)
         base_score += self.weights['clash'] * self._calculate_clashes(protein, ligand)
-        base_score += self.weights['entropy'] * self._calculate_entropy(ligand)
+        base_score += self.weights['entropy'] * self._calculate_entropy(ligand, protein)
         
         # Print score breakdown if debug is enabled
         if self.debug:

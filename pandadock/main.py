@@ -17,6 +17,9 @@ from .utils import (
     update_status,
     save_intermediate_result
 )
+from .unified_scoring import PhysicsScoringFunction
+from pandadock.unified_scoring import create_scoring_function
+
 from .preparation import prepare_protein, prepare_ligand
 from .reporting import DockingReporter
 from .validation import validate_against_reference
@@ -40,11 +43,16 @@ __all__ = ['__version__', 'add_hardware_options', 'configure_hardware',
 # Import physics-based algorithms
 try:
     from .physics import (MMFFMinimization, MonteCarloSampling, PhysicsBasedScoring, GeneralizedBornSolvation)
+    from .unified_scoring import PhysicsScoringFunction, EnhancedPhysicsScoringFunction
+    from .search import MMFFMinimization, MonteCarloSampling
+    from .search import GeneralizedBornSolvation
+    from .search import PhysicsBasedScoring
+    from .search import EnhancedPhysicsScoringFunction
     __all__ = ['__version__', 'MMFFMinimization', 'GeneralizedBornSolvation', 'MonteCarloSampling', 'PhysicsBasedScoring']
     PHYSICS_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     PHYSICS_AVAILABLE = False
-    print("Warning: Physics-based modules not available. Some features will be disabled.")
+    print(f"Warning: Physics-based modules not available. Some features will be disabled. Reason: {e}")
 
 def check_for_updates(logger):
     """Check for newer versions of PandaDock on PyPI and notify user if available."""
@@ -743,7 +751,7 @@ def main():
             update_status(output_dir, scoring_function="physics-based")
         else:
             # Use hardware-optimized scoring function
-            scoring_function = create_optimized_scoring_function(hybrid_manager, scoring_type)
+            scoring_function = create_optimized_scoring_function(scoring_type)
             
             if scoring_type == 'enhanced':
                 logger.info("\nUsing enhanced scoring function with hardware acceleration")
@@ -823,12 +831,20 @@ def main():
         # Run the appropriate docking algorithm
         if args.reference and args.tethered_docking:
             logger.info(f"Using tethered reference-based docking with weight {args.tether_weight}...")
-            all_results = search_algorithm.exact_reference_docking_with_tethering(
-                protein,
-                ligand,
+            from .unified_scoring import create_scoring_function, TetheredScoringFunction
+    
+            # Create base scoring function
+            base_function = create_scoring_function(
+                use_gpu=args.use_gpu,
+                physics_based=args.physics_based,
+                enhanced=args.enhanced_scoring
+            )
+            
+            # Wrap with tethered scoring
+            scoring_function = TetheredScoringFunction(
+                base_function,
                 reference_ligand,
-                tether_weight=args.tether_weight,
-                skip_optimization=not args.local_opt # Skip if local_opt is FALSE
+                weight=args.tether_weight
             )
         elif args.reference and args.exact_alignment:
             logger.info(f"Using exact alignment with reference structure...")

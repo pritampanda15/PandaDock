@@ -10,6 +10,7 @@ import multiprocessing as mp
 import warnings
 import numpy as np
 from pathlib import Path
+from .unified_scoring import create_scoring_function
 
 try:
     import torch
@@ -425,14 +426,15 @@ class HybridDockingManager:
         
         return n_gpu_tasks, n_cpu_tasks
     
-    def prepare_gpu_scoring_function(self, scoring_function_class, **kwargs):
+    
+    def prepare_gpu_scoring_function(self, scoring_function_class=None, **kwargs):
         """
         Prepare a GPU-accelerated scoring function.
         
         Parameters:
         -----------
-        scoring_function_class : class
-            Scoring function class to use (e.g., GPUAcceleratedScoringFunction)
+        scoring_function_class : class, optional
+            Scoring function class to use (ignored when using unified scoring)
         **kwargs : dict
             Additional arguments to pass to the scoring function
         
@@ -443,26 +445,16 @@ class HybridDockingManager:
         """
         if not self.has_gpu:
             print("Warning: No GPU available. Using CPU scoring function.")
-            from .scoring import EnhancedScoringFunction
-            return EnhancedScoringFunction()
+            return create_scoring_function(use_gpu=False, enhanced=True)
         
-        try:
-            # Determine best backend
-            if self.gpu_manager.backend == "pytorch":
-                device = "cuda"
-            elif self.gpu_manager.backend == "cupy":
-                device = "cuda"
-            else:
-                device = "cpu"
-            
-            # Create instance with appropriate device
-            return scoring_function_class(device=device, **kwargs)
+        # Determine best backend
+        if self.gpu_manager.backend == "pytorch" or self.gpu_manager.backend == "cupy":
+            device = "cuda"
+        else:
+            device = "cpu"
         
-        except Exception as e:
-            print(f"Error initializing GPU scoring function: {e}")
-            print("Falling back to CPU scoring function")
-            from .scoring import EnhancedScoringFunction
-            return EnhancedScoringFunction()
+        # Create and return scoring function
+        return create_scoring_function(use_gpu=True, device=device, enhanced=True)
     
     def prepare_search_algorithm(self, algorithm_type, scoring_function, **kwargs):
         """
@@ -553,8 +545,8 @@ class HybridDockingManager:
                 GPUAcceleratedScoringFunction
             )
         else:
-            from .scoring import EnhancedScoringFunction
-            scoring_function = EnhancedScoringFunction()
+            from .unified_scoring import create_scoring_function
+            scoring_function = create_scoring_function(use_gpu=False, enhanced=True)
         
         # Prepare search algorithm
         search_algorithm = self.prepare_search_algorithm(

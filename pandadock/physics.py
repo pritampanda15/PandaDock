@@ -487,6 +487,23 @@ class GeneralizedBornSolvation:
         
         # Scale factor for Born radii calculations
         self.scale_factor = 0.8
+
+        self.atom_solvation = {
+            'C': 0.4,
+            'N': -1.5,
+            'O': -1.5,
+            'S': -0.8,
+            'P': -0.7,
+            'F': -0.5,
+            'Cl': -0.1,
+            'Br': -0.1,
+            'I': -0.1,
+            'H': 0.0
+        }
+        
+        # Constants
+        self.solpar = 0.005  # Updated from 0.05 to 0.005
+        self.solvation_k = 3.5  # Solvation radius in Å
     
     def calculate_solvation_free_energy(self, molecule, molecule_type='ligand'):
         """
@@ -983,6 +1000,9 @@ class PhysicsBasedScoring:
             print("INFO - Physics-based scoring initialized with GPU")
         else:
             print("INFO - Physics-based scoring initialized without GPU")
+        
+        # Define hydrophobic atom types
+        self.hydrophobic_types = {'C', 'F', 'I', 'Br', 'Cl', 'S'}
 
         # Initialize physical models
         from .physics import ImprovedElectrostatics, GeneralizedBornSolvation
@@ -991,13 +1011,13 @@ class PhysicsBasedScoring:
 
         # Component weights (modifiable)
         self.weights = {
-            'vdw': 1.0,
-            'hbond': 1.0,
-            'elec': 1.0,
-            'desolv': 1.0,
-            'hydrophobic': 1.0,
-            'clash': 0.5,
-            'entropy': 0.2
+            'vdw': 0.3,           # Increased from 0.1662
+            'hbond': 0.2,         # Increased from 0.1209
+            'elec': 0.2,          # Increased from 0.1406
+            'desolv': 0.005,       # Decreased from 0.1322 to reduce domination
+            'hydrophobic': 0.2,   # Increased from 0.1418  
+            'clash': 1.0,         # Kept the same
+            'entropy': 0.25       # Slightly decreased from 0.2983
         }
 
         # Parameters
@@ -1010,6 +1030,8 @@ class PhysicsBasedScoring:
         self.hbond_strength = 5.0
         self.hbond_distance = 3.0
         self.entropy_per_rot_bond = 0.4
+        self.entropy_per_nonrot_bond = 0.2
+
 
     def score(self, protein, ligand):
         if protein.active_site and 'atoms' in protein.active_site:
@@ -1023,13 +1045,19 @@ class PhysicsBasedScoring:
         desolv = self.solvation.calculate_binding_solvation(protein, ligand)
         entropy = self._calc_entropy_penalty(ligand)
         clash = self._calc_clash_energy(protein_atoms, ligand.atoms)
+        hydrophobic = self._calc_hydrophobic_interactions(protein_atoms, ligand.atoms)
+
+
+        non_rotatable_bonds = len(getattr(ligand, 'non_rotatable_bonds', []))
+        entropy_penalty = non_rotatable_bonds * self.entropy_per_nonrot_bond
 
         total = (
             self.weights['vdw'] * vdw +
             self.weights['hbond'] * hbond +
             self.weights['elec'] * elec +
             self.weights['desolv'] * desolv +
-            self.weights['entropy'] * entropy +
+            self.weights['entropy'] * (entropy + entropy_penalty) +
+            self.weights['hydrophobic'] * hydrophobic +
             self.weights['clash'] * clash
         )
         return total
@@ -1080,9 +1108,48 @@ class PhysicsBasedScoring:
                     e += -self.hbond_strength * f**2
         return e
 
-    def _calc_entropy_penalty(self, ligand):
-        n_rot = len(ligand.rotatable_bonds) if hasattr(ligand, 'rotatable_bonds') else                 sum(1 for b in ligand.bonds if b.get('is_rotatable', False))
-        return n_rot * self.entropy_per_rot_bond
+    def _calc_entropy_penalty(self, ligand, protein=None):
+        n_rotatable = len(getattr(ligand, 'rotatable_bonds', []))
+        n_atoms = len(ligand.atoms)
+        flexibility = self._estimate_pose_restriction(ligand, protein)
+        entropy_penalty = 0.5 * n_rotatable * flexibility * (1.0 + 0.05 * n_atoms)
+        return entropy_penalty
+
+    
+    def _estimate_pose_restriction(self, ligand, protein=None):
+        """
+        Estimate pose-specific conformational restriction.
+        Returns a factor between 0 (fully restricted) and 1 (fully flexible).
+        Currently based on fraction of ligand atoms buried in protein.
+        
+        Parameters:
+        -----------
+        ligand : Ligand
+        protein : Protein (optional)
+        
+        Returns:
+        --------
+        float : Restriction factor (0.0 to 1.0)
+        """
+        if not protein or not hasattr(protein, 'active_site'):
+            return 0.5  # Fallback if no protein info
+
+        ligand_coords = np.array([atom['coords'] for atom in ligand.atoms])
+        protein_coords = np.array([atom['coords'] for atom in protein.active_site['atoms']])
+
+        # Compute pairwise distances
+        from scipy.spatial import cKDTree
+        kdtree = cKDTree(protein_coords)
+        close_contacts = kdtree.query_ball_point(ligand_coords, r=4.0)  # 4Å cutoff
+
+        buried_atoms = sum(1 for contacts in close_contacts if len(contacts) > 0)
+        burial_fraction = buried_atoms / len(ligand.atoms)
+
+        # Heuristic: more burial → more restriction
+        flexibility_factor = 1.0 - burial_fraction  # 0 = buried, 1 = exposed
+
+        # Clamp to [0.1, 1.0] for numerical stability
+        return max(0.1, min(1.0, flexibility_factor))
 
     def _calc_clash_energy(self, protein_atoms, ligand_atoms, cutoff=2.0, penalty=5.0):
         count = 0
@@ -1093,7 +1160,53 @@ class PhysicsBasedScoring:
         energy = min(count * penalty, 100.0)
         return max(energy, 0.0)
 
+    def _calc_hydrophobic_interactions(self, protein_atoms, ligand_atoms, cutoff=4.5):
+        """Calculate hydrophobic interactions between hydrophobic atoms."""
+        score = 0.0
+        
+        # Identify hydrophobic atoms
+        p_hydrophobic = [a for a in protein_atoms if a.get('element', a.get('name', 'C'))[0] in self.hydrophobic_types]
+        l_hydrophobic = [a for a in ligand_atoms if a.get('symbol', 'C') in self.hydrophobic_types]
+        
+        # Calculate interactions
+        for p in p_hydrophobic:
+            p_coords = p['coords']
+            for l in l_hydrophobic:
+                l_coords = l['coords']
+                dist = np.linalg.norm(np.array(p_coords) - np.array(l_coords))
+                
+                if dist <= cutoff:
+                    contact_score = (cutoff - dist) / cutoff
+                    score += contact_score
+        
+        # Apply capping
+        max_hydrophobic = 200.0
+        capped_score = min(score, max_hydrophobic)
+        
+        return capped_score
 
+            # Standardized energy component interfaces for compatibility with reporter
+    def _calculate_vdw_energy(self, protein_atoms, ligand_atoms):
+        return self._calculate_vdw_physics(protein_atoms, ligand_atoms)
+
+    def _calculate_hbond_energy(self, protein_atoms, ligand_atoms, protein=None, ligand=None):
+        return self._calculate_hbond_physics(protein_atoms, ligand_atoms, protein, ligand)
+
+    def _calculate_electrostatics_energy(self, protein_atoms, ligand_atoms):
+        return self._calculate_electrostatics_physics(protein_atoms, ligand_atoms)
+
+    def _calculate_desolvation_energy(self, protein_atoms, ligand_atoms):
+        return self._calculate_desolvation_physics(protein_atoms, ligand_atoms)
+
+    def _calculate_hydrophobic_energy(self, protein_atoms, ligand_atoms):
+        return self._calculate_hydrophobic_physics(protein_atoms, ligand_atoms)
+
+    def _calculate_clashes_energy(self, protein_atoms, ligand_atoms):
+        return self._calculate_clash_physics(protein_atoms, ligand_atoms)
+
+    def _calculate_entropy(self, ligand, protein=None):
+        return self._calculate_entropy_penalty(ligand, protein)
+        
 class PhysicsBasedScoringFunction(PhysicsBasedScoring):
     """
     Physics-based scoring function using calibrated energy terms and parameters.
@@ -1105,12 +1218,13 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
         
         # Override with physics-based calibrated weights
         self.weights = {
-            'vdw': 0.1662,           # Van der Waals weight
-            'hbond': 0.1209,         # Hydrogen bond weight
-            'elec': 0.1406,          # Electrostatic weight 
-            'desolv': 0.1322,        # Desolvation weight
-            'entropy': 0.2983,       # Torsional entropy weight
-            'clash': 1.0             # Keep clash detection
+            'vdw': 0.3,           # Increased from 0.1662
+            'hbond': 0.2,         # Increased from 0.1209
+            'elec': 0.2,          # Increased from 0.1406
+            'desolv': 0.005,       # Decreased from 0.1322 to reduce domination
+            'hydrophobic': 0.2,   # Increased from 0.1418  
+            'clash': 1.0,         # Kept the same
+            'entropy': 0.25       # Slightly decreased from 0.2983
         }
         
         # Extended atom type parameters for more precise interactions
@@ -1188,20 +1302,20 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
         
         # Atomic solvation parameters (kcal/mol·Å²)
         self.atom_solvation_params = {
-            'C': 12.77,
-            'A': 12.77,  # Aromatic carbon
-            'N': -17.40,
-            'NA': -17.40,
-            'O': -17.40,
-            'OA': -17.40,
-            'S': -8.31,
-            'SA': -8.31,
-            'H': 0.0,
-            'F': -6.60,
-            'Cl': -0.72,
-            'Br': -0.85,
-            'I': -0.88,
-            'P': -6.70,
+            'C': 0.4,    # Reduced from 12.77
+            'A': 0.4,    # Reduced from 12.77
+            'N': -1.5,   # Less negative from -17.40
+            'NA': -1.5,  # Less negative
+            'O': -1.5,   # Less negative from -17.40
+            'OA': -1.5,  # Less negative
+            'S': -0.8,   # Less negative from -8.31
+            'SA': -0.8,  # Less negative
+            'H': 0.0,    # Unchanged
+            'F': -0.5,   # Less negative from -6.60
+            'Cl': -0.1,  # Slightly adjusted from -0.72
+            'Br': -0.1,  # Slightly adjusted from -0.85
+            'I': -0.1,   # Slightly adjusted from -0.88
+            'P': -0.7,   # Less negative from -6.70
         }
         
         # Atom volume parameters (Å³)
@@ -1223,7 +1337,7 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
         }
         
         # Constants for desolvation
-        self.solpar = 0.01097   # kcal/mol per Å²
+        self.solpar = 0.005   # kcal/mol per Å²
         self.solvation_k = 3.5  # Å, solvation radius
         
         # Distance cutoffs
@@ -1272,7 +1386,9 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
         hbond_energy = self._calculate_hbond_physics(protein_atoms, ligand_atoms, protein, ligand)
         elec_energy = self._calculate_electrostatics_physics(protein_atoms, ligand_atoms)
         desolv_energy = self._calculate_desolvation_physics(protein_atoms, ligand_atoms)
-        entropy_energy = self._calculate_entropy(ligand)
+        entropy_energy = self._calculate_entropy(ligand_atoms, protein_atoms)
+        hydrophobic = self._calc_hydrophobic_interactions(protein_atoms, ligand.atoms)
+        clash = self._calculate_clashes_physics(protein_atoms, ligand_atoms, protein, ligand)
         
         # Combine scores with calibrated weights
         total_score = (
@@ -1280,7 +1396,9 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
             self.weights['hbond'] * hbond_energy +
             self.weights['elec'] * elec_energy +
             self.weights['desolv'] * desolv_energy +
-            self.weights['entropy'] * entropy_energy
+            self.weights['entropy'] * entropy_energy +
+            self.weights['clash'] *  clash +
+            self.weights['hydrophobic'] * hydrophobic
         )
         
         return total_score
@@ -1516,7 +1634,136 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
                 # Calculate desolvation energy (volume-weighted)
                 desolv_term = (self.solpar * p_solv * l_vol + 
                               self.solpar * l_solv * p_vol) * exp_term
+                desolv_term = np.sign(desolv_term) * min(abs(desolv_term), 5.0)
                 
                 desolv_energy += desolv_term
         
         return desolv_energy
+    def _calculate_hydrophobic_physics(self, protein_atoms, ligand_atoms):
+        """Calculate hydrophobic interactions between hydrophobic atoms."""
+        score = 0.0
+        cutoff = 4.5  # Hydrophobic interaction cutoff
+        
+        # Identify hydrophobic atoms
+        p_hydrophobic = [a for a in protein_atoms if self._get_atom_type(a) in self.hydrophobic_types]
+        l_hydrophobic = [a for a in ligand_atoms if self._get_atom_type(a) in self.hydrophobic_types]
+        
+        # Calculate interactions
+        for p in p_hydrophobic:
+            p_coords = p['coords']
+            for l in l_hydrophobic:
+                l_coords = l['coords']
+                dist = np.linalg.norm(np.array(p_coords) - np.array(l_coords))
+                
+                if dist <= cutoff:
+                    contact_score = (cutoff - dist) / cutoff
+                    score += contact_score
+        
+        # Apply capping
+        max_hydrophobic = 200.0
+        capped_score = min(score, max_hydrophobic)
+        
+        return capped_score
+    
+    def _calculate_clashes_energy(self, protein_atoms, ligand_atoms):
+        """Calculate steric clashes between protein and ligand atoms."""
+        clash_energy = 0.0
+        cutoff = 2.0  # Clash distance cutoff
+        penalty = 5.0  # Clash penalty factor
+        
+        # Count clashes
+        count = 0
+        for p in protein_atoms:
+            p_coords = p['coords']
+            p_type = self._get_atom_type(p)
+            p_radius = self.vdw_radii.get(p_type[0], 1.7)
+            
+            for l in ligand_atoms:
+                l_coords = l['coords']
+                l_type = self._get_atom_type(l)
+                l_radius = self.vdw_radii.get(l_type[0], 1.7)
+                
+                # Calculate distance
+                dist = np.linalg.norm(np.array(p_coords) - np.array(l_coords))
+                
+                # Calculate minimum allowed distance (70% of sum of vdW radii)
+                min_allowed = (p_radius + l_radius) * 0.7
+                
+                if dist < min_allowed:
+                    count += 1
+        
+        # Apply penalty and capping
+        clash_energy = count * penalty
+        max_clash = 100.0
+        capped_clash = min(clash_energy, max_clash)
+        
+        return capped_clash
+    
+    
+
+    
+    def _calculate_entropy_penalty(self, ligand, protein=None):
+        n_rotatable = len(getattr(ligand, 'rotatable_bonds', []))
+        n_atoms = len(ligand)
+        flexibility = self._estimate_pose_restriction(ligand, protein)
+        entropy_penalty = 0.5 * n_rotatable * flexibility * (1.0 + 0.05 * n_atoms)
+        return entropy_penalty
+
+    
+    def _estimate_pose_restriction(self, ligand, protein=None):
+        """
+        Estimate pose-specific conformational restriction.
+        Returns a factor between 0 (fully restricted) and 1 (fully flexible).
+        Currently based on fraction of ligand atoms buried in protein.
+        
+        Parameters:
+        -----------
+        ligand : Ligand
+        protein : Protein (optional)
+        
+        Returns:
+        --------
+        float : Restriction factor (0.0 to 1.0)
+        """
+        if not protein or not hasattr(protein, 'active_site'):
+            return 0.5  # Fallback if no protein info
+
+        ligand_coords = np.array([atom['coords'] for atom in ligand.atoms])
+        protein_coords = np.array([atom['coords'] for atom in protein.active_site['atoms']])
+
+        # Compute pairwise distances
+        from scipy.spatial import cKDTree
+        kdtree = cKDTree(protein_coords)
+        close_contacts = kdtree.query_ball_point(ligand_coords, r=4.0)  # 4Å cutoff
+
+        buried_atoms = sum(1 for contacts in close_contacts if len(contacts) > 0)
+        burial_fraction = buried_atoms / len(ligand.atoms)
+
+        # Heuristic: more burial → more restriction
+        flexibility_factor = 1.0 - burial_fraction  # 0 = buried, 1 = exposed
+
+        # Clamp to [0.1, 1.0] for numerical stability
+        return max(0.1, min(1.0, flexibility_factor))
+
+
+        # Standardized energy component interfaces for compatibility with reporter
+    def _calculate_vdw_energy(self, protein_atoms, ligand_atoms):
+        return self._calculate_vdw_physics(protein_atoms, ligand_atoms)
+
+    def _calculate_hbond_energy(self, protein_atoms, ligand_atoms, protein=None, ligand=None):
+        return self._calculate_hbond_physics(protein_atoms, ligand_atoms, protein, ligand)
+
+    def _calculate_electrostatics_energy(self, protein_atoms, ligand_atoms):
+        return self._calculate_electrostatics_physics(protein_atoms, ligand_atoms)
+
+    def _calculate_desolvation_energy(self, protein_atoms, ligand_atoms):
+        return self._calculate_desolvation_physics(protein_atoms, ligand_atoms)
+
+    def _calculate_hydrophobic_energy(self, protein_atoms, ligand_atoms):
+        return self._calculate_hydrophobic_physics(protein_atoms, ligand_atoms)
+
+    def _calculate_clashes_energy(self, protein_atoms, ligand_atoms):
+        return self._calculate_clash_physics(protein_atoms, ligand_atoms)
+
+    def _calculate_entropy(self, ligand, protein=None):
+        return self._calculate_entropy_penalty(ligand, protein)

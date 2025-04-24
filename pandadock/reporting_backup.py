@@ -8,21 +8,12 @@ including energy breakdowns, RMSD calculations, and visualization capabilities.
 import os
 import json
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')  # Use a non-interactive backend for plotting
 import matplotlib.pyplot as plt
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
 from tabulate import tabulate
 import csv
-from typing import List, Dict, Any
-from collections import defaultdict
-from datetime import timedelta
-from pathlib import Path
-import seaborn as sns
-from .utils import save_docking_results
-from .utils import save_complex_to_pdb
 
 
 class EnhancedJSONEncoder(json.JSONEncoder):
@@ -113,6 +104,7 @@ class DockingReporter:
         # If detailed energy information is provided, store it
         if detailed_energy:
             self.scoring_breakdown = detailed_energy
+            print(f"DEBUG - Scoring breakdown stored: {self.scoring_breakdown}")
         
         # Sort results by score if not already sorted
         self.results.sort(key=lambda x: x[1])
@@ -127,75 +119,11 @@ class DockingReporter:
             Validation results from comparing to a reference structure
         """
         self.validation_results = validation_results
-    
-
-    def get_component_scores(self, protein, ligand):
-        """
-        Returns a dictionary with all energy components for the given pose.
-        Works for all scoring function types.
         
-        Parameters:
-        -----------
-        protein : Protein
-            Protein object
-        ligand : Ligand
-            Ligand object
-        
-        Returns:
-        --------
-        dict
-            Dictionary with energy component names and values
-        """
-        components = {}
-        
-        # Get protein atoms
-        protein_atoms = protein.active_site.get('atoms', protein.atoms) if hasattr(protein, 'active_site') else protein.atoms
-        
-        # Try to calculate each component
-        try:
-            # Van der Waals
-            if hasattr(self, '_calculate_vdw'):
-                components['Van der Waals'] = self._calculate_vdw(protein, ligand)
-            elif hasattr(self, '_calculate_vdw_energy'):
-                components['Van der Waals'] = self._calculate_vdw_energy(protein_atoms, ligand.atoms)
-            
-            # H-Bond
-            if hasattr(self, '_calculate_hbond'):
-                components['H-Bond'] = self._calculate_hbond(protein, ligand)
-            elif hasattr(self, '_calculate_hbond_energy'):
-                components['H-Bond'] = self._calculate_hbond_energy(protein_atoms, ligand.atoms)
-            
-            # Electrostatic
-            if hasattr(self, '_calculate_electrostatics'):
-                components['Electrostatic'] = self._calculate_electrostatics(protein, ligand)
-            
-            # Desolvation
-            if hasattr(self, '_calculate_desolvation'):
-                components['Desolvation'] = self._calculate_desolvation(protein, ligand)
-            
-            # Hydrophobic
-            if hasattr(self, '_calculate_hydrophobic'):
-                components['Hydrophobic'] = self._calculate_hydrophobic(protein, ligand)
-            
-            # Clash
-            if hasattr(self, '_calculate_clashes'):
-                components['Clash'] = self._calculate_clashes(protein, ligand)
-            
-            # Entropy
-            if hasattr(self, '_calculate_entropy'):
-                components['Entropy'] = self._calculate_entropy(ligand)
-            
-            # Calculate total
-            total = sum(components.values())
-            components['Total'] = total
-            
-        except Exception as e:
-            print(f"Error in get_component_scores: {e}")
-        
-        return components
     def extract_energy_components(self, scoring_function, protein, ligand_poses):
         """
-        Enhanced extraction of energy components with robust error handling.
+        Extract detailed energy components for each pose using the available scoring function.
+        This version works with physics-based scoring functions and applies weights correctly.
         
         Parameters:
         -----------
@@ -211,100 +139,230 @@ class DockingReporter:
         list
             List of dictionaries containing energy components for each pose
         """
-        print("Starting enhanced energy component extraction...")
+        print("Starting physics-based energy component extraction...")
         energy_breakdown = []
         
-        # Get scoring function class name
+        # Get the class name of the scoring function for debugging
         scoring_class = scoring_function.__class__.__name__
         print(f"Scoring function class: {scoring_class}")
+        
+        # Check for weights attribute which is required for proper reporting
+        has_weights = hasattr(scoring_function, 'weights')
+        if has_weights:
+            print(f"Scoring function has weights: {scoring_function.weights}")
+        else:
+            print("Warning: Scoring function has no weights attribute")
+            # Create default weights to avoid errors
+            scoring_function.weights = {
+            'vdw': 1.0, 'hbond': 1.0, 'elec': 1.0, 'desolv': 1.0, 
+            'hydrophobic': 1.0, 'clash': 1.0, 'entropy': 1.0
+            } 
         
         # Process each pose
         for i, pose in enumerate(ligand_poses):
             print(f"Processing pose {i+1}/{len(ligand_poses)}")
             components = {}
+            weighted_components = {}
             
-            # Get total score
+            # Get total score first
             total_score = scoring_function.score(protein, pose)
-            components['Total'] = total_score
-            print(f"Total score: {total_score:.2f}")
+            print(f"Total score for pose {i+1}: {total_score:.2f}")
             
-            # Helper function to safely try component calculations
-            def try_component(name, method_names):
-                for method in method_names:
-                    if hasattr(scoring_function, method):
+            # Get protein atoms properly
+            if hasattr(protein, 'active_site') and protein.active_site and 'atoms' in protein.active_site:
+                protein_atoms = protein.active_site['atoms']
+                print(f"Using {len(protein_atoms)} atoms from active site")
+            else:
+                protein_atoms = protein.atoms
+                print(f"Using all {len(protein_atoms)} protein atoms")
+            
+            # Calculate VDW energy
+            vdw_energy = None
+            for method_name in ['_calc_vdw_energy', '_calculate_vdw_physics', '_calculate_vdw_energy']:
+                if hasattr(scoring_function, method_name):
+                    try:
+                        method = getattr(scoring_function, method_name)
+                        vdw_energy = method(protein_atoms, pose.atoms)
+                        components['Van der Waals'] = vdw_energy
+                        weighted_components['Van der Waals'] = vdw_energy * scoring_function.weights.get('vdw', 1.0)
+                        print(f"VDW energy: {vdw_energy:.2f} (weighted: {weighted_components['Van der Waals']:.2f})")
+                        break
+                    except Exception as e:
+                        print(f"Error calculating VDW with {method_name}: {str(e)}")
+            
+            # If no method worked, use placeholder
+            if 'Van der Waals' not in components:
+                components['Van der Waals'] = 0.0
+                weighted_components['Van der Waals'] = 0.0
+            
+            # Similar pattern for H-Bond energy
+            hbond_energy = None
+            for method_name in ['_calc_hbond_energy', '_calculate_hbond_physics', '_calculate_hbond_energy']:
+                if hasattr(scoring_function, method_name):
+                    try:
+                        method = getattr(scoring_function, method_name)
+                        if method_name == '_calculate_hbond_physics':
+                            hbond_energy = method(protein_atoms, pose.atoms, protein, pose)
+                        else:
+                            hbond_energy = method(protein_atoms, pose.atoms)
+                        components['H-Bond'] = hbond_energy
+                        weighted_components['H-Bond'] = hbond_energy * scoring_function.weights.get('hbond', 1.0)
+                        print(f"H-Bond energy: {hbond_energy:.2f} (weighted: {weighted_components['H-Bond']:.2f})")
+                        break
+                    except Exception as e:
+                        print(f"Error calculating H-Bond with {method_name}: {str(e)}")
+            
+            if 'H-Bond' not in components:
+                components['H-Bond'] = 0.0
+                weighted_components['H-Bond'] = 0.0
+            
+            # Electrostatics 
+            elec_energy = None
+            if hasattr(scoring_function, 'electrostatics') and hasattr(scoring_function.electrostatics, 'calculate_electrostatics'):
+                try:
+                    elec_energy = scoring_function.electrostatics.calculate_electrostatics(protein, pose)
+                except Exception as e:
+                    print(f"Error with electrostatics object: {str(e)}")
+            
+            if elec_energy is None:
+                for method_name in ['_calculate_electrostatics_physics', '_calc_electrostatics']:
+                    if hasattr(scoring_function, method_name):
                         try:
-                            method_func = getattr(scoring_function, method)
-                            if method.endswith('_energy') or method.endswith('_physics'):
-                                # Methods taking atom lists
-                                protein_atoms = protein.active_site.get('atoms', protein.atoms) if hasattr(protein, 'active_site') else protein.atoms
-                                value = method_func(protein_atoms, pose.atoms)
-                            elif method == '_calculate_entropy':
-                                # Methods taking only ligand
-                                value = method_func(pose)
-                            else:
-                                # Methods taking protein, ligand
-                                value = method_func(protein, pose)
-                            
-                            components[name] = value
-                            print(f"  {name}: {value:.2f} via {method}")
-                            return True
+                            method = getattr(scoring_function, method_name)
+                            elec_energy = method(protein_atoms, pose.atoms)
+                            break
                         except Exception as e:
-                            print(f"  Error in {name} via {method}: {e}")
-                return False
+                            print(f"Error calculating Electrostatics with {method_name}: {str(e)}")
             
-            # Try to extract all components
-            try_component('Van der Waals', ['_calculate_vdw', '_calculate_vdw_physics', '_calculate_vdw_energy'])
-            try_component('H-Bond', ['_calculate_hbond', '_calculate_hbond_physics', '_calculate_hbond_energy'])
-            try_component('Electrostatic', ['_calculate_electrostatics', '_calculate_electrostatics_physics'])
-            try_component('Desolvation', ['_calculate_desolvation', '_calculate_desolvation_physics'])
-            try_component('Hydrophobic', ['_calculate_hydrophobic', '_calculate_hydrophobic_physics'])
-            try_component('Clash', ['_calculate_clashes', '_calculate_clashes_physics'])
-            try_component('Entropy', ['_calculate_entropy', '_calculate_entropy_penalty'])
+            if elec_energy is not None:
+                components['Electrostatic'] = elec_energy
+                weighted_components['Electrostatic'] = elec_energy * scoring_function.weights.get('elec', 1.0)
+                print(f"Electrostatic energy: {elec_energy:.2f} (weighted: {weighted_components['Electrostatic']:.2f})")
+            else:
+                components['Electrostatic'] = 0.0
+                weighted_components['Electrostatic'] = 0.0
             
-            # If the scoring function has weights, estimate missing components
-            if hasattr(scoring_function, 'weights'):
-                weights = scoring_function.weights
-                
-                # Map component names to weight keys
-                weight_map = {
-                    'Van der Waals': 'vdw',
-                    'H-Bond': 'hbond',
-                    'Electrostatic': 'elec',
-                    'Desolvation': 'desolv',
-                    'Hydrophobic': 'hydrophobic',
-                    'Clash': 'clash',
-                    'Entropy': 'entropy'
-                }
-                
-                # Calculate raw sum of available components (excluding total)
-                raw_sum = sum(components.get(comp, 0) for comp in components if comp != 'Total')
-                
-                # If raw sum is significantly different from total, try to estimate missing components
-                if abs(raw_sum - total_score) > 0.1:
-                    print(f"  Raw sum ({raw_sum:.2f}) differs from total ({total_score:.2f}), estimating missing components")
-                    
-                    # Get weights for missing components
-                    missing_weights = {}
-                    total_missing_weight = 0
-                    
-                    for comp, weight_key in weight_map.items():
-                        if comp not in components and weight_key in weights:
-                            weight = weights[weight_key]
-                            missing_weights[comp] = weight
-                            total_missing_weight += weight
-                    
-                    # Distribute remaining score proportionally by weight
-                    if total_missing_weight > 0:
-                        remaining = total_score - raw_sum
-                        for comp, weight in missing_weights.items():
-                            components[comp] = (weight / total_missing_weight) * remaining
-                            print(f"  Estimated {comp}: {components[comp]:.2f}")
+            # Continue with other energy components similarly...
+            # Desolvation
+            desolv_energy = None
+            # Try with solvation object first
+            if hasattr(scoring_function, 'solvation') and hasattr(scoring_function.solvation, 'calculate_binding_solvation'):
+                try:
+                    desolv_energy = scoring_function.solvation.calculate_binding_solvation(protein, pose)
+                except Exception as e:
+                    print(f"Error with solvation object: {str(e)}")
             
-            # Add to breakdown
-            energy_breakdown.append(components)
-        
+            # Try direct methods if object approach didn't work
+            if desolv_energy is None:
+                for method_name in ['_calculate_desolvation_physics', '_calc_desolvation']:
+                    if hasattr(scoring_function, method_name):
+                        try:
+                            method = getattr(scoring_function, method_name)
+                            desolv_energy = method(protein_atoms, pose.atoms)
+                            break
+                        except Exception as e:
+                            print(f"Error calculating Desolvation with {method_name}: {str(e)}")
+            
+            if desolv_energy is not None:
+                components['Desolvation'] = desolv_energy
+                weighted_components['Desolvation'] = desolv_energy * scoring_function.weights.get('desolv', 1.0)
+                print(f"Desolvation energy: {desolv_energy:.2f} (weighted: {weighted_components['Desolvation']:.2f})")
+            else:
+                components['Desolvation'] = 0.0
+                weighted_components['Desolvation'] = 0.0
+            
+            # Hydrophobic
+            hydrophobic_energy = None
+            for method_name in ['_calculate_hydrophobic_physics', '_calc_hydrophobic_interactions']:
+                if hasattr(scoring_function, method_name):
+                    try:
+                        method = getattr(scoring_function, method_name)
+                        hydrophobic_energy = method(protein_atoms, pose.atoms)
+                        break
+                    except Exception as e:
+                        print(f"Error calculating Hydrophobic with {method_name}: {str(e)}")
+            
+            if hydrophobic_energy is not None:
+                components['Hydrophobic'] = hydrophobic_energy
+                weighted_components['Hydrophobic'] = hydrophobic_energy * scoring_function.weights.get('hydrophobic', 1.0)
+                print(f"Hydrophobic energy: {hydrophobic_energy:.2f} (weighted: {weighted_components['Hydrophobic']:.2f})")
+            else:
+                components['Hydrophobic'] = 0.0
+                weighted_components['Hydrophobic'] = 0.0
+            
+            # Clash
+            clash_energy = None
+            for method_name in ['_calculate_clashes_physics', '_calc_clash_energy']:
+                if hasattr(scoring_function, method_name):
+                    try:
+                        method = getattr(scoring_function, method_name)
+                        clash_energy = method(protein_atoms, pose.atoms)
+                        break
+                    except Exception as e:
+                        print(f"Error calculating Clash with {method_name}: {str(e)}")
+            
+            if clash_energy is not None:
+                components['Clash'] = clash_energy
+                weighted_components['Clash'] = clash_energy * scoring_function.weights.get('clash', 1.0)
+                print(f"Clash energy: {clash_energy:.2f} (weighted: {weighted_components['Clash']:.2f})")
+            else:
+                components['Clash'] = 0.0
+                weighted_components['Clash'] = 0.0
+            
+            # Entropy
+            entropy_energy = None
+            for method_name in ['_calculate_entropy', '_calc_entropy_penalty']:
+                if hasattr(scoring_function, method_name):
+                    try:
+                        method = getattr(scoring_function, method_name)
+                        entropy_energy = method(pose)
+                        break
+                    except Exception as e:
+                        print(f"Error calculating Entropy with {method_name}: {str(e)}")
+            
+            if entropy_energy is not None:
+                components['Entropy'] = entropy_energy
+                weighted_components['Entropy'] = entropy_energy * scoring_function.weights.get('entropy', 1.0)
+                print(f"Entropy energy: {entropy_energy:.2f} (weighted: {weighted_components['Entropy']:.2f})")
+            else:
+                components['Entropy'] = 0.0
+                weighted_components['Entropy'] = 0.0
+            
+            # Add total score
+            components['Total'] = total_score
+            weighted_components['Total'] = total_score
+            
+            # Store both raw and weighted components
+            result = {
+                'raw': components,
+                'weighted': weighted_components
+            }
+            energy_breakdown.append(result)
+            # For any missing components, leave them out rather than estimate
+            missing_components = []
+            for component in ['Van der Waals', 'H-Bond', 'Electrostatic', 'Desolvation', 'Hydrophobic', 'Entropy', 'Clash']:
+                if component not in components:
+                    missing_components.append(component)
+            
+            if missing_components:
+                print(f"Missing components: {missing_components}")
+                # Do not estimate missing components as this leads to errors
+            
+            # Add total score
+            components['Total'] = total_score
+            weighted_components['Total'] = total_score
+            
+            print(f"Total score: {total_score:.2f}")
+            # Store both raw and weighted components
+            result = {
+                'raw': components,
+                'weighted': weighted_components
+            }
+            energy_breakdown.append(result)
+        # After calling extract_energy_components
+            
         return energy_breakdown
-
+        
     
     def generate_basic_report(self):
         """
@@ -368,6 +426,8 @@ class DockingReporter:
         print(f"Basic report written to {report_path}")
         return report_path
     
+    # Fix for the formatting issues in energy breakdown reporting
+
     def generate_detailed_report(self, include_energy_breakdown=True):
         """
         Generate a detailed report for docking results with energy breakdowns.
@@ -469,24 +529,58 @@ class DockingReporter:
             
             # Write energy breakdown if available
             if include_energy_breakdown and self.scoring_breakdown:
+                print(f"DEBUG - Writing energy breakdown: {self.scoring_breakdown}")
                 f.write("ENERGY COMPONENT BREAKDOWN (TOP 10 POSES)\n")
                 f.write("----------------------------------------\n")
                 
-                # Create a header based on first energy breakdown
+                # FIX: Check proper structure of scoring_breakdown
                 if len(self.scoring_breakdown) > 0:
-                    if not self.scoring_breakdown or not isinstance(self.scoring_breakdown[0], dict) or not self.scoring_breakdown[0]:
-                        f.write("No detailed energy components available.\n\n")
-                        return report_path  # or skip this section in HTML
-                    components = list(self.scoring_breakdown[0].keys())
-                    header = "Pose  " + "  ".join([f"{comp[:7]:>8}" for comp in components])
-                    f.write(header + "\n")
-                    f.write("-" * len(header) + "\n")
+                    # Create fixed header
+                    components = ['Van der Waals', 'Entropy', 'H-Bond', 'Electrostatic', 
+                                'Desolvation', 'Hydrophobic', 'Clash', 'Total']
                     
-                    # Write energy breakdown for top poses
-                    for i, energy in enumerate(self.scoring_breakdown[:min(10, len(self.scoring_breakdown))]):
-                        energy_str = f"{i+1:4d}  " + "  ".join([f"{energy[comp]:8.2f}" for comp in components])
-                        f.write(energy_str + "\n")
+                    # Write header line
+                    header = "Pose  " + " ".join([f"{comp[:8]:>10}" for comp in components])
+                    f.write(header + "\n")
+                    
+                    # Write separator line with proper length
+                    separator = "-" * len(header)
+                    f.write(separator + "\n")
+                    
+                    # Write each pose data
+                    for i, breakdown in enumerate(self.scoring_breakdown[:min(10, len(self.scoring_breakdown))]):
+                        # Check for proper structure ('raw' and 'weighted' dictionaries)
+                        if isinstance(breakdown, dict) and 'weighted' in breakdown:
+                            weighted = breakdown['weighted']
+                            
+                            # Get component values with fallbacks to 0.0
+                            row_values = []
+                            for comp in components:
+                                # Find value for this component
+                                value = 0.0
+                                
+                                # Try different key permutations
+                                if comp in weighted:
+                                    value = weighted[comp]
+                                elif comp.lower() in weighted:
+                                    value = weighted[comp.lower()]
+                                elif comp.replace(' ', '') in weighted:
+                                    value = weighted[comp.replace(' ', '')]
+                                elif comp.replace(' ', '_') in weighted:
+                                    value = weighted[comp.replace(' ', '_')]
+                                
+                                row_values.append(value)
+                            
+                            # Format the row
+                            row = f"{i+1:4d} " + " ".join([f"{val:10.2f}" for val in row_values])
+                            f.write(row + "\n")
+                        else:
+                            # Fallback for unexpected data structure
+                            f.write(f"{i+1:4d}  No detailed energy data available in proper format\n")
+                    
                     f.write("\n")
+                else:
+                    f.write("No energy breakdown data available.\n\n")
             
             # Write validation results if available
             if self.validation_results:
@@ -686,81 +780,75 @@ class DockingReporter:
         
         plot_paths = []
         
-        # Always generate these two plots regardless of energy component availability
-        if self.results and len(self.results) > 0:
-            # 1. Score distribution plot
-            try:
-                score_plot_path = save_dir / "score_distribution.png"
-                plt.figure(figsize=(10, 6))
-                
-                scores = [score for _, score in self.results]
-                plt.hist(scores, bins=min(20, len(scores)), color='skyblue', edgecolor='black')
-                plt.xlabel('Docking Score')
-                plt.ylabel('Frequency')
-                plt.title('Distribution of Docking Scores')
-                plt.grid(alpha=0.3)
-                plt.savefig(score_plot_path)
-                plt.close()
-                plot_paths.append(score_plot_path)
-                print(f"Score distribution plot saved to {score_plot_path}")
-                
-                # 2. Score rank plot
-                rank_plot_path = save_dir / "score_rank.png"
-                plt.figure(figsize=(10, 6))
-                
-                sorted_scores = sorted(scores)
-                plt.plot(range(1, len(sorted_scores) + 1), sorted_scores, marker='o', linestyle='-', 
-                        color='darkorange', markersize=5)
-                plt.xlabel('Rank')
-                plt.ylabel('Docking Score')
-                plt.title('Docking Scores by Rank')
-                plt.grid(alpha=0.3)
-                plt.savefig(rank_plot_path)
-                plt.close()
-                plot_paths.append(rank_plot_path)
-                print(f"Score rank plot saved to {rank_plot_path}")
-            except Exception as e:
-                print(f"Error generating basic plots: {e}")
-
-
-        # 3. Energy breakdown plot
-        if self.scoring_breakdown and len(self.scoring_breakdown) > 0:
-            top_poses = min(10, len(self.scoring_breakdown))
-            if not isinstance(self.scoring_breakdown[0], dict) or len(self.scoring_breakdown[0]) == 0:
-                print("No energy components available for plotting.")
-                return plot_paths  # return empty list
-
-            components = list(self.scoring_breakdown[0].keys())
-
-            # ✅ Skip if no components to plot
-            if not components:
-                print("No energy components to plot. Skipping energy breakdown plot.")
-                return plot_paths
-
+        # 1. Score distribution plot
+        score_plot_path = save_dir / "score_distribution.png"
+        plt.figure(figsize=(10, 6))
+        
+        scores = [score for _, score in self.results]
+        plt.hist(scores, bins=20, color='skyblue', edgecolor='black')
+        plt.xlabel('Docking Score')
+        plt.ylabel('Frequency')
+        plt.title('Distribution of Docking Scores')
+        plt.grid(alpha=0.3)
+        plt.savefig(score_plot_path)
+        plt.close()
+        plot_paths.append(score_plot_path)
+        
+        # 2. Score rank plot
+        rank_plot_path = save_dir / "score_rank.png"
+        plt.figure(figsize=(10, 6))
+        
+        sorted_scores = sorted(scores)
+        plt.plot(range(1, len(sorted_scores) + 1), sorted_scores, marker='o', linestyle='-', 
+                 color='darkorange', markersize=5)
+        plt.xlabel('Rank')
+        plt.ylabel('Docking Score')
+        plt.title('Docking Scores by Rank')
+        plt.grid(alpha=0.3)
+        plt.savefig(rank_plot_path)
+        plt.close()
+        plot_paths.append(rank_plot_path)
+        
+        # 3. Energy component breakdown plot (for top 10 poses)
+        if self.scoring_breakdown:
             energy_plot_path = save_dir / "energy_breakdown.png"
             plt.figure(figsize=(12, 8))
-
+            
+            # Get top 10 energy breakdowns
+            top_poses = min(10, len(self.scoring_breakdown))
+            
+            # Get all energy components and filter out 'total'
+            components = [key for key in self.scoring_breakdown[0].keys() if key.lower() != 'total']
+            
+            # Setup colors for components
             colors = plt.cm.tab10(np.linspace(0, 1, len(components)))
+            
+            # Setup plot
             bar_width = 0.8 / len(components)
             r = np.arange(top_poses)
-
+            
+            # Plot each component
             for i, component in enumerate(components):
-                values = [energy.get(component, 0.0) for energy in self.scoring_breakdown[:top_poses]]
-                plt.bar(r + i * bar_width, values, width=bar_width, color=colors[i],
+                # Extract numeric values, handling cases where values are dictionaries
+                values = [
+                    energy[component].get('value', 0.0) if isinstance(energy[component], dict) else energy[component]
+                    for energy in self.scoring_breakdown[:top_poses]
+                ]
+                plt.bar(r + i * bar_width, values, width=bar_width, color=colors[i], 
                         edgecolor='gray', alpha=0.7, label=component)
-
+            
+            # Formatting
             plt.xlabel('Pose Rank')
             plt.ylabel('Energy Contribution')
             plt.title('Energy Component Breakdown for Top Poses')
             plt.xticks(r + bar_width * (len(components) - 1) / 2, [f'{i+1}' for i in range(top_poses)])
             plt.legend()
             plt.grid(axis='y', alpha=0.3)
+            
             plt.tight_layout()
             plt.savefig(energy_plot_path)
             plt.close()
             plot_paths.append(energy_plot_path)
-            print(f"Energy breakdown plot saved to {energy_plot_path}")
-
         
         # 4. RMSD plot if validation results are available
         if self.validation_results and isinstance(self.validation_results, list):
@@ -945,6 +1033,7 @@ class DockingReporter:
         """
         
         if self.scoring_breakdown:
+            print(f"DEBUG - Writing energy breakdown to HTML: {self.scoring_breakdown}")
             html_content += """
                 <div class="section">
                     <h2>Energy Component Breakdown</h2>
@@ -965,10 +1054,13 @@ class DockingReporter:
             html_content += "</tr>\n"
             
             # Add energy values for top poses
+            # Add energy values for top poses
             for i, energy in enumerate(self.scoring_breakdown[:min(10, len(self.scoring_breakdown))]):
                 html_content += f"<tr><td>{i+1}</td>\n"
                 for comp in components:
-                    html_content += f"<td>{energy[comp]:.2f}</td>\n"
+                    # Extract numeric value if energy[comp] is a dictionary, otherwise use the value directly
+                    value = energy[comp].get('value', 0.0) if isinstance(energy[comp], dict) else energy[comp]
+                    html_content += f"<td>{value:.2f}</td>\n"
                 html_content += "</tr>\n"
             
             html_content += """
@@ -1104,5 +1196,3 @@ class DockingReporter:
         
         print(f"HTML report written to {html_path}")
         return html_path
-    
-    
