@@ -46,6 +46,6 @@ run_docking "full_analysis" -p $PROTEIN -l $LIGAND -s $SITE_X $SITE_Y $SITE_Z -i
   --energy-decomposition --per-residue-energy --generate-analysis-report --analysis-report-format html --detailed-energy
 
 # ✅ Test 9: PandaDock algorithm (CHARMm + Simulated Annealing)
-pandadock -p receptor.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a pandadock --use-gpu --physics-based \
+run_docking "Pandadock_algorithm" -p receptor.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a pandadock --use-gpu --physics-based \
   --num-conformers 5 --num-orientations 5 --md-steps 1000 --minimize-steps 200 --detailed-energy \
   --report-format all 

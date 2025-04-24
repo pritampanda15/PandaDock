@@ -1206,6 +1206,15 @@ class PhysicsBasedScoring:
 
     def _calculate_entropy(self, ligand, protein=None):
         return self._calculate_entropy_penalty(ligand, protein)
+
+    def _calculate_vdw_physics(self, protein_atoms, ligand_atoms):
+        return self._calculate_vdw_energy(protein_atoms, ligand_atoms)
+
+    def _calculate_hbond_physics(self, protein_atoms, ligand_atoms, protein, ligand):
+        return self._calculate_hbond_energy(protein_atoms, ligand_atoms, protein, ligand)
+
+    def _calculate_entropy(self, ligand):
+        return self._calculate_entropy_penalty(ligand)
         
 class PhysicsBasedScoringFunction(PhysicsBasedScoring):
     """
@@ -1767,3 +1776,33 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
 
     def _calculate_entropy(self, ligand, protein=None):
         return self._calculate_entropy_penalty(ligand, protein)
+
+    def _calculate_vdw_energy(self, protein_atoms, ligand_atoms):
+        return self._calculate_vdw_physics(protein_atoms, ligand_atoms)
+
+    def _calculate_hbond_energy(self, protein_atoms, ligand_atoms, protein=None, ligand=None):
+        return self._calculate_hbond_physics(protein_atoms, ligand_atoms, protein, ligand)
+
+    def _calculate_electrostatics_energy(self, protein_atoms, ligand_atoms):
+        return self._calculate_electrostatics_physics(protein_atoms, ligand_atoms)
+
+    def _calculate_desolvation_energy(self, protein_atoms, ligand_atoms):
+        return self._calculate_desolvation_physics(protein_atoms, ligand_atoms)
+
+    def _calculate_hydrophobic_energy(self, protein_atoms, ligand_atoms):
+        return self._calculate_hydrophobic_physics(protein_atoms, ligand_atoms)
+
+    def _calculate_clashes_energy(self, protein_atoms, ligand_atoms):
+        return self._calculate_clash_physics(protein_atoms, ligand_atoms)
+
+    def _calculate_entropy(self, ligand, protein=None):
+        return self._calculate_entropy_penalty(ligand, protein)
+
+    def _calculate_vdw_physics(self, protein_atoms, ligand_atoms):
+        return self._calculate_vdw_energy(protein_atoms, ligand_atoms)
+
+    def _calculate_hbond_physics(self, protein_atoms, ligand_atoms, protein, ligand):
+        return self._calculate_hbond_energy(protein_atoms, ligand_atoms, protein, ligand)
+
+    def _calculate_entropy(self, ligand):
+        return self._calculate_entropy_penalty(ligand)
