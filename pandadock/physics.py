@@ -1753,7 +1753,7 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
             p_type = self._get_atom_type(p)
             p_radius = self.vdw_radii.get(p_type[0], 1.7)
             
-            for l in ligand.atoms:
+            for l in ligand_atoms:
                 l_coords = l['coords']
                 l_type = self._get_atom_type(l)
                 l_radius = self.vdw_radii.get(l_type[0], 1.7)
