@@ -33,8 +33,4 @@ def create_scoring_function(use_gpu=False, physics_based=False, enhanced=True,
                 base_function.weights[key] = value
 
     base_function.verbose = verbose
-
-    if tethered and reference_ligand:
-        return TetheredScoringFunction(base_function, reference_ligand)
-
-    return base_function
+    return base_function  # Ensure the scoring function is returned
