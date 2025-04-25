@@ -473,9 +473,7 @@ class DockingReporter:
         sorted_results = sorted(self.results, key=lambda x: x[1])
         
         with open(report_path, 'w') as f:
-            f.write("===========================================================\n")
-            f.write("        PandaDock - Detailed Molecular Docking Report       \n")
-            f.write("===========================================================\n\n")
+            
             
             # Write run information
             f.write("RUN INFORMATION\n")

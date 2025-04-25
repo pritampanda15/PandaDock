@@ -284,9 +284,19 @@ def write_results_to_txt(results, output_dir, elapsed_time, protein_path, ligand
     results_path = Path(output_dir) / "docking_results.txt"
     
     with open(results_path, 'w') as f:
-        f.write("=====================================================\n")
-        f.write("        PandaDock - Python Molecular Docking Results    \n")
-        f.write("=====================================================\n\n")
+        f.write(r"""
+════════════════════════════════════════════════════════════════════════════════
+   ██████╗  █████╗ ███╗   ██╗██████╗  █████╗ ██████╗  ██████╗  ██████╗██╗  ██╗
+    ██╔══██╗██╔══██╗████╗  ██║██╔══██╗██╔══██╗██╔══██╗██╔═══██╗██╔════╝██║ ██╔╝
+    ██████╔╝███████║██╔██╗ ██║██║  ██║███████║██║  ██║██║   ██║██║     █████╔╝ 
+    ██╔═══╝ ██╔══██║██║╚██╗██║██║  ██║██╔══██║██║  ██║██║   ██║██║     ██╔═██╗ 
+    ██║     ██║  ██║██║ ╚████║██████╔╝██║  ██║██████╔╝╚██████╔╝╚██████╗██║  ██╗
+    ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚═╝  ╚═╝╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝
+                                                                                                                                                                                                                                  
+               PandaDock - Python Molecular Docking Tool                             
+               https://github.com/pritampanda15/PandaDock                   
+════════════════════════════════════════════════════════════════════════════════
+    """)
         
         # Write run information
         f.write("RUN INFORMATION\n")
@@ -455,10 +465,10 @@ def main():
                             help='Active site radius in Angstroms (default: 10.0)')
         parser.add_argument('--detect-pockets', action='store_true',
                             help='Automatically detect binding pockets')
-        parser.add_argument('--grid-spacing', type=float, default=1.0,
-                    help='Grid spacing in Å for spherical grid sampling (default: 1.0 Å)')
-        parser.add_argument('--grid-radius', type=float, default=10.0,
-                            help='Grid radius in Å around the binding site for spherical sampling (default: 10.0 Å)')
+        parser.add_argument('--grid-spacing', type=float, default=0.375,
+                    help='Grid spacing in Å for spherical grid sampling (default: 0.375 Å)')
+        parser.add_argument('--grid-radius', type=float, default=2.0,
+                            help='Grid radius in Å around the binding site for spherical sampling (default: 2.0 Å)')
                 
         parser.add_argument('--tethered-docking', action='store_true',
                     help='Use tethered scoring with reference structure')

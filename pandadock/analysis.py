@@ -723,7 +723,7 @@ class EnergyDecomposition:
         
         return components
     
-    def residue_contributions(self, protein, ligand, radius=5.0):
+    def residue_contributions(self, protein, ligand, radius=2.0):
         """
         Calculate per-residue contributions to binding energy.
         

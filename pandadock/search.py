@@ -446,7 +446,7 @@ class DockingSearch:
             
             # Extract reference information
             ref_centroid = np.mean(reference_ligand.xyz, axis=0)
-            ref_radius = 5.0  # Allow some flexibility around reference
+            ref_radius = 2.0  # Allow some flexibility around reference
             
             # Initialize result container
             results = []

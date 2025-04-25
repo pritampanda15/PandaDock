@@ -19,7 +19,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
     def __init__(self, scoring_function, max_iterations=100, population_size=50, 
                  mutation_rate=0.2, crossover_rate=0.8, tournament_size=3, 
                  n_processes=None, batch_size=None, process_pool=None, 
-                 output_dir=None, perform_local_opt=False, grid_spacing=0.375, grid_radius=5.0, grid_center=None):
+                 output_dir=None, perform_local_opt=False, grid_spacing=0.375, grid_radius=2.0, grid_center=None):
         super().__init__(scoring_function, max_iterations, population_size, mutation_rate)
         self.scoring_function = scoring_function  # Ensure this is set
         self.output_dir = output_dir
@@ -434,7 +434,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
             
             # Revalidate after perturbation
             if self._validate_conformation(ligand):
-                print("Repair successful after random perturbation.")
+                #print("Repair successful after random perturbation.")
                 return ligand
             
             # Attempt to resolve steric clashes by energy minimization
@@ -442,7 +442,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
                 #print("Applying energy minimization to repair ligand...")
                 ligand = self._minimize_energy(ligand, max_iterations=200)
                 if self._validate_conformation(ligand):
-                    print("Repair successful after energy minimization.")
+                    #print("Repair successful after energy minimization.")
                     return ligand
             except Exception as e:
                 print(f"Energy minimization failed: {e}")
@@ -519,8 +519,6 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
 
             if is_within_grid(pose, center, radius):
                 return pose
-
-    import numpy as np
 
     
 
