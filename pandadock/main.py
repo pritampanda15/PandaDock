@@ -17,8 +17,23 @@ from .utils import (
     update_status,
     save_intermediate_result
 )
-from .unified_scoring import PhysicsScoringFunction
-from pandadock.unified_scoring import create_scoring_function
+from .unified_scoring import (
+    ScoringFunction,
+    CompositeScoringFunction,
+    EnhancedScoringFunction,
+    GPUScoringFunction,
+    EnhancedGPUScoringFunction,
+    TetheredScoringFunction,
+)
+
+# Physics-based modules
+from .physics import (
+    MMFFMinimization,
+    MonteCarloSampling,
+    PhysicsBasedScoring,
+    GeneralizedBornSolvation
+)
+
 
 from .preparation import prepare_protein, prepare_ligand
 from .reporting import DockingReporter
@@ -43,11 +58,11 @@ __all__ = ['__version__', 'add_hardware_options', 'configure_hardware',
 # Import physics-based algorithms
 try:
     from .physics import (MMFFMinimization, MonteCarloSampling, PhysicsBasedScoring, GeneralizedBornSolvation)
-    from .unified_scoring import PhysicsScoringFunction, EnhancedPhysicsScoringFunction
+    from .unified_scoring import PhysicsBasedScoringFunction, PhysicsBasedScoring
     from .search import MMFFMinimization, MonteCarloSampling
     from .search import GeneralizedBornSolvation
     from .search import PhysicsBasedScoring
-    from .search import EnhancedPhysicsScoringFunction
+    from .search import PhysicsBasedScoringFunction, PhysicsBasedScoring
     __all__ = ['__version__', 'MMFFMinimization', 'GeneralizedBornSolvation', 'MonteCarloSampling', 'PhysicsBasedScoring']
     PHYSICS_AVAILABLE = True
 except ImportError as e:
@@ -831,7 +846,8 @@ def main():
         # Run the appropriate docking algorithm
         if args.reference and args.tethered_docking:
             logger.info(f"Using tethered reference-based docking with weight {args.tether_weight}...")
-            from .unified_scoring import create_scoring_function, TetheredScoringFunction
+            from .unified_scoring import TetheredScoringFunction
+            from .scoring_factory import create_scoring_function
     
             # Create base scoring function
             base_function = create_scoring_function(

@@ -10,7 +10,7 @@ import multiprocessing as mp
 import warnings
 import numpy as np
 from pathlib import Path
-from .unified_scoring import create_scoring_function
+from .scoring_factory import create_scoring_function
 
 try:
     import torch
@@ -540,12 +540,12 @@ class HybridDockingManager:
         """
         # Prepare scoring function
         if self.has_gpu:
-            from .gpu_scoring import GPUAcceleratedScoringFunction
+            from .unified_scoring import EnhancedGPUScoringFunction
             scoring_function = self.prepare_gpu_scoring_function(
-                GPUAcceleratedScoringFunction
+                EnhancedGPUScoringFunction
             )
         else:
-            from .unified_scoring import create_scoring_function
+            from .scoring_factory import create_scoring_function
             scoring_function = create_scoring_function(use_gpu=False, enhanced=True)
         
         # Prepare search algorithm

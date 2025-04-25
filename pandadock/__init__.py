@@ -2,22 +2,21 @@
 PandaDock: Python Molecular Docking Tool Package
 """
 
-# Import main components
+# Core protein-ligand handling
 from .protein import Protein
 from .ligand import Ligand
+
+# Unified scoring functions
 from .unified_scoring import (
-    ScoringFunction, 
+    ScoringFunction,
     CompositeScoringFunction,
     EnhancedScoringFunction,
     GPUScoringFunction,
     EnhancedGPUScoringFunction,
-    PhysicsScoringFunction,
-    EnhancedPhysicsScoringFunction,
     TetheredScoringFunction,
-    create_scoring_function
 )
 
-# Physics-based components (defined in physics.py)
+# Physics-based modules
 from .physics import (
     MMFFMinimization,
     MonteCarloSampling,
@@ -25,12 +24,33 @@ from .physics import (
     GeneralizedBornSolvation
 )
 
+# Search algorithms
 from .search import RandomSearch, GeneticAlgorithm
-from .utils import save_docking_results, calculate_rmsd
-from .preparation import prepare_protein, prepare_ligand
-from .validation import validate_docking, calculate_ensemble_rmsd
 
-# Import batch screening module
-from . import batch_screening
+# Utilities
+from .utils import (
+    save_docking_results,
+    calculate_rmsd
+)
 
-__version__ = '1.4.0'
+# Molecule preparation
+from .preparation import (
+    prepare_protein,
+    prepare_ligand
+)
+
+# Validation
+from .validation import (
+    validate_docking,
+    calculate_ensemble_rmsd
+)
+
+# Batch screening
+from .batch_screening import batch_screening
+
+# Package version
+__version__ = '2.0.0'
+
+# Logging
+import logging
+logging.getLogger(__name__).addHandler(logging.NullHandler())

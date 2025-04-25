@@ -154,36 +154,32 @@ class DockingReporter:
         # Try to calculate each component
         try:
             # Van der Waals
-            if hasattr(self, '_calculate_vdw'):
-                components['Van der Waals'] = self._calculate_vdw(protein, ligand)
-            elif hasattr(self, '_calculate_vdw_energy'):
-                components['Van der Waals'] = self._calculate_vdw_energy(protein_atoms, ligand.atoms)
+            if hasattr(self, 'calculate_vdw'):
+                components['Van der Waals'] = self.calculate_vdw(protein, ligand)
             
             # H-Bond
-            if hasattr(self, '_calculate_hbond'):
-                components['H-Bond'] = self._calculate_hbond(protein, ligand)
-            elif hasattr(self, '_calculate_hbond_energy'):
-                components['H-Bond'] = self._calculate_hbond_energy(protein_atoms, ligand.atoms)
+            if hasattr(self, 'calculate_hbond'):
+                components['H-Bond'] = self.calculate_hbond(protein, ligand)
             
             # Electrostatic
-            if hasattr(self, '_calculate_electrostatics'):
-                components['Electrostatic'] = self._calculate_electrostatics(protein, ligand)
+            if hasattr(self, 'calculate_electrostatics'):
+                components['Electrostatic'] = self.calculate_electrostatics(protein, ligand)
             
             # Desolvation
-            if hasattr(self, '_calculate_desolvation'):
-                components['Desolvation'] = self._calculate_desolvation(protein, ligand)
+            if hasattr(self, 'calculate_desolvation'):
+                components['Desolvation'] = self.calculate_desolvation(protein, ligand)
             
             # Hydrophobic
-            if hasattr(self, '_calculate_hydrophobic'):
-                components['Hydrophobic'] = self._calculate_hydrophobic(protein, ligand)
+            if hasattr(self, 'calculate_hydrophobic'):
+                components['Hydrophobic'] = self.calculate_hydrophobic(protein, ligand)
             
             # Clash
-            if hasattr(self, '_calculate_clashes'):
-                components['Clash'] = self._calculate_clashes(protein, ligand)
+            if hasattr(self, 'calculate_clashes'):
+                components['Clash'] = self.calculate_clashes(protein, ligand)
             
             # Entropy
-            if hasattr(self, '_calculate_entropy'):
-                components['Entropy'] = self._calculate_entropy(ligand)
+            if hasattr(self, 'calculate_entropy'):
+                components['Entropy'] = self.calculate_entropy(ligand)
             
             # Calculate total
             total = sum(components.values())
@@ -233,50 +229,24 @@ class DockingReporter:
             components['Pose'] = i + 1
             components['Score'] = total_score
 
-            # Helper function to safely try component calculations  
-            # and handle exceptions
-            def try_component(name, method_names):
-                for method in method_names:
-                    if hasattr(scoring_function, method):
-                        try:
-                            func = getattr(scoring_function, method)
-                            from inspect import signature
-                            params = signature(func).parameters
-
-                            if method == '_calculate_entropy':
-                                value = func(pose)  # pose is a Ligand object
-                            elif method.endswith('_physics'):
-                                if len(params) == 2:
-                                    # Use atoms
-                                    value = func(protein.active_site.get('atoms', protein.atoms), pose.atoms)
-                                elif len(params) == 4:
-                                    value = func(protein.active_site.get('atoms', protein.atoms), pose.atoms, protein, pose)
-                            elif method.endswith('_energy'):
-                                if len(params) == 2:
-                                    # Use atoms
-                                    value = func(protein.active_site.get('atoms', protein.atoms), pose.atoms)
-                                elif len(params) == 4:
-                                    value = func(protein.active_site.get('atoms', protein.atoms), pose.atoms, protein, pose)
-                            else:
-                                value = func(protein, pose)
-
-                            components[name] = value
-                            print(f"  {name}: {value:.2f} via {method}")
-                            return True
-                        except Exception as e:
-                            print(f"  Error in {name} via {method}: {e}")
-                return False
-
 
             
             # Try to extract all components
-            try_component('Van der Waals', ['_calculate_vdw', '_calculate_vdw_physics', '_calculate_vdw_energy', '_calculate_vdw_energy_physics'])
-            try_component('H-Bond', ['_calculate_hbond', '_calculate_hbond_physics', '_calculate_hbond_energy', '_calculate_hbond_energy_physics'])
-            try_component('Electrostatic', ['_calculate_electrostatics', '_calculate_electrostatics_physics', '_calculate_electrostatics_energy'])
-            try_component('Desolvation', ['_calculate_desolvation', '_calculate_desolvation_physics', '_calculate_desolvation_energy'])
-            try_component('Hydrophobic', ['_calculate_hydrophobic', '_calculate_hydrophobic_physics', '_calculate_hydrophobic_energy'])
-            try_component('Clash', ['_calculate_clashes', '_calculate_clashes_physics', '_calculate_clashes_energy'])
-            try_component('Entropy', ['_calculate_entropy', '_calculate_entropy_penalty', '_calculate_entropy_energy'])
+            def try_component(component_name, methods):
+                try:
+                    if hasattr(self, methods[0]):
+                        components[component_name] = getattr(self, methods[0])(protein, pose)
+                        print(f"  {component_name}: {components[component_name]:.2f}")
+                except Exception as e:
+                    print(f"  Error extracting {component_name}: {e}")
+
+            try_component('Van der Waals', ['calculate_vdw'])
+            try_component('H-Bond', ['calculate_hbond'])
+            try_component('Electrostatic', ['calculate_electrostatics'])
+            try_component('Desolvation', ['calculate_desolvation'])
+            try_component('Hydrophobic', ['calculate_hydrophobic'])
+            try_component('Clash', ['calculate_clashes'])
+            try_component('Entropy', ['calculate_entropy'])
             
             # If the scoring function has weights, estimate missing components
             if hasattr(scoring_function, 'weights'):

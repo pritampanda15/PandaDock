@@ -13,10 +13,9 @@ from .unified_scoring import (
     EnhancedScoringFunction,
     GPUScoringFunction,
     EnhancedGPUScoringFunction,
-    PhysicsScoringFunction,
-    EnhancedPhysicsScoringFunction,
-    TetheredScoringFunction,
-    create_scoring_function
+    PhysicsBasedScoringFunction,
+    PhysicsBasedScoring,
+    TetheredScoringFunction
 )
 
 # Physics-based components (defined in physics.py)

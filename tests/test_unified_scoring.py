@@ -1,6 +1,6 @@
 # test_unified_scoring.py
 import numpy as np
-from pandadock.unified_scoring import create_scoring_function
+from pandadock.scoring_factory import create_scoring_function
 from pandadock.protein import Protein
 from pandadock.ligand import Ligand
 

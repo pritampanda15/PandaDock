@@ -3,15 +3,30 @@ CLI integration module for PandaDock hardware acceleration.
 This module extends the main.py command-line interface with GPU/CPU options.
 """
 
+# Core CLI utilities
 import argparse
 import os
-from .unified_scoring import (
-    create_scoring_function,
-    CompositeScoringFunction
-)
-from .physics import (MMFFMinimization, MonteCarloSampling, PhysicsBasedScoring, GeneralizedBornSolvation)
-from .unified_scoring import PhysicsScoringFunction, EnhancedPhysicsScoringFunction
 
+# Factory and algorithms
+from .scoring_factory import create_scoring_function
+from .search import RandomSearch, GeneticAlgorithm
+from .pandadock import PANDADOCKAlgorithm
+
+# Physics-based models
+from .physics import (
+    MMFFMinimization,
+    MonteCarloSampling,
+    PhysicsBasedScoring,
+    GeneralizedBornSolvation
+)
+
+# Preparation and validation
+from .preparation import prepare_protein, prepare_ligand
+from .validation import validate_docking, calculate_ensemble_rmsd
+
+# Batch and utilities
+from .utils import save_docking_results, save_complex_to_pdb
+from .utils import calculate_rmsd
 def add_hardware_options(parser):
     """
     Add hardware acceleration options to the argument parser.

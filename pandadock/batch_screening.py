@@ -584,3 +584,10 @@ def _generate_summary_report(all_results, output_path):
         # Save runtime stats
         with open(output_path / "screening_stats.json", 'w') as f:
             json.dump(summary, f, indent=2)
+
+def batch_screening(config):
+        """
+        Wrapper function for batch screening. 
+        Just calls run() internally for backward compatibility.
+        """
+        return run(config)
