@@ -395,6 +395,19 @@ class ImprovedElectrostatics:
             'P': 1.8, 'F': 1.47, 'Cl': 1.75, 'Br': 1.85, 'I': 1.98
         }
     
+    def calculate(self, protein_atoms, ligand_atoms):
+        # Basic electrostatics (not detailed physics) for fallback
+        elec_energy = 0.0
+        for p_atom in protein_atoms:
+            for l_atom in ligand_atoms:
+                distance = np.linalg.norm(p_atom['coords'] - l_atom['coords'])
+                if distance < 0.1:
+                    distance = 0.1
+                q1 = p_atom.get('charge', 0.0)
+                q2 = l_atom.get('charge', 0.0)
+                elec_energy += (q1 * q2) / (self.dielectric_constant * distance)
+        return elec_energy
+        # Calculate the Debye screening parameter (kappa)
     def _compute_kappa(self):
         """
         Compute the Debye screening parameter (kappa) based on ionic strength.
@@ -574,6 +587,14 @@ class GeneralizedBornSolvation:
         self.solvent_dielectric = solvent_dielectric
         self.interior_dielectric = interior_dielectric
         self.surface_tension = surface_tension
+        self.kappa = 0.73  # Placeholder for kappa, to be calculated later
+        
+        # Constants
+        self.n_avogadro = 6.02214076e23  # Avogadro's number in mol^-1
+        self.e_charge = 1.602176634e-19  # Electron charge in C
+        self.k_boltzmann = 1.38064852e-23  # Boltzmann constant in J/K
+        self.epsilon_0 = 8.854187817e-12  # Vacuum permittivity in F/m    
+        self.pi = np.pi
         
         # Atom parameters
         self.atom_charges = {
@@ -606,7 +627,31 @@ class GeneralizedBornSolvation:
         # Constants
         self.solpar = 0.005  # Updated from 0.05 to 0.005
         self.solvation_k = 3.5  # Solvation radius in Å
-    
+        
+    def calculate(self, protein_atoms, ligand_atoms):
+        """Simple desolvation energy using a distance-dependent Generalized Born model."""
+        desolv_energy = 0.0
+        for p_atom in protein_atoms:
+            for l_atom in ligand_atoms:
+                p_coords = p_atom['coords']
+                l_coords = l_atom['coords']
+                distance = np.linalg.norm(p_coords - l_coords)
+                if distance < 0.1:
+                    distance = 0.1
+                
+                # Burial factor (simplified)
+                burial_factor = np.exp(-self.kappa * distance)
+
+                # Effective dielectric
+                dielectric = self.interior_dielectric + (self.solvent_dielectric - self.interior_dielectric) * burial_factor
+
+                # Solvation energy: simple Coulomb desolvation penalty
+                q1 = p_atom.get('charge', 0.0)
+                q2 = l_atom.get('charge', 0.0)
+                energy = (q1 * q2) / (dielectric * distance)
+                
+                desolv_energy += energy
+        return desolv_energy
     def calculate_solvation_free_energy(self, molecule, molecule_type='ligand'):
         """
         Calculate solvation free energy using GB model.
@@ -1101,6 +1146,8 @@ class PhysicsBasedScoring(BaseScoringFunction):
     def __init__(self, use_gpu=False):
         """Initialize physics-based scoring function."""
         super().__init__()
+        self.electrostatics_model = ImprovedElectrostatics()
+        self.solvation_model = GeneralizedBornSolvation()
         
         # GPU flag
         self.use_gpu = use_gpu
@@ -1113,7 +1160,6 @@ class PhysicsBasedScoring(BaseScoringFunction):
         self.hydrophobic_types = {'C', 'F', 'I', 'Br', 'Cl', 'S'}
 
         # Initialize physical models
-        from .physics import ImprovedElectrostatics, GeneralizedBornSolvation
         self.electrostatics = ImprovedElectrostatics()
         self.solvation = GeneralizedBornSolvation()
 
@@ -1201,7 +1247,7 @@ class PhysicsBasedScoring(BaseScoringFunction):
         
         return energy
 
-    def calculate_hbond(self, protein_atoms, ligand_atoms):
+    def calculate_hbond(self, protein_atoms, ligand_atoms, protein=None, ligand=None):
         e = 0.0
         p_donors = [a for a in protein_atoms if a.get('element', a.get('name', 'C'))[0] in self.hbond_donors]
         p_acceptors = [a for a in protein_atoms if a.get('element', a.get('name', 'C'))[0] in self.hbond_acceptors]
@@ -1302,10 +1348,11 @@ class PhysicsBasedScoring(BaseScoringFunction):
         return capped_score
     
     def calculate_desolvation(self, protein_atoms, ligand_atoms):
-        return super().calculate_desolvation(protein_atoms, ligand_atoms)
-    
+        return self.solvation_model.calculate(protein_atoms, ligand_atoms)
+
     def calculate_electrostatics(self, protein_atoms, ligand_atoms):
-        return super().calculate_electrostatics(protein_atoms, ligand_atoms)
+        return self.solvation_model.calculate(protein_atoms, ligand_atoms)
+
     
         
 class PhysicsBasedScoringFunction(PhysicsBasedScoring):
@@ -1551,7 +1598,7 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
         
         return vdw_energy
     
-    def calculate_hbond(self, protein_atoms, ligand_atoms, protein, ligand):
+    def calculate_hbond(self, protein_atoms, ligand_atoms, protein=None, ligand=None):
         """
         Calculate hydrogen bonding using a 12-10 potential with angular dependence.
         """
@@ -1660,11 +1707,12 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
             return 0.25  # Fallback if calculation fails
     
     
-    def calculate_electrostatics(self, protein, ligand):
-        return self.electrostatics_model.calculate_electrostatics(protein, ligand)
+    def calculate_desolvation(self, protein_atoms, ligand_atoms):
+        return self.solvation_model.calculate(protein_atoms, ligand_atoms)
 
-    def calculate_desolvation(self, protein, ligand):
-        return self.solvation_model.calculate_binding_solvation(protein, ligand)
+    def calculate_electrostatics(self, protein_atoms, ligand_atoms):
+        return self.solvation_model.calculate(protein_atoms, ligand_atoms)
+
     
     def calculate_hydrophobic(self, protein_atoms, ligand_atoms):
         """Calculate hydrophobic interactions between hydrophobic atoms."""
