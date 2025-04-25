@@ -54,7 +54,7 @@ class DockingSearch:
     # Set up logger
         self.logger = setup_logging(output_dir)
         self.grid_points = None
-        self.grid_radius = 5.0
+        self.grid_radius = 2.0
         self.grid_spacing = 0.375
         
     # Define a method to set up the grid

@@ -154,7 +154,7 @@ def create_optimized_scoring_function(args):
     except Exception as e:
         print("[ERROR] Could not initialize physics-based scoring:", str(e))
         print("Warning: Physics-based modules not available. Some features will be disabled.")
-        return CompositeScoringFunction()
+        return create_scoring_function()
 def create_optimized_search_algorithm(manager, algorithm_type, scoring_function, **kwargs):
     """
     Create an optimized search algorithm based on available hardware.

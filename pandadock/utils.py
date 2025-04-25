@@ -83,7 +83,7 @@ def is_within_grid(pose, grid_center, grid_radius):
     return distance <= grid_radius
 
 
-def generate_spherical_grid(center, radius, spacing=1.0):
+def generate_spherical_grid(center, radius, spacing=0.375):
         """
         Generate grid points within a sphere centered at `center` with a given `radius`.
 
@@ -143,8 +143,8 @@ def detect_steric_clash(protein_atoms, ligand_atoms, threshold=1.6):
 
 def create_initial_files(output_dir, args):
     """
-    Create initial files to confirm program is running.
-    
+    Create initial files to confirm PandaDock run and document configuration.
+
     Parameters:
     -----------
     output_dir : str or Path
@@ -152,12 +152,15 @@ def create_initial_files(output_dir, args):
     args : argparse.Namespace
         Command-line arguments
     """
+    from datetime import datetime
+    import json
+    import os
+    from pathlib import Path
+    from .utils import setup_logging
+
     # Create directory structure
     output_dir = Path(output_dir)
-    #for subdir in ["logs", "intermediate", "poses"]:
-        #os.makedirs(output_dir / subdir, exist_ok=True)
     
-    # Get logger
     logger = setup_logging(output_dir)
     logger.info(f"Creating initial files in {output_dir}")
     
@@ -173,44 +176,141 @@ def create_initial_files(output_dir, args):
         "current_iteration": 0,
         "top_score": None
     }
-    
     status_path = output_dir / "status.json"
     with open(status_path, 'w') as f:
         json.dump(status, f, indent=2)
     logger.info(f"Status file created at {status_path}")
     
-    # Create a README file
+    # Create a detailed README file
     readme_path = output_dir / "README.txt"
+
     with open(readme_path, 'w') as f:
-        f.write("=" * 50 + "\n")
-        f.write("PandaDock Molecular Docking\n")
-        f.write("=" * 50 + "\n\n")
-        f.write(f"Run started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-        f.write("Input Files:\n")
-        f.write(f"  Protein: {args.protein}\n")
-        f.write(f"  Ligand: {args.ligand}\n\n")
-        f.write("Parameters:\n")
-        f.write(f"  Algorithm: {args.algorithm}\n")
+        f.write(r"""
+════════════════════════════════════════════════════════════════════════════════
+   ██████╗  █████╗ ███╗   ██╗██████╗  █████╗ ██████╗  ██████╗  ██████╗██╗  ██╗
+    ██╔══██╗██╔══██╗████╗  ██║██╔══██╗██╔══██╗██╔══██╗██╔═══██╗██╔════╝██║ ██╔╝
+    ██████╔╝███████║██╔██╗ ██║██║  ██║███████║██║  ██║██║   ██║██║     █████╔╝ 
+    ██╔═══╝ ██╔══██║██║╚██╗██║██║  ██║██╔══██║██║  ██║██║   ██║██║     ██╔═██╗ 
+    ██║     ██║  ██║██║ ╚████║██████╔╝██║  ██║██████╔╝╚██████╔╝╚██████╗██║  ██╗
+    ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚═╝  ╚═╝╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝                                                                                                                                                    
+               PandaDock - Python Molecular Docking Tool                             
+               https://github.com/pritampanda15/PandaDock                   
+════════════════════════════════════════════════════════════════════════════════
+    """)
         
-        # Add common parameters
-        if hasattr(args, 'iterations'):
-            f.write(f"  Iterations: {args.iterations}\n")
-        if hasattr(args, 'population_size'):
-            f.write(f"  Population Size: {args.population_size}\n")
+        f.write(f"Run Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        
+        f.write("INPUT FILES\n")
+        f.write("-----------\n")
+        f.write(f"Protein File: {args.protein}\n")
+        f.write(f"Ligand File: {args.ligand}\n\n")
+        
+        f.write("DOCKING PARAMETERS\n")
+        f.write("------------------\n")
+        f.write(f"Algorithm: {args.algorithm}\n")
+        f.write(f"Iterations / Generations: {getattr(args, 'iterations', 'N/A')}\n")
+        if args.algorithm == 'genetic':
+            if hasattr(args, 'population_size'):
+                f.write(f"Population Size: {args.population_size}\n")
+            if hasattr(args, 'mutation_rate'):
+                f.write(f"Mutation Rate: {args.mutation_rate}\n")
+            if hasattr(args, 'crossover_rate'):
+                f.write(f"Crossover Rate: {args.crossover_rate}\n")
+            if hasattr(args, 'selection_method'):
+                f.write(f"Selection Method: {args.selection_method}\n")
+
+        elif args.algorithm == 'monte-carlo':
+            if hasattr(args, 'mc_steps'):
+                f.write(f"Monte Carlo Steps: {args.mc_steps}\n")
+            if hasattr(args, 'temperature'):
+                f.write(f"Monte Carlo Temperature: {args.temperature} K\n")
+            if hasattr(args, 'cooling_rate'):
+                f.write(f"Cooling Rate: {args.cooling_rate}\n")   
+        
+        elif args.algorithm == 'pandadock':
+            if hasattr(args, 'pandadock_steps'):
+                f.write(f"PandaDock Steps: {args.pandadock_steps}\n")
+            if hasattr(args, 'pandadock_temperature'):
+                f.write(f"PandaDock Temperature: {args.pandadock_temperature} K\n")
+            if hasattr(args, 'pandadock_cooling_rate'):
+                f.write(f"PandaDock Cooling Rate: {args.pandadock_cooling_rate}\n")
+            if hasattr(args, 'pandadock_mutation_rate'):
+                f.write(f"PandaDock Mutation Rate: {args.pandadock_mutation_rate}\n")
+            if hasattr(args, 'pandadock_crossover_rate'):
+                f.write(f"PandaDock Crossover Rate: {args.pandadock_crossover_rate}\n")
+            if hasattr(args, 'pandadock_selection_method'):
+                f.write(f"PandaDock Selection Method: {args.pandadock_selection_method}\n")
+        elif args.algorithm == 'random':
+            if hasattr(args, 'random_steps'):
+                f.write(f"Random Steps: {args.random_steps}\n")
+            if hasattr(args, 'random_temperature'):
+                f.write(f"Random Temperature: {args.random_temperature} K\n")
+            if hasattr(args, 'random_cooling_rate'):
+                f.write(f"Random Cooling Rate: {args.random_cooling_rate}\n")
+        elif args.algorithm == 'default':
+            if hasattr(args, 'default_steps'):
+                f.write(f"Default Steps: {args.default_steps}\n")
+            if hasattr(args, 'default_temperature'):
+                f.write(f"Default Temperature: {args.default_temperature} K\n")
+            if hasattr(args, 'default_cooling_rate'):
+                f.write(f"Default Cooling Rate: {args.default_cooling_rate}\n")
+        
+        if hasattr(args, 'flexible_residues'):
+            f.write(f"Flexible Residues: {args.flexible_residues}\n")
+        if hasattr(args, 'fixed_residues'):
+            f.write(f"Fixed Residues: {args.fixed_residues}\n")
+        if hasattr(args, 'flexible_ligand'):
+            f.write(f"Flexible Ligand: {args.flexible_ligand}\n")
+        if hasattr(args, 'fixed_ligand'):
+            f.write(f"Fixed Ligand: {args.fixed_ligand}\n")
+
+            #################################################
+        f.write("\nSCORING PARAMETERS\n")
+        f.write("-------------------\n")
         if hasattr(args, 'physics_based') and args.physics_based:
-            f.write(f"  Scoring: Physics-based\n")
+            f.write("Scoring Function: Physics-based\n")
         elif hasattr(args, 'enhanced_scoring') and args.enhanced_scoring:
-            f.write(f"  Scoring: Enhanced\n")
+            f.write("Scoring Function: Enhanced\n")
         else:
-            f.write(f"  Scoring: Standard\n")
-            
-        # Add hardware info
-        f.write("\nHardware:\n")
-        if hasattr(args, 'use_gpu') and args.use_gpu:
-            f.write(f"  Using GPU acceleration\n")
-        if hasattr(args, 'cpu_workers'):
-            f.write(f"  CPU Workers: {args.cpu_workers}\n")
+            f.write("Scoring Function: Standard\n")
         
+        if hasattr(args, 'grid_center'):
+            f.write(f"Grid Center: {args.grid_center}\n")
+        if hasattr(args, 'grid_spacing'):
+            f.write(f"Grid Spacing: {args.grid_spacing} Å\n")
+        if hasattr(args, 'grid_size'):
+            f.write(f"Grid Size: {args.grid_size} Å³\n")
+        if hasattr(args, 'spherical_sampling') and args.spherical_sampling:
+            f.write(f"Spherical Sampling Enabled (Radius: {getattr(args, 'sampling_radius', 'default')})\n")
+        
+        f.write("\nHARDWARE SETTINGS\n")
+        f.write("-----------------\n")
+        if hasattr(args, 'use_gpu') and args.use_gpu:
+            f.write("GPU Acceleration: Enabled\n")
+            if hasattr(args, 'gpu_id'):
+                f.write(f"GPU ID: {args.gpu_id}\n")
+            if hasattr(args, 'gpu_precision'):
+                f.write(f"GPU Precision: {args.gpu_precision}\n")
+        else:
+            f.write("GPU Acceleration: Disabled (CPU-only)\n")
+        if hasattr(args, 'cpu_workers'):
+            f.write(f"CPU Workers: {args.cpu_workers}\n")
+        
+        f.write("\nOUTPUT STRUCTURE\n")
+        f.write("----------------\n")
+        f.write("The following files and directories will be generated:\n")
+        f.write("- docking_report.txt\n")
+        f.write("- docking_report.html\n")
+        f.write("- docking_results.csv\n")
+        f.write("- energy_breakdown.csv\n")
+        f.write("- status.json\n")
+        f.write("- poses/ : Top ranked poses\n")
+        f.write("- plots/ : Score distribution and energy component plots\n\n")
+        
+        f.write("=" * 60 + "\n")
+        f.write("          PandaDock - Python Molecular Docking Tool\n")
+        f.write("=" * 60 + "\n")
+    
     logger.info(f"README file created at {readme_path}")
 
 def save_intermediate_result(pose, score, iteration, output_dir, total_iterations=None):
