@@ -96,8 +96,21 @@ class DockingSearch:
             )
 
 
-
-
+    def save_sphere_to_pdb(self, grid_points, output_path):
+        """
+        Save spherical grid points as PDB file for visualization.
+        """
+        with open(output_path, 'w') as f:
+            for i, point in enumerate(grid_points):
+                f.write(
+                    f"HETATM{i+1:5d}  C   SPH A   1    "
+                    f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00           C\n"
+                )
+            f.write("END\n")
+        self.logger.info(f"Saved spherical grid to {output_path}")
+        self.logger.info("Spherical grid points saved for visualization.")
+        self.logger.info(f"Grid points saved to {output_path}")
+        
     def search(self, protein, ligand):
         """
         Perform docking search.
@@ -159,7 +172,19 @@ class DockingSearch:
         active_site_center = protein.active_site['center']
         active_site_radius = protein.active_site['radius']
         self.initialize_grid_points(center=protein.active_site['center'])
-
+        self.save_sphere_to_pdb(self.grid_points, self.output_dir / "sphere.pdb")
+        print(f"Spherical sampling grid saved to {self.output_dir / 'sphere.pdb'} for visualization.")
+        print(f"Active site center: {active_site_center}, radius: {active_site_radius}")
+        # Check if ligand is within the active site
+        if not is_inside_sphere(ligand, active_site_center, active_site_radius):
+            print("WARNING: Ligand centroid is outside the active site. Adjusting position...")
+            # Move ligand to the center of the active site
+            centroid = np.mean(ligand.xyz, axis=0)
+            translation = active_site_center - centroid
+            ligand.translate(translation)
+            print(f"Moved ligand centroid to active site center: {active_site_center}")
+        else:
+            print("Ligand centroid is within the active site. No adjustment needed.")
         # Use the current scoring function
         scoring_function = self.scoring_function
         
