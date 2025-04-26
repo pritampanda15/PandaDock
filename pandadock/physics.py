@@ -1679,32 +1679,27 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
         Calculate angular dependency factor for hydrogen bond.
         Returns a value between 0 (poor geometry) and 1 (ideal geometry).
         """
-        # For simplicity, we assume a linear geometry
-        Molecule = self._get_molecule_class()
-        # Ensure donor and acceptor are Molecule objects    
-
-        donor_mol = donor_mol if isinstance(donor_mol, Molecule) else Molecule(donor_mol)
-        acceptor_mol = acceptor_mol if isinstance(acceptor_mol, Molecule) else Molecule(acceptor_mol)
-
         try:
-            # Get coordinates
             donor_coords = donor_atom['coords']
             acceptor_coords = acceptor_atom['coords']
             
-            # Calculate basic vector
+            # Calculate donor-acceptor vector
             d_a_vector = acceptor_coords - donor_coords
             d_a_distance = np.linalg.norm(d_a_vector)
+            
             if d_a_distance < 0.1:
                 return 0.0  # Atoms are too close
-            
+
             d_a_vector = d_a_vector / d_a_distance
-            
-            # For simplicity, we'll use a default angle factor
-            # In a real implementation, you'd use bonding information to calculate precise angles
-            return 0.5  # Default 50% effectiveness
+
+            # Very simple angle approximation: assume linear H-bond
+            # More detailed angle modeling could be done if hydrogen available
+            return 1.0  # Assume ideal geometry for now
             
         except Exception as e:
-            return 0.25  # Fallback if calculation fails
+            # In case of any error, return bad geometry factor
+            return 0.25
+
     
     
     def calculate_desolvation(self, protein_atoms, ligand_atoms):
