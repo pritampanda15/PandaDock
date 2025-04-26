@@ -851,7 +851,7 @@ class GPUScoringFunction(ScoringFunction):
         else:
             # Fall back to CPU implementation
             cpu_scorer = CPUScoringFunction()
-            return cpu_scorer.calculate_vdw(protein, ligand)
+            return cpu_scorer.calculate_vdw(protein_atoms, ligand.atoms)
     
     def _calculate_vdw_torch(self, protein_atoms, ligand_atoms):
         """

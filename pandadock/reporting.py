@@ -1102,4 +1102,4 @@ class DockingReporter:
         print(f"HTML report written to {html_path}")
         return html_path
     
-    
+   
