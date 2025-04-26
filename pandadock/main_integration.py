@@ -160,7 +160,9 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
     Create an optimized search algorithm based on available hardware.
     """
     # Extract grid-related settings from kwargs
-    grid_spacing = kwargs.pop('grid_spacing', 0.375)  # Remove grid_spacing from kwargs
+    grid_spacing = kwargs.pop('grid_spacing', 0.375)
+    grid_radius = kwargs.pop('grid_radius', 2.0)
+    grid_center = kwargs.pop('grid_center', None)
 
     # Standard algorithm types
     if algorithm_type == 'genetic':
@@ -170,7 +172,6 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
             kwargs.pop('grid_radius', None)
             kwargs.pop('grid_spacing', None)
             kwargs.pop('grid_center', None)
-            kwargs.pop('use_spherical_grid', None)
            
             # Remove unsupported 'n_steps' argument if present
             kwargs.pop('n_steps', None)
@@ -183,10 +184,31 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
             kwargs.pop('md_steps', None)
             kwargs.pop('minimize_steps', None)
             kwargs.pop('use_grid', None)
+            kwargs.pop('grid_center', None)
+            kwargs.pop('grid_radius', None)
+            kwargs.pop('grid_spacing', None)
+            kwargs.pop('use_monte_carlo', None)
+            kwargs.pop('use_monte_carlo', None)
+            kwargs.pop('grid_spacing', None)
+            kwargs.pop('n_steps', None)
+            kwargs.pop('temperature', None)
+            kwargs.pop('cooling_factor', None)
+            kwargs.pop('high_temp', None)
+            kwargs.pop('target_temp', None)
+            kwargs.pop('num_conformers', None)
+            kwargs.pop('num_orientations', None)
+            kwargs.pop('md_steps', None)
+            kwargs.pop('minimize_steps', None)
+            kwargs.pop('use_grid', None)
+            kwargs.pop('output_dir', None)
+
                 
             return ParallelGeneticAlgorithm(
                 scoring_function=scoring_function,
-                grid_spacing=grid_spacing,  # Pass grid_spacing explicitly
+                grid_spacing=grid_spacing,  # Pass grid_spacing explicitly    # 💥 PASS properly
+                grid_radius=grid_radius,      # 💥 PASS properly
+                grid_center=grid_center,
+                output_dir=kwargs.pop('output_dir', None),
                 **kwargs
             )
         except ImportError:
@@ -203,7 +225,7 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
             kwargs.pop('grid_radius', None)
             kwargs.pop('grid_spacing', None)
             kwargs.pop('grid_center', None)
-            kwargs.pop('use_spherical_grid', None)
+            kwargs.pop('output_dir', None)
             return ParallelRandomSearch(
                 scoring_function=scoring_function,
                 **kwargs
@@ -212,6 +234,10 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
             from .search import RandomSearch
             return RandomSearch(
                 scoring_function=scoring_function,
+                grid_spacing=grid_spacing,  # Pass grid_spacing explicitly
+                grid_radius=grid_radius,    # 💥 PASS properl
+                grid_center=grid_center,     # 💥 PASS proper
+                output_dir=kwargs.pop('output_dir', None),
                 **kwargs
             )
             
@@ -222,7 +248,6 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
             kwargs.pop('grid_radius', None)
             kwargs.pop('grid_spacing', None)
             kwargs.pop('grid_center', None)
-            kwargs.pop('use_spherical_grid', None)
             kwargs.pop('max_iterations', None)
             kwargs.pop('workload_balance', None)            
             kwargs.pop('num_processes', None)
@@ -231,6 +256,10 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
             kwargs.pop('temperature', None)
             return MonteCarloSampling(
                 scoring_function=scoring_function,
+                grid_spacing=grid_spacing,  # Pass grid_spacing explicitly
+                grid_radius=grid_radius,    # 💥 PASS properl
+                grid_center=grid_center,     # 💥 PASS proper
+                output_dir=kwargs.pop('output_dir', None),
                 **kwargs
             )
         except ImportError:
@@ -239,6 +268,10 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
                 manager,
                 'genetic',
                 scoring_function,
+                grid_spacing=grid_spacing,  # Pass grid_spacing explicitly
+                grid_radius=grid_radius,    # 💥 PASS properly
+                grid_center=grid_center,     # 💥 PASS properly
+                output_dir=kwargs.pop('output_dir', None),
                 **kwargs
             )
             
@@ -250,10 +283,14 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
             kwargs.pop('grid_radius', None)
             kwargs.pop('grid_spacing', None)
             kwargs.pop('grid_center', None)
-            kwargs.pop('use_spherical_grid', None)
+            kwargs.pop('output_dir', None)
 
             return PANDADOCKAlgorithm(
                 scoring_function=scoring_function,
+                grid_spacing=grid_spacing,  # Pass grid_spacing explicitly
+                grid_radius=grid_radius,    # 💥 PASS properly
+                grid_center=grid_center,     # 💥 PASS properly
+                output_dir=kwargs.pop('output_dir', None),
                 **kwargs
             )
         ##############
@@ -266,6 +303,10 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
                 manager,
                 'genetic',
                 scoring_function,
+                grid_spacing=grid_spacing,  # Pass grid_spacing explicitly
+                grid_radius=grid_radius,    # 💥 PASS properly
+                grid_center=grid_center,     # 💥 PASS properly
+                output_dir=kwargs.pop('output_dir', None),
                 **kwargs
             )
     
@@ -276,6 +317,10 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
             manager,
             'genetic',
             scoring_function,
+            grid_spacing=grid_spacing,  # Pass grid_spacing explicitly
+            grid_radius=grid_radius,    # 💥 PASS properl
+            grid_center=grid_center,     # 💥 PASS property
+            output_dir=kwargs.pop('output_dir', None),
             **kwargs
         )
 def get_scoring_type_from_args(args):

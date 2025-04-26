@@ -127,23 +127,47 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         
         return population
     
+    def initialize_grid_points(self, center):
+        from .utils import generate_spherical_grid
+        if self.grid_points is None:
+            self.grid_points = generate_spherical_grid(
+                center=center,
+                radius=self.grid_radius,
+                spacing=self.grid_spacing
+            )
+            self.logger.info(
+                f"Initialized spherical grid with {len(self.grid_points)} points "
+                f"(spacing: {self.grid_spacing}, radius: {self.grid_radius})"
+            )
+
+            # Save Sphere PDB
+            sphere_path = Path(self.output_dir) / "sphere.pdb"
+            sphere_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(sphere_path, 'w') as f:
+                for idx, point in enumerate(self.grid_points):
+                    f.write(
+                        f"HETATM{idx+1:5d} {'S':<2s}   SPH A   1    "
+                        f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
+                    )
+            self.logger.info(f"Sphere grid written to {sphere_path}")
+
     def search(self, protein, ligand):
-        """
-        Perform genetic algorithm search with parallel evaluation.
-        
-        Parameters:
-        -----------
-        protein : Protein
-            Protein object
-        ligand : Ligand
-            Ligand object
-        
-        Returns:
-        --------
-        list
-            List of (pose, score) tuples, sorted by score
-        """
         start_time = time.time()
+        
+        if protein.active_site:
+            center = protein.active_site['center']
+            radius = protein.active_site['radius']
+        else:
+            center = np.mean(protein.xyz, axis=0)
+            radius = 15.0
+        
+        print(f"Searching around center {center} with radius {radius}")
+        
+        # ✅ Save sphere.pdb
+        self.initialize_grid_points(center)
+    
+    # Then continue normal pose generation...
+
         
         # Initialize population
         population = self.initialize_population(protein, ligand)
@@ -646,6 +670,8 @@ class ParallelRandomSearch(RandomSearch):
         
         print(f"Searching around center {center} with radius {radius}")
         print(f"Using {self.n_processes} CPU cores for evaluation")
+        # ✅ Save sphere.pdb
+        self.initialize_grid_points(center)
         
         # Generate and evaluate poses sequentially to avoid multiprocessing issues
         results = []

@@ -330,6 +330,10 @@ class DockingReporter:
             f.write(f"Date and Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Protein: {protein_path}\n")
             f.write(f"Ligand: {ligand_path}\n")
+            sphere_path = Path(self.output_dir) / "sphere.pdb"
+            if sphere_path.exists():
+                f.write(f"Active Site Sphere File: {sphere_path.name}\n\n")
+                f.write("\n")
             f.write(f"Algorithm: {algorithm}\n")
             f.write(f"Iterations/Generations: {iterations}\n")
             f.write(f"Total Runtime: {elapsed_time:.2f} seconds\n\n")
@@ -421,7 +425,12 @@ class DockingReporter:
             f.write(f"Report ID: {self.timestamp}\n")
             f.write(f"Protein: {protein_path}\n")
             f.write(f"Ligand: {ligand_path}\n\n")
-            
+            sphere_path = Path(self.output_dir) / "sphere.pdb"
+            if sphere_path.exists():
+                f.write(f"Active Site Sphere File: {sphere_path.name}\n")
+            f.write("\n")
+            f.write(f"Total Poses Generated: {len(self.results)}\n")
+            f.write("\n")
             # Algorithm details
             f.write("ALGORITHM DETAILS\n")
             f.write("-----------------\n")
@@ -842,6 +851,23 @@ class DockingReporter:
                         <tr><td>Report ID</td><td>{self.timestamp}</td></tr>
                         <tr><td>Protein</td><td>{self.args.protein}</td></tr>
                         <tr><td>Ligand</td><td>{self.args.ligand}</td></tr>
+                        <tr><td>Sphere PDB</td><td>{'sphere.pdb' if (self.output_dir / 'sphere.pdb').exists() else 'Not generated'}</td></tr>
+                        <tr><td>Active Site Sphere</td><td>{'Yes' if hasattr(self.args, 'active_site_sphere') and self.args.active_site_sphere else 'No'}</td></tr>
+                        <tr><td>Iterations/Generations</td><td>{self.args.iterations if hasattr(self.args, 'iterations') else "unknown"}</td></tr>
+                        <tr><td>Exhaustiveness</td><td>{self.args.exhaustiveness if hasattr(self.args, 'exhaustiveness') else "unknown"}</td></tr>
+                        <tr><td>Local Optimization</td><td>{'Yes' if hasattr(self.args, 'local_opt') and self.args.local_opt else 'No'}</td></tr>
+                        <tr><td>Start Time</td><td>{self.args.start_time if hasattr(self.args, 'start_time') else "unknown"}</td></tr>
+                        <tr><td>Total Runtime</td><td>{self.args.total_runtime if hasattr(self.args, 'total_runtime') else "unknown"}</td></tr>
+                        <tr><td>Elapsed Time</td><td>{self.args.elapsed_time if hasattr(self.args, 'elapsed_time') else "unknown"}</td></tr>
+                        <tr><td>CPU Workers</td><td>{self.args.cpu_workers if hasattr(self.args, 'cpu_workers') else "unknown"}</td></tr>
+                        <tr><td>GPU ID</td><td>{self.args.gpu_id if hasattr(self.args, 'gpu_id') else "unknown"}</td></tr>
+                        <tr><td>GPU Precision</td><td>{self.args.gpu_precision if hasattr(self.args, 'gpu_precision') else "unknown"}</td></tr>
+                        <tr><td>Enhanced Scoring</td><td>{'Yes' if hasattr(self.args, 'enhanced_scoring') and self.args.enhanced_scoring else 'No'}</td></tr>
+                        <tr><td>Physics-based Scoring</td><td>{'Yes' if hasattr(self.args, 'physics_based') and self.args.physics_based else 'No'}</td></tr>
+                        <tr><td>Validation RMSD</td><td>{self.args.validation_rmsd if hasattr(self.args, 'validation_rmsd') else "unknown"}</td></tr>
+                        <tr><td>Validation Max Deviation</td><td>{self.args.validation_max_deviation if hasattr(self.args, 'validation_max_deviation') else "unknown"}</td></tr>
+                        <tr><td>Validation Min Deviation</td><td>{self.args.validation_min_deviation if hasattr(self.args, 'validation_min_deviation') else "unknown"}</td></tr>
+                        <tr><td>Validation Success</td><td>{'Yes' if hasattr(self.args, 'validation_success') and self.args.validation_success else 'No'}</td></tr>
                         <tr><td>Algorithm</td><td>{self.args.algorithm if hasattr(self.args, 'algorithm') else "unknown"}</td></tr>
         """
         

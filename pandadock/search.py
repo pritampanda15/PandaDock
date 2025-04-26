@@ -94,7 +94,19 @@ class DockingSearch:
                 f"Initialized spherical grid with {len(self.grid_points)} points "
                 f"(spacing: {self.grid_spacing}, radius: {self.grid_radius})"
             )
-
+        else:
+            self.logger.info(f"Spherical grid already initialized with {len(self.grid_points)} points")
+                # --- Save Sphere Here Automatically ---
+        from pathlib import Path
+        sphere_path = Path(self.output_dir) / "sphere.pdb"
+        sphere_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(sphere_path, 'w') as f:
+            for idx, point in enumerate(self.grid_points):
+                f.write(
+                    f"HETATM{idx+1:5d} {'S':<2s}   SPH A   1    "
+                    f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
+                )
+        self.logger.info(f"Sphere grid written to {sphere_path}")
 
     def save_sphere_to_pdb(self, grid_points, output_path):
         """
@@ -172,7 +184,22 @@ class DockingSearch:
         active_site_center = protein.active_site['center']
         active_site_radius = protein.active_site['radius']
         self.initialize_grid_points(center=protein.active_site['center'])
-        self.save_sphere_to_pdb(self.grid_points, self.output_dir / "sphere.pdb")
+        
+        # Save the sphere to a PDB file for visualization
+        # Save the grid sphere points to sphere.pdb
+        from pathlib import Path
+        from .utils import generate_spherical_grid
+        # Create the output directory if it doesn't exist
+        if not self.output_dir.exists():
+            self.output_dir.mkdir(parents=True)
+        sphere_path = Path(self.output_dir) / "sphere.pdb"
+        with open(sphere_path, 'w') as f:
+            for idx, point in enumerate(self.grid_points):
+                f.write(
+                    f"HETATM{idx+1:5d} { 'S':<2s}   SPH A   1    "
+                    f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
+                )
+        print(f"Saved active site sphere points to {sphere_path}")
         print(f"Spherical sampling grid saved to {self.output_dir / 'sphere.pdb'} for visualization.")
         print(f"Active site center: {active_site_center}, radius: {active_site_radius}")
         # Check if ligand is within the active site
