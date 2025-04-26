@@ -1441,6 +1441,17 @@ class GPUScoringFunction(ScoringFunction):
         
         return total_clash_score
 
+    def calculate_entropy(self, ligand):
+        """
+        Fallback to CPU entropy calculation.
+        """
+        # Fall back to CPU implementation
+        # as GPU implementation is not efficient for this
+        # type of calculation
+        # and requires more detailed atomic information.
+        cpu_scorer = CPUScoringFunction()
+        return cpu_scorer.calculate_entropy(ligand)
+
 
 class EnhancedGPUScoringFunction(GPUScoringFunction):
     """
