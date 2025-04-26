@@ -185,14 +185,25 @@ class GradientBasedSearch(DockingSearch):
             
             # Random rotation
             from scipy.spatial.transform import Rotation
+            # Normal random rotation
             rotation = Rotation.random()
-            rotation_matrix = rotation.as_matrix()
-            
-            # Apply rotation around new center
+
+            # Add bias: rotate toward center of pocket
             centroid = np.mean(pose.xyz, axis=0)
+            vector_to_center = center - centroid
+            vector_to_center /= np.linalg.norm(vector_to_center)
+
+            # Small rotation (~10 degrees) toward pocket center
+            bias_rotation = Rotation.from_rotvec(0.2 * vector_to_center)  # 0.2 rad ≈ 11 degrees
+            biased_rotation = rotation * bias_rotation
+
+            rotation_matrix = biased_rotation.as_matrix()
+
+            # Apply
             pose.translate(-centroid)
             pose.rotate(rotation_matrix)
             pose.translate(centroid)
+
             
             # Add to starting poses
             starting_poses.append(pose)
@@ -521,14 +532,25 @@ class ReplicaExchangeDocking(DockingSearch):
             
             # Random rotation
             from scipy.spatial.transform import Rotation
+# Normal random rotation
             rotation = Rotation.random()
-            rotation_matrix = rotation.as_matrix()
-            
-            # Apply rotation around new center
+
+            # Add bias: rotate toward center of pocket
             centroid = np.mean(pose.xyz, axis=0)
+            vector_to_center = center - centroid
+            vector_to_center /= np.linalg.norm(vector_to_center)
+
+            # Small rotation (~10 degrees) toward pocket center
+            bias_rotation = Rotation.from_rotvec(0.2 * vector_to_center)  # 0.2 rad ≈ 11 degrees
+            biased_rotation = rotation * bias_rotation
+
+            rotation_matrix = biased_rotation.as_matrix()
+
+            # Apply
             pose.translate(-centroid)
             pose.rotate(rotation_matrix)
             pose.translate(centroid)
+
             
             # Evaluate score
             score = self.scoring_function.score(protein, pose)
@@ -922,14 +944,25 @@ class MLGuidedSearch(DockingSearch):
             
             # Random rotation
             from scipy.spatial.transform import Rotation
+            # Normal random rotation
             rotation = Rotation.random()
-            rotation_matrix = rotation.as_matrix()
-            
-            # Apply rotation around new center
+
+            # Add bias: rotate toward center of pocket
             centroid = np.mean(pose.xyz, axis=0)
+            vector_to_center = center - centroid
+            vector_to_center /= np.linalg.norm(vector_to_center)
+
+            # Small rotation (~10 degrees) toward pocket center
+            bias_rotation = Rotation.from_rotvec(0.2 * vector_to_center)  # 0.2 rad ≈ 11 degrees
+            biased_rotation = rotation * bias_rotation
+
+            rotation_matrix = biased_rotation.as_matrix()
+
+            # Apply
             pose.translate(-centroid)
             pose.rotate(rotation_matrix)
             pose.translate(centroid)
+
             
             # Extract features
             features = self._extract_features(protein, pose)
@@ -989,14 +1022,25 @@ class MLGuidedSearch(DockingSearch):
                     
                     # Random rotation
                     from scipy.spatial.transform import Rotation
+                    # Normal random rotation
                     rotation = Rotation.random()
-                    rotation_matrix = rotation.as_matrix()
-                    
-                    # Apply rotation around new center
+
+                    # Add bias: rotate toward center of pocket
                     centroid = np.mean(pose.xyz, axis=0)
+                    vector_to_center = center - centroid
+                    vector_to_center /= np.linalg.norm(vector_to_center)
+
+                    # Small rotation (~10 degrees) toward pocket center
+                    bias_rotation = Rotation.from_rotvec(0.2 * vector_to_center)  # 0.2 rad ≈ 11 degrees
+                    biased_rotation = rotation * bias_rotation
+
+                    rotation_matrix = biased_rotation.as_matrix()
+
+                    # Apply
                     pose.translate(-centroid)
                     pose.rotate(rotation_matrix)
                     pose.translate(centroid)
+
                     
                     # Extract features
                     features = self._extract_features(protein, pose)
@@ -1044,14 +1088,25 @@ class MLGuidedSearch(DockingSearch):
                 
                 # Random rotation
                 from scipy.spatial.transform import Rotation
+                # Normal random rotation
                 rotation = Rotation.random()
-                rotation_matrix = rotation.as_matrix()
-                
-                # Apply rotation around new center
+
+                # Add bias: rotate toward center of pocket
                 centroid = np.mean(pose.xyz, axis=0)
+                vector_to_center = center - centroid
+                vector_to_center /= np.linalg.norm(vector_to_center)
+
+                # Small rotation (~10 degrees) toward pocket center
+                bias_rotation = Rotation.from_rotvec(0.2 * vector_to_center)  # 0.2 rad ≈ 11 degrees
+                biased_rotation = rotation * bias_rotation
+
+                rotation_matrix = biased_rotation.as_matrix()
+
+                # Apply
                 pose.translate(-centroid)
                 pose.rotate(rotation_matrix)
                 pose.translate(centroid)
+
                 
                 # Simple local optimization
                 if iteration % 5 == 0:  # Occasionally apply local optimization

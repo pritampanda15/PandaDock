@@ -52,32 +52,29 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
 
     def initialize_population(self, protein, ligand):
         """
-        Initialize random population for genetic algorithm.
-        
+        Initialize random population for genetic algorithm within spherical grid.
+
         Parameters:
         -----------
         protein : Protein
             Protein object
-        ligand : Ligand
-            Ligand object
-        
+        ligand : Ligand object
+
         Returns:
         --------
         list
             List of (pose, score) tuples
         """
         population = []
-        
+
         # Determine search space
         if protein.active_site:
             center = protein.active_site['center']
             radius = protein.active_site['radius']
         else:
-            # Use protein center of mass
             center = np.mean(protein.xyz, axis=0)
-            radius = 15.0  # Arbitrary search radius
-        
-        #print(f"Searching around center {center} with radius {self.grid_radius}")
+            radius = 15.0  # Arbitrary default
+
         print(f"Using {self.n_processes} CPU cores for evaluation")
         print(f"Using {self.batch_size} poses per process for evaluation")
         print(f"Using {self.population_size} poses in total")
@@ -87,45 +84,43 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         print(f"Performing local optimization: {self.perform_local_opt}")
         print(f"Grid spacing: {self.grid_spacing}")
         print(f"Grid radius: {self.grid_radius}")
-    
-        # Log grid center and radius
-        #print(f"INFO - Using grid center: {center}, grid radius: {self.grid_radius}")
-        #print(f"INFO - Using grid spacing: {self.grid_spacing}")
-        
+
         for _ in range(self.population_size):
-            # Make a deep copy of the ligand
             pose = copy.deepcopy(ligand)
-            
-            # Generate random position within sphere
-            r = radius * random.random() ** (1.0/3.0)
-            theta = random.uniform(0, 2 * np.pi)
-            phi = random.uniform(0, np.pi)
-            
-            x = center[0] + r * np.sin(phi) * np.cos(theta)
-            y = center[1] + r * np.sin(phi) * np.sin(theta)
-            z = center[2] + r * np.cos(phi)
-            
-            # Calculate translation vector
+
+            # 🟡 Select a random point from precomputed spherical grid
+            random_grid_point = random.choice(self.grid_points)
+
+            # 🟡 Move the ligand centroid to that random point
             centroid = np.mean(pose.xyz, axis=0)
-            translation = np.array([x, y, z]) - centroid
-            
-            # Apply translation
+            translation = random_grid_point - centroid
             pose.translate(translation)
-            
-            # Generate random rotation
+
+            # 🟡 Apply random rotation around the ligand center
+            # Normal random rotation
             rotation = Rotation.random()
-            rotation_matrix = rotation.as_matrix()
-            
-            # Apply rotation around the new center
+
+            # Add bias: rotate toward center of pocket
             centroid = np.mean(pose.xyz, axis=0)
+            vector_to_center = center - centroid
+            vector_to_center /= np.linalg.norm(vector_to_center)
+
+            # Small rotation (~10 degrees) toward pocket center
+            bias_rotation = Rotation.from_rotvec(0.2 * vector_to_center)  # 0.2 rad ≈ 11 degrees
+            biased_rotation = rotation * bias_rotation
+
+            rotation_matrix = biased_rotation.as_matrix()
+
+            # Apply
             pose.translate(-centroid)
             pose.rotate(rotation_matrix)
             pose.translate(centroid)
-            
-            # Add to population with placeholder score
+
+
             population.append((pose, None))
-        
+
         return population
+
     
     def initialize_grid_points(self, center):
         from .utils import generate_spherical_grid

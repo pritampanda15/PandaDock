@@ -287,9 +287,6 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
 
             return PANDADOCKAlgorithm(
                 scoring_function=scoring_function,
-                grid_spacing=grid_spacing,  # Pass grid_spacing explicitly
-                grid_radius=grid_radius,    # 💥 PASS properly
-                grid_center=grid_center,     # 💥 PASS properly
                 output_dir=kwargs.pop('output_dir', None),
                 **kwargs
             )

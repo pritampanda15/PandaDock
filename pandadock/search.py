@@ -238,12 +238,25 @@ class DockingSearch:
 
             
             # Apply a random rotation
+            # Normal random rotation
             rotation = Rotation.random()
-            
+
+            # Add bias: rotate toward center of pocket
             centroid = np.mean(pose.xyz, axis=0)
+            vector_to_center = center - centroid
+            vector_to_center /= np.linalg.norm(vector_to_center)
+
+            # Small rotation (~10 degrees) toward pocket center
+            bias_rotation = Rotation.from_rotvec(0.2 * vector_to_center)  # 0.2 rad ≈ 11 degrees
+            biased_rotation = rotation * bias_rotation
+
+            rotation_matrix = biased_rotation.as_matrix()
+
+            # Apply
             pose.translate(-centroid)
-            pose.rotate(rotation.as_matrix())
+            pose.rotate(rotation_matrix)
             pose.translate(centroid)
+
             
             # Score the pose
             score = scoring_function.score(protein, pose)
@@ -1369,13 +1382,16 @@ class RandomSearch(DockingSearch):
             pose = copy.deepcopy(ligand)
             
             # Generate random position within sphere
-            r = radius * random.random() ** (1.0/3.0)
-            theta = random.uniform(0, 2 * np.pi)
-            phi = random.uniform(0, np.pi)
-            
-            x = center[0] + r * np.sin(phi) * np.cos(theta)
-            y = center[1] + r * np.sin(phi) * np.sin(theta)
-            z = center[2] + r * np.cos(phi)
+            # Randomly pick a point from the grid_points
+            random_grid_point = random.choice(self.grid_points)
+
+            # Calculate translation vector
+            centroid = np.mean(pose.xyz, axis=0)
+            translation = random_grid_point - centroid
+
+            # Apply translation
+            pose.translate(translation)
+
             
             # Calculate translation vector
             centroid = np.mean(pose.xyz, axis=0)
@@ -1622,126 +1638,85 @@ class GeneticAlgorithm(DockingSearch):
     def search(self, protein, ligand):
         """Perform genetic algorithm search."""
         self.protein = protein
+
         # Determine search space
         if protein.active_site:
             center = protein.active_site['center']
             radius = protein.active_site['radius']
         else:
-            # Use protein center of mass
             center = np.mean(protein.xyz, axis=0)
-            radius = 15.0  # Arbitrary search radius
-        
+            radius = 15.0  # Default
+
         print(f"Starting genetic algorithm search with population {self.population_size}")
-        if self.perform_local_opt:
-            print("Local optimization within GA generations is ENABLED.")
-        else:
-            print("Local optimization within GA generations is DISABLED.")
-        
+        print(f"Local optimization within GA generations is {'ENABLED' if self.perform_local_opt else 'DISABLED'}.")
+
         # Initialize population
         population = []
         for _ in range(self.population_size):
-            # Make a deep copy of the ligand
             pose = copy.deepcopy(ligand)
-            
-            # Generate random position within sphere
-            r = radius * random.random() ** (1.0/3.0)
-            theta = random.uniform(0, 2 * np.pi)
-            phi = random.uniform(0, np.pi)
-            
-            x = center[0] + r * np.sin(phi) * np.cos(theta)
-            y = center[1] + r * np.sin(phi) * np.sin(theta)
-            z = center[2] + r * np.cos(phi)
-            
-            # Calculate translation vector
+
+            # 🟡 Pick a random point from grid
+            random_grid_point = random.choice(self.grid_points)
+
+            # 🟡 Move ligand centroid to grid point
             centroid = np.mean(pose.xyz, axis=0)
-            translation = np.array([x, y, z]) - centroid
-            
-            # Apply translation
+            translation = random_grid_point - centroid
             pose.translate(translation)
-            
-            # Generate random rotation
+
+            # 🟡 Apply random rotation
             rotation = Rotation.random()
             rotation_matrix = rotation.as_matrix()
-            
-            # Apply rotation
             centroid = np.mean(pose.xyz, axis=0)
             pose.translate(-centroid)
             pose.rotate(rotation_matrix)
             pose.translate(centroid)
-            
-            # Evaluate pose
+
+            # 🟡 Score
             score = self.scoring_function.score(protein, pose)
-            
-            # Store pose
             population.append((pose, score))
-        
+
         # Sort initial population
         population.sort(key=lambda x: x[1])
         best_poses = [population[0]]
-        
-        # Main GA loop
-        for generation in range(self.max_iterations):
-            # Select parents (tournament selection)
-            parents = self._selection(population)
-            
-            # Generate offspring
-            offspring = self._crossover(parents)
-            
-            # Mutate offspring
-            self._mutation(offspring, radius, center)
-            for pose in offspring:  # Iterate through offspring
-                if not is_inside_sphere(pose, center, radius):
-                    continue  # Reject pose outside sphere
 
-                
-            # Evaluate offspring
+        # Main Genetic Algorithm Loop
+        for generation in range(self.max_iterations):
+            parents = self._selection(population)
+            offspring = self._crossover(parents)
+
+            self._mutation(offspring, radius, center)
+
+            for pose, _ in offspring:
+                if not is_inside_sphere(pose, center, radius):
+                    continue
+
             # Evaluate offspring
             for i, (pose, _) in enumerate(offspring):
-                # Apply local optimization ONLY IF self.perform_local_opt is TRUE
-                # Use the stored instance variable
-                if self.perform_local_opt and i < len(offspring) // 4: # Optimize top 25% if enabled
+                if self.perform_local_opt and i < len(offspring) // 4:
                     optimized_pose, optimized_score = self._local_optimization(pose, protein)
                     if not is_inside_sphere(optimized_pose, center, radius):
-                        continue  # Reject this translation
+                        continue
                     offspring[i] = (optimized_pose, optimized_score)
-                else: # Otherwise, just score
+                else:
                     score = self.scoring_function.score(protein, pose)
                     offspring[i] = (pose, score)
-            
-            # Combine and select new population
+
             combined = population + offspring
             combined.sort(key=lambda x: x[1])
             population = combined[:self.population_size]
-            
-            # Update best solution
-            # After this line in GeneticAlgorithm.search:
+
             if population[0][1] < best_poses[-1][1]:
                 best_poses.append(population[0])
 
-            # Insert the progress tracking code:
             if self.output_dir:
                 from .utils import save_intermediate_result, update_status
-                
-                # Save current best pose
-                save_intermediate_result(
-                    population[0][0],  # Current best pose
-                    population[0][1],  # Current best score
-                    generation + 1,    # Current iteration
-                    self.output_dir, 
-                    self.max_iterations
-                )
-                
-                # Update status
-                update_status(
-                    self.output_dir,
-                    current_iteration=generation + 1,
-                    best_score=population[0][1],
-                    generation=generation + 1
-                )
-            
+                save_intermediate_result(population[0][0], population[0][1], generation + 1, self.output_dir, self.max_iterations)
+                update_status(self.output_dir, current_iteration=generation + 1, best_score=population[0][1], generation=generation + 1)
+
             print(f"Generation {generation + 1}, best score: {population[0][1]}")
-            
+
         return best_poses
+
     
     def _selection(self, population):
         """Tournament selection."""
@@ -1790,20 +1765,14 @@ class GeneticAlgorithm(DockingSearch):
         return offspring
     
     def _mutation(self, offspring, radius, center):
-        """
-        Mutation operation for the population.
-        
-        Parameters:
-        -----------
-        offspring : list
-            List of (pose, score) tuples to mutate
-        radius : float
-            Radius of search space
-        center : array-like
-            Center of search space
-        """
+        """Mutate offspring with boundary check."""
         for i, (pose, _) in enumerate(offspring):
-            self._mutate(pose)  # Call the new _mutate method for each pose
+            original_pose = copy.deepcopy(pose)
+            self._mutate(pose)  # Try mutation
+            if not is_inside_sphere(pose, center, radius):
+                # Outside the sphere? Revert
+                offspring[i] = (original_pose, 0)
+
 
     def _mutate(self, individual):
         """

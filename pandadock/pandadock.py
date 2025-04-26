@@ -194,17 +194,24 @@ class PANDADOCKAlgorithm(DockingSearch):
             pose.translate(translation)
             
             # Apply random rotation
+            # Normal random rotation
             rotation = Rotation.random()
-            rotation_matrix = rotation.as_matrix()
-            
-            # Rotate around center
-            pose.translate(-center)
+
+            # Add bias: rotate toward center of pocket
+            centroid = np.mean(pose.xyz, axis=0)
+            vector_to_center = center - centroid
+            vector_to_center /= np.linalg.norm(vector_to_center)
+
+            # Small rotation (~10 degrees) toward pocket center
+            bias_rotation = Rotation.from_rotvec(0.2 * vector_to_center)  # 0.2 rad ≈ 11 degrees
+            biased_rotation = rotation * bias_rotation
+
+            rotation_matrix = biased_rotation.as_matrix()
+
+            # Apply
+            pose.translate(-centroid)
             pose.rotate(rotation_matrix)
-            pose.translate(center)
-            
-            # Add small random displacement within radius
-            random_displacement = np.random.uniform(-radius * 0.3, radius * 0.3, 3)
-            pose.translate(random_displacement)
+            pose.translate(centroid)
             
             # Check if pose is valid (soft energy check)
             is_valid = self._check_pose_validity(pose, protein)
