@@ -30,6 +30,30 @@ from .utils import save_docking_results, calculate_rmsd
 from .preparation import prepare_protein, prepare_ligand
 from .validation import validate_docking, calculate_ensemble_rmsd
 
+def random_point_in_sphere(center, radius):
+    """
+    Generate a random point uniformly inside a sphere.
+    """
+    phi = np.random.uniform(0, 2 * np.pi)
+    costheta = np.random.uniform(-1, 1)
+    u = np.random.uniform(0, 1)
+
+    theta = np.arccos(costheta)
+    r = radius * (u ** (1/3))
+
+    x = r * np.sin(theta) * np.cos(phi)
+    y = r * np.sin(theta) * np.sin(phi)
+    z = r * np.cos(theta)
+
+    return center + np.array([x, y, z])
+
+def is_inside_sphere(pose, center, radius):
+    """
+    Check if the ligand pose's centroid is within the active site sphere.
+    """
+    centroid = np.mean(pose.xyz, axis=0)
+    distance = np.linalg.norm(centroid - center)
+    return distance <= radius
 
 class DockingSearch:
     """Base class for docking search algorithms."""
@@ -152,19 +176,14 @@ class DockingSearch:
             
             # Use more samples near the center of the active site
             # with reduced radius to ensure better placement
-            distance_factor = np.random.random() ** 0.5  # Bias toward center
-            r = active_site_radius * distance_factor
-            theta = np.random.uniform(0, 2 * np.pi)
-            phi = np.random.uniform(0, np.pi)
-            
-            x = active_site_center[0] + r * np.sin(phi) * np.cos(theta)
-            y = active_site_center[1] + r * np.sin(phi) * np.sin(theta)
-            z = active_site_center[2] + r * np.cos(phi)
-            
-            # Move the ligand to this position
+            # True sphere-based random sampling
+            random_point = random_point_in_sphere(active_site_center, active_site_radius)
+
+            # Move ligand centroid to this point
             centroid = np.mean(pose.xyz, axis=0)
-            translation = np.array([x, y, z]) - centroid
+            translation = random_point - centroid
             pose.translate(translation)
+
             
             # Apply a random rotation
             rotation = Rotation.random()
@@ -1618,6 +1637,10 @@ class GeneticAlgorithm(DockingSearch):
             
             # Mutate offspring
             self._mutation(offspring, radius, center)
+            for pose in offspring:  # Iterate through offspring
+                if not is_inside_sphere(pose, center, radius):
+                    continue  # Reject pose outside sphere
+
                 
             # Evaluate offspring
             # Evaluate offspring
@@ -1626,6 +1649,8 @@ class GeneticAlgorithm(DockingSearch):
                 # Use the stored instance variable
                 if self.perform_local_opt and i < len(offspring) // 4: # Optimize top 25% if enabled
                     optimized_pose, optimized_score = self._local_optimization(pose, protein)
+                    if not is_inside_sphere(optimized_pose, center, radius):
+                        continue  # Reject this translation
                     offspring[i] = (optimized_pose, optimized_score)
                 else: # Otherwise, just score
                     score = self.scoring_function.score(protein, pose)
