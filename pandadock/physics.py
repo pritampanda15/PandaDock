@@ -1674,32 +1674,86 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
         
         return hbond_energy  # Updated to return the calculated hbond_energy instead of calling super().calculate_hbond
 
+    import numpy as np
+
     def _calculate_hbond_angle_factor(self, donor_atom, acceptor_atom, donor_mol, acceptor_mol):
         """
-        Calculate angular dependency factor for hydrogen bond.
+        Calculate angular and distance dependency factor for hydrogen bond.
         Returns a value between 0 (poor geometry) and 1 (ideal geometry).
+        
+        - Uses explicit Hydrogen atoms if available
+        - Penalizes based on H-Donor-Acceptor angle and Donor-Acceptor distance
         """
         try:
-            donor_coords = donor_atom['coords']
-            acceptor_coords = acceptor_atom['coords']
-            
-            # Calculate donor-acceptor vector
-            d_a_vector = acceptor_coords - donor_coords
-            d_a_distance = np.linalg.norm(d_a_vector)
-            
-            if d_a_distance < 0.1:
-                return 0.0  # Atoms are too close
+            donor_coords = np.array(donor_atom['coords'])
+            acceptor_coords = np.array(acceptor_atom['coords'])
 
-            d_a_vector = d_a_vector / d_a_distance
-
-            # Very simple angle approximation: assume linear H-bond
-            # More detailed angle modeling could be done if hydrogen available
-            return 1.0  # Assume ideal geometry for now
+            # --- Try to find attached Hydrogen atom to donor ---
+            donor_idx = donor_atom.get('idx', None)
+            donor_neighbors = []
             
+            if donor_idx is not None:
+                for atom in donor_mol.atoms:
+                    if atom.get('symbol', '') == 'H':
+                        if 'bonds' in atom and donor_idx in atom['bonds']:
+                            donor_neighbors.append(atom)
+
+            if donor_neighbors:
+                # Take the first attached Hydrogen
+                hydrogen_atom = donor_neighbors[0]
+                hydrogen_coords = np.array(hydrogen_atom['coords'])
+
+                # Calculate vectors
+                dh_vector = donor_coords - hydrogen_coords  # H → Donor
+                ha_vector = acceptor_coords - hydrogen_coords  # H → Acceptor
+
+                # Normalize
+                dh_vector /= np.linalg.norm(dh_vector)
+                ha_vector /= np.linalg.norm(ha_vector)
+
+                # Calculate angle
+                cos_theta = np.clip(np.dot(dh_vector, ha_vector), -1.0, 1.0)
+                theta = np.arccos(cos_theta)
+
+            else:
+                # No explicit Hydrogen → approximate
+                d_a_vector = acceptor_coords - donor_coords
+                d_a_vector /= np.linalg.norm(d_a_vector)
+
+                ideal_vector = -d_a_vector  # Approximate hydrogen along acceptor vector
+
+                cos_theta = np.clip(np.dot(d_a_vector, ideal_vector), -1.0, 1.0)
+                theta = np.arccos(cos_theta)
+
+            # --- Angular weighting ---
+            angle_deviation = np.abs(np.pi - theta)  # deviation from 180°
+            angle_weight = np.cos(angle_deviation) ** 2
+            angle_weight = max(0.0, min(1.0, angle_weight))  # clip
+
+            # --- Distance weighting ---
+            ideal_hbond_distance = 2.9  # typical H-bond optimal (Å)
+            tolerance = 0.5  # ± range
+
+            donor_acceptor_distance = np.linalg.norm(acceptor_coords - donor_coords)
+
+            if donor_acceptor_distance < (ideal_hbond_distance - tolerance):
+                distance_weight = (donor_acceptor_distance / (ideal_hbond_distance - tolerance)) ** 2
+            elif donor_acceptor_distance > (ideal_hbond_distance + tolerance):
+                distance_weight = ((ideal_hbond_distance + tolerance) / donor_acceptor_distance) ** 2
+            else:
+                distance_weight = 1.0  # Within ideal range
+
+            distance_weight = max(0.0, min(1.0, distance_weight))
+
+            # --- Final combined weighting ---
+            final_weight = angle_weight * distance_weight
+
+            return final_weight
+
         except Exception as e:
-            # In case of any error, return bad geometry factor
+            # In case of failure, return poor geometry
             return 0.25
-
+        # --- End of function ---
     
     
     def calculate_desolvation(self, protein_atoms, ligand_atoms):
