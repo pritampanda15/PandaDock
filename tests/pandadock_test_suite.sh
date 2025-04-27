@@ -1,54 +1,89 @@
 #!/bin/bash
 
-# Create a log directory
-mkdir -p docking_logs
+# === PandaDock Automated Testing Script ===
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
 
-# Define common parameters
-PROTEIN="receptor.pdb"
+# Input files (Change if needed)
+PROTEIN="beta-2_alpha-1.pdb"
 LIGAND="ligand.sdf"
-SITE_X=-15.7
-SITE_Y=-17.7
-SITE_Z=8.1
-OUTPUT_DIR="docking_results"
-LOG_DIR="docking_logs"
+REFERENCE="reference.sdf"  # Only needed for tethered docking
 
-# Function to run docking with logging
-run_docking() {
-  DESC=$1
-  shift
-  echo ">>> Running: $DESC"
-  pandadock "$@" > "$LOG_DIR/${DESC// /_}.log" 2>&1
+# Basic command
+PANDADOCK="pandadock"
+
+# Helper function
+run_test() {
+    echo -e "${YELLOW}\n=== Running Test: $1 ===${NC}\n"
+    echo -e "${BLUE}Command:${NC} $2"
+    eval $2
+    echo -e "${GREEN}=== Finished: $1 ===${NC}\n"
+    sleep 2
 }
 
-# 1. Physics-Based Docking (GPU)
-run_docking "physics_gpu" -p $PROTEIN -l $LIGAND -s $SITE_X $SITE_Y $SITE_Z -i 100 -a genetic --use-gpu --physics-based --gpu-id 0 --detailed-energy
+# ======== TEST CASES ========
 
-# 2. Physics-Based Docking (CPU)
-run_docking "physics_cpu" -p $PROTEIN -l $LIGAND -s $SITE_X $SITE_Y $SITE_Z -i 100 -a genetic --physics-based --detailed-energy
+# 1. Minimal quick test
+run_test "Minimal Docking" "$PANDADOCK -p $PROTEIN -l $LIGAND"
 
-# 3. Enhanced Scoring (GPU)
-run_docking "enhanced_gpu" -p $PROTEIN -l $LIGAND -s $SITE_X $SITE_Y $SITE_Z -i 100 -a genetic --use-gpu --enhanced-scoring --gpu-id 0 --detailed-energy
+# 2. Define Active Site
+run_test "Active Site Defined" "$PANDADOCK -p $PROTEIN -l $LIGAND -s 10 10 10 -r 10"
 
-# 4. Enhanced Scoring (CPU)
-run_docking "enhanced_cpu" -p $PROTEIN -l $LIGAND -s $SITE_X $SITE_Y $SITE_Z -i 100 -a genetic --enhanced-scoring --detailed-energy
+# 3. Fast Mode
+run_test "Fast Mode" "$PANDADOCK -p $PROTEIN -l $LIGAND --fast-mode"
 
-# 5. Fast Mode Docking
-run_docking "fast_mode" -p $PROTEIN -l $LIGAND -s $SITE_X $SITE_Y $SITE_Z -i 100 -a random --fast-mode
+# 4. Physics-Based Docking
+run_test "Physics-Based Docking" "$PANDADOCK -p $PROTEIN -l $LIGAND --physics-based --prepare-molecules"
 
-# 6. Monte Carlo Sampling (GPU)
-run_docking "montecarlo_gpu" -p $PROTEIN -l $LIGAND -s $SITE_X $SITE_Y $SITE_Z --monte-carlo --mc-steps 5000 --temperature 400 --use-gpu --gpu-id 0 --physics-based --detailed-energy
+# 5. Genetic Algorithm + Local Opt + Enhanced Scoring
+run_test "Genetic + Local Optimization + Enhanced" "$PANDADOCK -p $PROTEIN -l $LIGAND -a genetic --local-opt --enhanced-scoring"
 
-# 7. Auto Algorithm Selection (GPU)
-run_docking "auto_algorithm" -p $PROTEIN -l $LIGAND -s $SITE_X $SITE_Y $SITE_Z --auto-algorithm --use-gpu --gpu-id 0 --physics-based --detailed-energy
+# 6. Random Search
+run_test "Random Search" "$PANDADOCK -p $PROTEIN -l $LIGAND -a random"
 
-# 8. Full Report + Per-Residue Energy
-run_docking "full_analysis" -p $PROTEIN -l $LIGAND -s $SITE_X $SITE_Y $SITE_Z -i 100 -a genetic --use-gpu --physics-based --gpu-id 0 \
-  --energy-decomposition --per-residue-energy --generate-analysis-report --analysis-report-format html --detailed-energy
+# 7. Monte Carlo Sampling
+run_test "Monte Carlo Sampling" "$PANDADOCK -p $PROTEIN -l $LIGAND --monte-carlo --mc-steps 2000 --temperature 500"
 
-# ✅ Test 9: PandaDock algorithm (CHARMm + Simulated Annealing)
-run_docking "Pandadock_algorithm" $PROTEIN -l $LIGAND -s $SITE_X $SITE_Y $SITE_Z -a pandadock --use-gpu --physics-based \
-  --num-conformers 10 --num-orientations 10 --md-steps 1000 --minimize-steps 200 --detailed-energy \
-  --report-format all 
+# 8. Pandadock Algorithm
+run_test "PANDADOCK Algorithm" "$PANDADOCK -p $PROTEIN -l $LIGAND -a pandadock --high-temp 800 --target-temp 300 --md-steps 500 --minimize-steps 100"
 
-# 1. Flexible (GPU)
-run_docking "physics_gpu" -p $PROTEIN -l $LIGAND -s $SITE_X $SITE_Y $SITE_Z -i 100 -a genetic --use-gpu --physics-based --gpu-id 0 --detailed-energy --auto-flex
+# 9. Pocket Detection
+run_test "Pocket Detection" "$PANDADOCK -p $PROTEIN -l $LIGAND --detect-pockets"
+
+# 10. GPU Physics-Based Docking
+run_test "Physics-Based Docking with GPU" "$PANDADOCK -p $PROTEIN -l $LIGAND --physics-based --use-gpu --gpu-precision float32"
+
+# 11. Auto Flexible Residues
+run_test "Auto-Flex Residues" "$PANDADOCK -p $PROTEIN -l $LIGAND --auto-flex"
+
+# 12. Advanced Search - Gradient
+run_test "Advanced Gradient Search" "$PANDADOCK -p $PROTEIN -l $LIGAND --advanced-search gradient --gradient-step 0.1 --convergence-threshold 0.01"
+
+# 13. Advanced Search - Replica Exchange
+run_test "Advanced Replica Exchange Search" "$PANDADOCK -p $PROTEIN -l $LIGAND --advanced-search replica-exchange --n-replicas 4 --exchange-steps 10"
+
+# 14. ML-Guided Docking
+run_test "Advanced ML-Guided Search" "$PANDADOCK -p $PROTEIN -l $LIGAND --advanced-search ml-guided --surrogate-model rf --exploitation-factor 0.7"
+
+# 15. Fragment-Based Docking
+run_test "Advanced Fragment-Based Docking" "$PANDADOCK -p $PROTEIN -l $LIGAND --advanced-search fragment-based --fragment-min-size 5 --growth-steps 3"
+
+# 16. Hybrid GA + Local Search
+run_test "Hybrid Search (GA + L-BFGS)" "$PANDADOCK -p $PROTEIN -l $LIGAND --advanced-search hybrid --ga-iterations 50 --lbfgs-iterations 50 --top-n-for-local 5"
+
+# 17. Full Reporting - HTML, CSV, JSON
+run_test "Generate Full Reports" "$PANDADOCK -p $PROTEIN -l $LIGAND --report-format all --detailed-energy --generate-analysis-report --analysis-report-format html"
+
+# 18. Custom CPU/GPU Workload Balance
+run_test "Custom CPU/GPU Workload Balance" "$PANDADOCK -p $PROTEIN -l $LIGAND --use-gpu --workload-balance 0.7"
+
+# 19. Tethered Docking with Reference
+run_test "Tethered Docking (Reference Guided)" "$PANDADOCK -p $PROTEIN -l $LIGAND --tethered-docking --reference $REFERENCE --tether-weight 10.0"
+
+# ======== DONE ========
+echo -e "${CYAN}\n✅ All PandaDock tests completed!\n${NC}"
