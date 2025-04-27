@@ -110,13 +110,22 @@ class DockingSearch:
             if self.output_dir is not None:
                 sphere_path = Path(self.output_dir) / "sphere.pdb"
                 sphere_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Downsample grid points if too many
+                save_points = self.grid_points
+                if len(self.grid_points) > 10000:
+                    save_points = self.grid_points[::10]  # Save 1 out of 10
+                elif len(self.grid_points) > 5000:
+                    save_points = self.grid_points[::5]
+                else:
+                    save_points = self.grid_points
                 with open(sphere_path, 'w') as f:
-                    for idx, point in enumerate(self.grid_points):
+                    for idx, point in enumerate(save_points):
                         f.write(
                             f"HETATM{idx+1:5d} {'S':<2s}   SPH A   1    "
                             f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
                         )
-                self.logger.info(f"Sphere grid written to {sphere_path}")
+                self.logger.info(f"Sphere grid written to {sphere_path} ({len(save_points)} points)")
 
     def save_sphere_to_pdb(self, grid_points, output_path):
         """
