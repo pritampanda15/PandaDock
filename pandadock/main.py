@@ -6,6 +6,7 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
+from rich_argparse import RichHelpFormatter
 import numpy as np
 import traceback
 from .protein import Protein
@@ -469,19 +470,25 @@ def main():
     
     try:
         # Parse command line arguments
-        parser = argparse.ArgumentParser(description='PandaDock: Python Molecular Docking Tool')
+        parser = argparse.ArgumentParser(
+            description="🐼 PandaDock: Physics-based Molecular Docking 🚀",
+            formatter_class=RichHelpFormatter,   # << add this!
+        )
         
         # Required arguments
         parser.add_argument('-p', '--protein', required=True, help='Path to protein PDB file')
         parser.add_argument('-l', '--ligand', required=True, help='Path to ligand MOL/SDF file')
         
         # Optional arguments
+        pandadock_group = parser.add_argument_group('Optional but RecommendedOptions')
         parser.add_argument('-o', '--output', default='docking_results', 
                             help='Output directory for docking results')
         parser.add_argument('-a', '--algorithm', choices=['random', 'genetic', 'pandadock'], default='genetic',
                             help='Docking algorithm to use (default: genetic)')
         parser.add_argument('-i', '--iterations', type=int, default=100,
                             help='Number of iterations/generations (default: 100)')
+        
+        pandadock_group = parser.add_argument_group('Active Site Options')                    
         parser.add_argument('-s', '--site', nargs=3, type=float, metavar=('X', 'Y', 'Z'),
                             help='Active site center coordinates')
         parser.add_argument('-r', '--radius', type=float, default=10.0,
@@ -492,27 +499,20 @@ def main():
                     help='Grid spacing in Å for spherical grid sampling (default: 0.375 Å)')
         parser.add_argument('--grid-radius', type=float, default=10.0,
                             help='Grid radius in Å around the binding site for spherical sampling (default: 10.0 Å)')
-                
-        parser.add_argument('--tethered-docking', action='store_true',
-                    help='Use tethered scoring with reference structure')
-        parser.add_argument('--tether-weight', type=float, default=10.0,
-                    help='Weight for tethered scoring (higher = stronger tethering)')
         
         # Quick mode options
+        pandadock_group = parser.add_argument_group('Quick Mode Options')
         parser.add_argument('--fast-mode', action='store_true',
                             help='Run with minimal enhancements for quick results')
         parser.add_argument('--enhanced', action='store_true',
                             help='Use enhanced algorithms for more accurate (but slower) results')
         
         # Enhanced docking options
+        pandadock_group = parser.add_argument_group('Enhanced Options')
         parser.add_argument('--enhanced-scoring', action='store_true',
                             help='Use enhanced scoring function with electrostatics')
         parser.add_argument('--prepare-molecules', action='store_true',
                             help='Prepare protein and ligand before docking (recommended)')
-        parser.add_argument('--reference', 
-                            help='Reference ligand structure for validation')
-        parser.add_argument('--exact-alignment', action='store_true',
-                        help='Align docked pose exactly to reference structure')
         parser.add_argument('--population-size', type=int, default=100,
                             help='Population size for genetic algorithm (default: 100)')
         parser.add_argument('--exhaustiveness', type=int, default=1,
@@ -523,6 +523,7 @@ def main():
                             help='pH for protein preparation (default: 7.4)')
         
         # Physics-based options
+        pandadock_group = parser.add_argument_group('Physics-Based Options')
         parser.add_argument('--physics-based', action='store_true',
                             help='Use full physics-based scoring (very slow but most accurate)')
         parser.add_argument('--mmff-minimization', action='store_true',
@@ -535,7 +536,7 @@ def main():
                             help='Temperature for Monte Carlo simulation in Kelvin (default: 300K)')
 
         # PandaDock options
-        pandadock_group = parser.add_argument_group('PandaDock Options')
+        pandadock_group = parser.add_argument_group('Algorithm -a pandadock Options')
         pandadock_group.add_argument('--high-temp', type=float, default=1000.0,
                                 help='High temperature for pandadock MD simulations (K)')
         pandadock_group.add_argument('--target-temp', type=float, default=300.0,
@@ -553,6 +554,17 @@ def main():
         pandadock_group.add_argument('--cooling-factor', type=float, default=0.95,
                                 help='Cooling factor for simulated annealing (applies to PANDADOCK and Monte Carlo)')
 
+        # Tethered docking
+        pandadock_group = parser.add_argument_group('Tethered Options')
+        parser.add_argument('--tethered-docking', action='store_true',
+                    help='Use tethered scoring with reference structure')
+        parser.add_argument('--tether-weight', type=float, default=10.0,
+                    help='Weight for tethered scoring (higher = stronger tethering)')
+        parser.add_argument('--reference', 
+                            help='Reference ligand structure for validation')
+        parser.add_argument('--exact-alignment', action='store_true',
+                        help='Align docked pose exactly to reference structure')
+        
         # Auto-algorithm option
         parser.add_argument('--auto-algorithm', action='store_true',
                         help='Automatically select the best docking algorithm based on your system')
@@ -1317,6 +1329,7 @@ def main():
             traceback.print_exc()
             print(f"Elapsed time before failure: {elapsed_time:.2f} seconds")
 
+
             
         # Try to update status file if output_dir exists
         if output_dir:
@@ -1369,8 +1382,61 @@ def main():
             logger.info(f"============================================================")
         else:
             print(f"============================================================")
-            
-        return return_code
+        
+        # Final status update
+        # --- Show Docking Success ASCII ---
+
+    # 🛑 DO NOT always print success ascii
+
+        if return_code == 0:
+            # Only if docking succeeded
+            success_ascii = r"""
+⠀⠀⠀⠀⠀⠀⢀⣤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⢤⣤⣀⣀⡀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⢀⡼⠋⠀⣀⠄⡂⠍⣀⣒⣒⠂⠀⠬⠤⠤⠬⠍⠉⠝⠲⣄⡀⠀⠀
+⠀⠀⠀⢀⡾⠁⠀⠊⢔⠕⠈⣀⣀⡀⠈⠆⠀⠀⠀⡍⠁⠀⠁⢂⠀⠈⣷⠀⠀
+⠀⠀⣠⣾⠥⠀⠀⣠⢠⣞⣿⣿⣿⣉⠳⣄⠀⠀⣀⣤⣶⣶⣶⡄⠀⠀⣘⢦⡀
+⢀⡞⡍⣠⠞⢋⡛⠶⠤⣤⠴⠚⠀⠈⠙⠁⠀⠀⢹⡏⠁⠀⣀⣠⠤⢤⡕⠱⣷
+⠘⡇⠇⣯⠤⢾⡙⠲⢤⣀⡀⠤⠀⢲⡖⣂⣀⠀⠀⢙⣶⣄⠈⠉⣸⡄⠠⣠⡿
+⠀⠹⣜⡪⠀⠈⢷⣦⣬⣏⠉⠛⠲⣮⣧⣁⣀⣀⠶⠞⢁⣀⣨⢶⢿⣧⠉⡼⠁
+⠀⠀⠈⢷⡀⠀⠀⠳⣌⡟⠻⠷⣶⣧⣀⣀⣹⣉⣉⣿⣉⣉⣇⣼⣾⣿⠀⡇⠀
+⠀⠀⠀⠈⢳⡄⠀⠀⠘⠳⣄⡀⡼⠈⠉⠛⡿⠿⠿⡿⠿⣿⢿⣿⣿⡇⠀⡇⠀
+⠀⠀⠀⠀⠀⠙⢦⣕⠠⣒⠌⡙⠓⠶⠤⣤⣧⣀⣸⣇⣴⣧⠾⠾⠋⠀⠀⡇⠀
+⠀⠀⠀⠀⠀⠀⠀⠈⠙⠶⣭⣒⠩⠖⢠⣤⠄⠀⠀⠀⠀⠀⠠⠔⠁⡰⠀⣧⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠛⠲⢤⣀⣀⠉⠉⠀⠀⠀⠀⠀⠁⠀⣠⠏⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉⠉⠛⠒⠲⠶⠤⠴⠒⠚⠁⠀⠀  
+
+  🎯 Docking completed successfully! Ready for analysis! 🚀
+            """
+            print(success_ascii)
+        else:
+            # Only if docking failed
+            error_ascii = r"""
+
+                                           \ / _
+                                      ___,,,
+                                      \_[o o]
+     Errare humanum est!              C\  _\/
+             /                     _____),_/__
+        ________                  /     \/   /
+      _|       .|                /      o   /
+     | |       .|               /          /
+      \|       .|              /          /
+       |________|             /_        \/
+       __|___|__             _//\        \
+ _____|_________|____       \  \ \        \
+                    _|       ///  \        \
+                   |               \       /
+                   |               /      /
+                   |              /      /
+ ________________  |             /__    /_
+ b'ger        ...|_|.............. /______\.......
+
+                    
+            ❌ Error: The docking process encountered an issue! 🐼💥
+            """
+            print(error_ascii)
+
+    return return_code
 
 if __name__ == "__main__":
     main()

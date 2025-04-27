@@ -66,7 +66,10 @@ setup(
         "tabulate",
         "tqdm",
         "seaborn",
-        "weasyprint"
+        "weasyprint",
+        "rich",
+        "rich-argparse",
+        "pyyaml",
     ],
     entry_points={
         'console_scripts': [
