@@ -431,6 +431,29 @@ def add_analysis_options(parser):
                         choices=['summary', 'clusters', 'interactions', 'energetics'],
                         default=['summary', 'clusters', 'interactions', 'energetics'],
                         help='Sections to include in the analysis report')
+    
+def print_pandadock_ascii():
+        # Color codes
+        CYAN = "\033[96m"
+        GREEN = "\033[92m"
+        YELLOW = "\033[93m"
+        BOLD = "\033[1m"
+        RESET = "\033[0m"
+        
+        ascii_art = f"""{CYAN}
+        ██████╗  █████╗ ███╗   ██╗██████╗  █████╗ ██████╗  ██████╗  ██████╗██╗  ██╗
+        ██╔══██╗██╔══██╗████╗  ██║██╔══██╗██╔══██╗██╔══██╗██╔═══██╗██╔════╝██║ ██╔╝
+        ██████╔╝███████║██╔██╗ ██║██║  ██║███████║██║  ██║██║   ██║██║     █████╔╝ 
+        ██╔═══╝ ██╔══██║██║╚██╗██║██║  ██║██╔══██║██║  ██║██║   ██║██║     ██╔═██╗ 
+        ██║     ██║  ██║██║ ╚████║██████╔╝██║  ██║██████╔╝╚██████╔╝╚██████╗██║  ██╗
+        ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚═╝  ╚═╝╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝                                                                        
+        {RESET}"""
+        
+        print(ascii_art)
+        print(f"{BOLD}{GREEN}PandaDock Molecular Docking Suite 🚀{RESET}")
+        print(f"{YELLOW}Version: {__version__}{RESET}")
+        print("-" * 60)
+
 
 def main():
     # Initialize return value
@@ -560,8 +583,12 @@ def main():
         add_hardware_options(parser)
         add_advanced_search_options(parser)
         add_analysis_options(parser)
-        
+        print_pandadock_ascii()
         args = parser.parse_args()
+        
+        
+        # Check for updates at startup
+        check_for_updates()
     
         # Check for required arguments
         if not args.protein or not args.ligand:

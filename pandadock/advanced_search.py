@@ -12,6 +12,7 @@ import copy
 import time
 import random
 from scipy.optimize import minimize
+from scipy.spatial.transform import Rotation
 from .search import DockingSearch
 from .utils import calculate_rmsd
 
