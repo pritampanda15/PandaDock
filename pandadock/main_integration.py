@@ -161,7 +161,7 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
     """
     # Extract grid-related settings from kwargs
     grid_spacing = kwargs.pop('grid_spacing', 0.375)
-    grid_radius = kwargs.pop('grid_radius', 2.0)
+    grid_radius = kwargs.pop('grid_radius', 10.0)
     grid_center = kwargs.pop('grid_center', None)
 
     # Standard algorithm types

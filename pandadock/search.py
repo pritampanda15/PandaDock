@@ -58,7 +58,7 @@ def is_inside_sphere(pose, center, radius):
 class DockingSearch:
     """Base class for docking search algorithms."""
     
-    def __init__(self, scoring_function, max_iterations=1000, output_dir=None):
+    def __init__(self, scoring_function, max_iterations=1000, output_dir=None, grid_spacing=0.375, grid_radius=10.0):
         """
         Initialize search algorithm.
         
@@ -68,18 +68,25 @@ class DockingSearch:
             Scoring function to evaluate poses
         max_iterations : int
             Maximum number of iterations
+        grid_spacing : float
+            Spacing between grid points
+        grid_radius : float
+            Radius of the search sphere
         """
         from .utils import setup_logging
     
         self.scoring_function = scoring_function
         self.max_iterations = max_iterations
         self.output_dir = output_dir
+        self.grid_spacing = grid_spacing
+        self.grid_radius = grid_radius
     
-    # Set up logger
         self.logger = setup_logging(output_dir)
         self.grid_points = None
-        self.grid_radius = 2.0
-        self.grid_spacing = 0.375
+        self.grid_radius = self.grid_radius
+        self.grid_spacing = self.grid_spacing
+        self.output_dir = output_dir
+        self.max_iterations = max_iterations
         
     # Define a method to set up the grid
     def initialize_grid_points(self, center):
@@ -122,6 +129,8 @@ class DockingSearch:
         self.logger.info(f"Saved spherical grid to {output_path}")
         self.logger.info("Spherical grid points saved for visualization.")
         self.logger.info(f"Grid points saved to {output_path}")
+    
+
         
     def search(self, protein, ligand):
         """
@@ -140,6 +149,15 @@ class DockingSearch:
             List of (pose, score) tuples, sorted by score
         """
         raise NotImplementedError("Subclasses must implement this method")
+    
+    def _adjust_search_radius(self, initial_radius, generation, total_generations):
+        """
+        Shrink the search radius over generations.
+        """
+        decay_rate = 0.5  # How much radius should shrink overall (50% smaller at end)
+        factor = 1.0 - (generation / total_generations) * decay_rate
+        return max(initial_radius * factor, initial_radius * 0.5)  # Do not shrink below 50%
+
 
     def improve_rigid_docking(self, protein, ligand, args):
         """
@@ -1372,7 +1390,22 @@ class RandomSearch(DockingSearch):
             radius = protein.active_site['radius']
         else:
             center = np.mean(protein.xyz, axis=0)
-            radius = 15.0  # Default
+            radius = 10.0  # Default
+        
+        # ✨ Insert here
+        if not hasattr(protein, 'active_site') or protein.active_site is None:
+            protein.active_site = {
+                'center': center,
+                'radius': radius
+            }
+        if 'atoms' not in protein.active_site or protein.active_site['atoms'] is None:
+            protein.active_site['atoms'] = [
+                atom for atom in protein.atoms
+                if np.linalg.norm(atom['coords'] - center) <= radius
+            ]
+            print(f"[INFO] Added {len(protein.active_site['atoms'])} atoms into active_site region")
+
+        print(f"Searching around center {center} with radius {radius}")
 
         print(f"Starting genetic algorithm search with population {self.population_size}")
         print(f"Local optimization within GA generations is {'ENABLED' if self.perform_local_opt else 'DISABLED'}.")
@@ -1408,10 +1441,13 @@ class RandomSearch(DockingSearch):
 
         # Main Genetic Algorithm Loop
         for generation in range(self.max_iterations):
+            # Shrink search radius adaptively
+            current_radius = self._adjust_search_radius(radius, generation, self.max_iterations)
+
             parents = self._selection(population)
             offspring = self._crossover(parents)
 
-            self._mutation(offspring, radius, center)
+            self._mutation(offspring, current_radius, center)
 
             for pose, _ in offspring:
                 if not is_inside_sphere(pose, center, radius):
@@ -1641,7 +1677,22 @@ class GeneticAlgorithm(DockingSearch):
             radius = protein.active_site['radius']
         else:
             center = np.mean(protein.xyz, axis=0)
-            radius = 15.0  # Default
+            radius = 10.0  # Default
+        
+        # ✨ Insert here
+        if not hasattr(protein, 'active_site') or protein.active_site is None:
+            protein.active_site = {
+                'center': center,
+                'radius': radius
+            }
+        if 'atoms' not in protein.active_site or protein.active_site['atoms'] is None:
+            protein.active_site['atoms'] = [
+                atom for atom in protein.atoms
+                if np.linalg.norm(atom['coords'] - center) <= radius
+            ]
+            print(f"[INFO] Added {len(protein.active_site['atoms'])} atoms into active_site region")
+
+        print(f"Searching around center {center} with radius {radius}")
 
         print(f"Starting genetic algorithm search with population {self.population_size}")
         print(f"Local optimization within GA generations is {'ENABLED' if self.perform_local_opt else 'DISABLED'}.")
@@ -1677,20 +1728,21 @@ class GeneticAlgorithm(DockingSearch):
 
         # Main Genetic Algorithm Loop
         for generation in range(self.max_iterations):
+            current_radius = self._adjust_search_radius(radius, generation, self.max_iterations)
             parents = self._selection(population)
             offspring = self._crossover(parents)
 
-            self._mutation(offspring, radius, center)
+            self._mutation(offspring, current_radius, center)
 
             for pose, _ in offspring:
-                if not is_inside_sphere(pose, center, radius):
+                if not is_inside_sphere(pose, center, current_radius):
                     continue
 
             # Evaluate offspring
             for i, (pose, _) in enumerate(offspring):
                 if self.perform_local_opt and i < len(offspring) // 4:
                     optimized_pose, optimized_score = self._local_optimization(pose, protein)
-                    if not is_inside_sphere(optimized_pose, center, radius):
+                    if not is_inside_sphere(optimized_pose, center, current_radius):
                         continue
                     offspring[i] = (optimized_pose, optimized_score)
                 else:

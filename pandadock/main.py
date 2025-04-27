@@ -397,7 +397,7 @@ def add_analysis_options(parser):
     analysis.add_argument('--clustering-method', choices=['hierarchical', 'dbscan'], 
                         default='hierarchical',
                         help='Method for clustering poses')
-    analysis.add_argument('--rmsd-cutoff', type=float, default=2.0,
+    analysis.add_argument('--rmsd-cutoff', type=float, default=10.0,
                         help='RMSD cutoff for pose clustering')
     
     # Interaction analysis
@@ -467,8 +467,8 @@ def main():
                             help='Automatically detect binding pockets')
         parser.add_argument('--grid-spacing', type=float, default=0.375,
                     help='Grid spacing in Å for spherical grid sampling (default: 0.375 Å)')
-        parser.add_argument('--grid-radius', type=float, default=2.0,
-                            help='Grid radius in Å around the binding site for spherical sampling (default: 2.0 Å)')
+        parser.add_argument('--grid-radius', type=float, default=10.0,
+                            help='Grid radius in Å around the binding site for spherical sampling (default: 10.0 Å)')
                 
         parser.add_argument('--tethered-docking', action='store_true',
                     help='Use tethered scoring with reference structure')

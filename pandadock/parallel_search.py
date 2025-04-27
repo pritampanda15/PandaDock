@@ -19,7 +19,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
     def __init__(self, scoring_function, max_iterations=100, population_size=50, 
                  mutation_rate=0.2, crossover_rate=0.8, tournament_size=3, 
                  n_processes=None, batch_size=None, process_pool=None, 
-                 output_dir=None, perform_local_opt=False, grid_spacing=0.375, grid_radius=2.0, grid_center=None):
+                 output_dir=None, perform_local_opt=False, grid_spacing=0.375, grid_radius=10.0, grid_center=None):
         super().__init__(scoring_function, max_iterations, population_size, mutation_rate)
         self.scoring_function = scoring_function  # Ensure this is set
         self.output_dir = output_dir
@@ -49,6 +49,8 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         self.best_pose = None
 
         self.grid_center = np.array([0.0, 0.0, 0.0])  # Default grid center
+    
+
 
     def initialize_population(self, protein, ligand):
         """
@@ -145,6 +147,15 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
                         f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
                     )
             self.logger.info(f"Sphere grid written to {sphere_path}")
+    
+    def _adjust_search_radius(self, initial_radius, generation, total_generations):
+        """
+        Shrink the search radius over generations (parallel version).
+        """
+        decay_rate = 0.5  # You can tune it (0.3 or 0.7)
+        factor = 1.0 - (generation / total_generations) * decay_rate
+        return max(initial_radius * factor, initial_radius * 0.5)
+
 
     def search(self, protein, ligand):
         start_time = time.time()
@@ -154,7 +165,22 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
             radius = protein.active_site['radius']
         else:
             center = np.mean(protein.xyz, axis=0)
-            radius = 15.0
+            radius = 10.0
+        
+        # ✨ Insert here
+        if not hasattr(protein, 'active_site') or protein.active_site is None:
+            protein.active_site = {
+                'center': center,
+                'radius': radius
+            }
+        if 'atoms' not in protein.active_site or protein.active_site['atoms'] is None:
+            protein.active_site['atoms'] = [
+                atom for atom in protein.atoms
+                if np.linalg.norm(atom['coords'] - center) <= radius
+            ]
+            print(f"[INFO] Added {len(protein.active_site['atoms'])} atoms into active_site region")
+
+        print(f"Searching around center {center} with radius {radius}")
         
         print(f"Searching around center {center} with radius {radius}")
         
@@ -185,6 +211,8 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         
         # Main evolutionary loop
         for generation in range(self.max_iterations):
+            current_radius = self._adjust_search_radius(radius, generation, self.max_iterations)
+
             gen_start = time.time()
             
             # Select parents
@@ -206,9 +234,9 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
                         child1, child2 = copy.deepcopy(parent1), copy.deepcopy(parent2)
                     
                     # Mutation
-                    # Mutation
-                    self._mutate(child1, copy.deepcopy(parent1))
-                    self._mutate(child2, copy.deepcopy(parent2))
+                    self._mutate(child1, copy.deepcopy(parent1), center, current_radius)
+                    self._mutate(child2, copy.deepcopy(parent2), center, current_radius)
+
                     
                     offspring.append((child1, None))
                     offspring.append((child2, None))
@@ -548,47 +576,40 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
     # Mutation
     ##############
 
-    def _mutate(self, individual, original_individual): # Add original_individual as parameter``
+    def _mutate(self, individual, original_individual, center, radius):
         """
-        Mutate an individual with probability mutation_rate.
-        
-        Parameters:
-        -----------
-        individual : Ligand
-            Individual to mutate
+        Mutate an individual with probability mutation_rate and respect current radius.
         """
 
         if random.random() >= self.mutation_rate:
             return  # No mutation
-        
+
         # Perform either translation, rotation, or both
         mutation_type = random.choice(['translation', 'rotation', 'both'])
-        
+
         if mutation_type in ['translation', 'both']:
-            # Random translation
             translation = np.random.normal(0, 2.0, 3)  # 2.0 Å standard deviation
             individual.translate(translation)
-        
+
         if mutation_type in ['rotation', 'both']:
-            # Random rotation
-            angle = np.random.normal(0, 0.5)  # ~30 degrees standard deviation
+            angle = np.random.normal(0, 0.5)  # ~30 degrees std dev
             axis = np.random.randn(3)
             axis = axis / np.linalg.norm(axis)
-            
+
             rotation = Rotation.from_rotvec(angle * axis)
-            
             centroid = np.mean(individual.xyz, axis=0)
             individual.translate(-centroid)
             individual.rotate(rotation.as_matrix())
             individual.translate(centroid)
 
-        if not is_within_grid(individual, self.grid_center, self.grid_radius):
-            #print("Mutation out of bounds. Reverting...")
-            return copy.deepcopy(original_individual)
+        # ✅ NEW: Check inside the *current shrinking radius*
+        if not is_within_grid(individual, center, radius):
+            # If out of bounds, revert to original
+            individual.xyz = original_individual.xyz.copy()
 
         return individual
-                
-        
+
+
     def _local_optimization(self, pose, protein):
         """
         Perform local optimization of pose using gradient descent with clash detection.
@@ -610,9 +631,6 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
 class ParallelRandomSearch(RandomSearch):
     """
     Parallel implementation of random search for molecular docking.
-    
-    This class extends the standard RandomSearch to parallelize the evaluation
-    of poses, which is typically the most time-consuming part of the search process.
     """
     
     def __init__(self, scoring_function, max_iterations=100, n_processes=None, 
@@ -636,85 +654,132 @@ class ParallelRandomSearch(RandomSearch):
         self.eval_time = 0.0
         self.total_time = 0.0
     
+    def _adjust_search_radius(self, initial_radius, iteration, total_iterations):
+        """Shrink search radius over iterations."""
+        decay_rate = 0.5
+        factor = 1.0 - (iteration / total_iterations) * decay_rate
+        return max(initial_radius * factor, initial_radius * 0.5)
+
     def search(self, protein, ligand):
-        """
-        Perform random search with parallel evaluation.
-        
-        Parameters:
-        -----------
-        protein : Protein
-            Protein object
-        ligand : Ligand
-            Ligand object
-        
-        Returns:
-        --------
-        list
-            List of (pose, score) tuples, sorted by score
-        """
         start_time = time.time()
-        
-        # Determine search space
+
         if protein.active_site:
             center = protein.active_site['center']
             radius = protein.active_site['radius']
         else:
-            # Use protein center of mass
             center = np.mean(protein.xyz, axis=0)
-            radius = 15.0  # Arbitrary search radius
+            radius = 10.0
         
+        # ✨ Insert here
+        if not hasattr(protein, 'active_site') or protein.active_site is None:
+            protein.active_site = {
+                'center': center,
+                'radius': radius
+            }
+        if 'atoms' not in protein.active_site or protein.active_site['atoms'] is None:
+            protein.active_site['atoms'] = [
+                atom for atom in protein.atoms
+                if np.linalg.norm(atom['coords'] - center) <= radius
+            ]
+            print(f"[INFO] Added {len(protein.active_site['atoms'])} atoms into active_site region")
+
         print(f"Searching around center {center} with radius {radius}")
         print(f"Using {self.n_processes} CPU cores for evaluation")
-        # ✅ Save sphere.pdb
+
+        # Save sphere grid
         self.initialize_grid_points(center)
-        
-        # Generate and evaluate poses sequentially to avoid multiprocessing issues
+
         results = []
+        # New variables to track clash failures
+        fail_counter = 0
+        max_failures = 30  # After 30 consecutive fails, expand radius
+        radius_increment = 1.0  # How much to expand each time
         
         for i in range(self.max_iterations):
-            # Show progress
             if i % 25 == 0 and i > 0:
                 elapsed = time.time() - start_time
                 avg_time = elapsed / i
                 remaining = avg_time * (self.max_iterations - i)
                 print(f"Progress: {i}/{self.max_iterations} poses evaluated ({i/self.max_iterations*100:.1f}%) - "
                       f"Est. remaining: {remaining:.1f}s")
-            
-            # Generate random pose
-            pose = self._generate_random_pose(ligand, center, radius)
-            
-            # Evaluate pose
+
+            # Adjust radius dynamically
+            current_radius = self._adjust_search_radius(radius, i, self.max_iterations)
+
+            pose = self._generate_random_pose(ligand, center, current_radius)
+
+            # Clash prefilter
+            # Quick clash check before expensive scoring
+            from .utils import detect_steric_clash
+            if detect_steric_clash(protein.atoms, pose.atoms):
+                fail_counter += 1
+                if fail_counter >= max_failures:
+                    radius += radius_increment
+                    fail_counter = 0
+                    print(f"⚡ Auto-expanding search radius to {radius:.2f} Å due to repeated clashes!")
+                continue  # Skip pose, try again
+            else:
+                fail_counter = 0  # Reset fail counter on success
+
+            # Score the good pose
             score = self.scoring_function.score(protein, pose)
-            
-            # Store result
+            results.append((pose, score))
+            # Check if the score is valid
+            if not self._check_pose_validity(pose, center, current_radius):
+                continue  # Skip pose, try again
+
+            # Evaluate the pose
+            # Score
+            score = self.scoring_function.score(protein, pose)
+
             results.append((pose, score))
         
-        # Sort results by score
         results.sort(key=lambda x: x[1])
-        
+
         self.total_time = time.time() - start_time
+
+        if not results:
+            print("⚠️ No valid poses generated! All poses clashed or failed. Returning empty result.")
+            return []
+
+        # Otherwise, continue
+        results.sort(key=lambda x: x[1])
         print(f"Search completed in {self.total_time:.2f} seconds")
         print(f"Best score: {results[0][1]:.4f}")
-        
+
         return results
-    
+
+    def _check_pose_validity(self, pose, center, radius):
+        """
+        Check if pose centroid is inside current search sphere.
+        """
+        centroid = np.mean(pose.xyz, axis=0)
+        distance = np.linalg.norm(centroid - center)
+        # Check if centroid is within the radius
+
+        return distance <= radius
+
     def _generate_random_pose(self, ligand, center, radius):
-        r = radius * random.random() ** (1.0 / 3.0)
+        # More uniform sampling within sphere volume
+        r = radius * random.betavariate(2, 5) ** (1/3)
         theta = random.uniform(0, 2 * np.pi)
         phi = random.uniform(0, np.pi)
-        
+
         x = center[0] + r * np.sin(phi) * np.cos(theta)
         y = center[1] + r * np.sin(phi) * np.sin(theta)
         z = center[2] + r * np.cos(phi)
-        
-        # Ensure the pose is within the grid
-        if np.linalg.norm([x - center[0], y - center[1], z - center[2]]) > radius:
-            print("Pose outside grid. Regenerating...")
-            return self._generate_random_pose(ligand, center, radius)
-        
-        # Apply translation and rotation as usual
+
         pose = copy.deepcopy(ligand)
         centroid = np.mean(pose.xyz, axis=0)
         translation = np.array([x, y, z]) - centroid
         pose.translate(translation)
+
+        # Apply random rotation
+        rotation = Rotation.random()
+        rotation_matrix = rotation.as_matrix()
+        centroid = np.mean(pose.xyz, axis=0)
+        pose.translate(-centroid)
+        pose.rotate(rotation_matrix)
+        pose.translate(centroid)
+
         return pose
