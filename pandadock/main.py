@@ -585,10 +585,6 @@ def main():
         add_analysis_options(parser)
         print_pandadock_ascii()
         args = parser.parse_args()
-        
-        
-        # Check for updates at startup
-        check_for_updates()
     
         # Check for required arguments
         if not args.protein or not args.ligand:
@@ -1311,13 +1307,16 @@ def main():
         # Calculate elapsed time if there was an error
         elapsed_time = time.time() - start_time
         
-        # Try to get logger, if available
-        try:
-            logger.error(f"\nError during docking: {str(e)}")
+        # Try to get logger if it exists, fallback to print
+        if 'logger' in locals() and logger:
+            logger.error(f"\n❌ Error during docking: {str(e)}")
             logger.error(traceback.format_exc())
-        except:
-            print(f"\nError during docking: {str(e)}")
+            logger.info(f"Elapsed time before failure: {elapsed_time:.2f} seconds")
+        else:
+            print(f"\n❌ Error during docking: {str(e)}")
             traceback.print_exc()
+            print(f"Elapsed time before failure: {elapsed_time:.2f} seconds")
+
             
         # Try to update status file if output_dir exists
         if output_dir:

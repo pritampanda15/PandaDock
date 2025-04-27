@@ -9,7 +9,6 @@ pandadock/advanced_search.py
 pandadock/analysis.py
 pandadock/batch_screening.py
 pandadock/flexible_residues.py
-pandadock/gpu_scoring_backup.py
 pandadock/hybrid_manager.py
 pandadock/integration.py
 pandadock/ligand.py
@@ -18,12 +17,9 @@ pandadock/main_integration.py
 pandadock/pandadock.py
 pandadock/parallel_search.py
 pandadock/physics.py
-pandadock/physics_backup.py
 pandadock/preparation.py
 pandadock/protein.py
 pandadock/reporting.py
-pandadock/reporting_backup.py
-pandadock/scoring_backup.py
 pandadock/scoring_factory.py
 pandadock/search.py
 pandadock/unified_scoring.py
