@@ -45,7 +45,7 @@ class GradientBasedSearch(DockingSearch):
         self.convergence_threshold = convergence_threshold
         self.output_dir = output_dir             
         
-    def _calculate_gradient(self, protein, pose, delta=0.1):
+    def _calculate_gradient(self, protein, pose, delta=0.1, center=None, current_radius=None):
         """
         Calculate numerical gradient for a pose using finite differences.
         
@@ -65,6 +65,7 @@ class GradientBasedSearch(DockingSearch):
         """
         # Make a copy of the pose to avoid modifying the original
         base_pose = copy.deepcopy(pose)
+
         
         # Calculate base score
         base_score = self.scoring_function.score(protein, base_pose)
@@ -125,7 +126,7 @@ class GradientBasedSearch(DockingSearch):
         
         return gradient
     
-    def search(self, protein, ligand):
+    def search(self, protein, ligand, current_radius=None):
         """
         Perform gradient-based search using L-BFGS-B algorithm.
         
@@ -161,14 +162,45 @@ class GradientBasedSearch(DockingSearch):
         else:
             # Use protein center of mass
             center = np.mean(protein.xyz, axis=0)
-            radius = 15.0  # Arbitrary search radius
+            radius = 10.0  # Arbitrary search radius
+            self.initialize_grid_points(center)
+
+            if current_radius is None:
+                current_radius = radius
+
+            # Initialize consecutive failures counter
+            consecutive_failures = 0
+        if not hasattr(protein, 'active_site') or protein.active_site is None:
+            protein.active_site = {
+                'center': center,
+                'radius': radius
+            }
+        if 'atoms' not in protein.active_site or protein.active_site['atoms'] is None:
+            protein.active_site['atoms'] = [
+                atom for atom in protein.atoms
+                if np.linalg.norm(atom['coords'] - center) <= radius
+            ]
+            print(f"[INFO] Added {len(protein.active_site['atoms'])} atoms into active_site region")
+
+        print(f"Searching around center {center} with radius {radius}")
         
         # Generate random starting poses
         for i in range(n_starting_poses):
             pose = copy.deepcopy(ligand)
+            from .utils import generate_valid_random_pose
+
+            pose = generate_valid_random_pose(protein, pose, center, current_radius)
+            if pose is None:
+                consecutive_failures += 1
+                if consecutive_failures > 10:
+                    current_radius += 1.0
+                    consecutive_failures = 0
+                    print(f"⚡ Expanding search radius to {current_radius:.2f} Å")
+                continue
+            starting_poses.append(pose)
             
             # Random position within sphere
-            r = radius * np.random.random() ** (1.0/3.0)
+            r = radius * random.betavariate(2, 5) ** (1/3)
             theta = np.random.uniform(0, 2 * np.pi)
             phi = np.random.uniform(0, np.pi)
             
@@ -478,7 +510,7 @@ class ReplicaExchangeDocking(DockingSearch):
         # Physical constants
         self.k_boltzmann = 1.9872e-3  # kcal/(mol·K)
     
-    def search(self, protein, ligand):
+    def search(self, protein, ligand, current_radius=None):
         """
         Perform replica exchange Monte Carlo docking.
         
@@ -507,201 +539,109 @@ class ReplicaExchangeDocking(DockingSearch):
             # Use protein center of mass
             center = np.mean(protein.xyz, axis=0)
             radius = 15.0  # Arbitrary search radius
+            self.initialize_grid_points(center)
+
+            if current_radius is None:
+                current_radius = radius
+
+            # ✨ Insert here
+        if not hasattr(protein, 'active_site') or protein.active_site is None:
+            protein.active_site = {
+                'center': center,
+                'radius': radius
+            }
+        if 'atoms' not in protein.active_site or protein.active_site['atoms'] is None:
+            protein.active_site['atoms'] = [
+                atom for atom in protein.atoms
+                if np.linalg.norm(atom['coords'] - center) <= radius
+            ]
+            print(f"[INFO] Added {len(protein.active_site['atoms'])} atoms into active_site region")
+
+        print(f"Searching around center {center} with radius {radius}")
+
+        # Save sphere grid
+        from .utils import save_sphere_grid
+        import pathlib as Path
+        self.initialize_grid_points(center)
+        sphere_path = Path(self.output_dir) / "sphere.pdb"
+        save_sphere_grid(sphere_path, self.grid_points)
         
         # Initialize replicas with random poses
         replicas = []
+        consecutive_failures = 0
+
         for i in range(self.n_replicas):
-            # Generate random pose
             pose = copy.deepcopy(ligand)
-            
-            # Random position within sphere
-            r = radius * np.random.random() ** (1.0/3.0)
-            theta = np.random.uniform(0, 2 * np.pi)
-            phi = np.random.uniform(0, np.pi)
-            
-            x = center[0] + r * np.sin(phi) * np.cos(theta)
-            y = center[1] + r * np.sin(phi) * np.sin(theta)
-            z = center[2] + r * np.cos(phi)
-            
-            # Calculate translation vector
-            centroid = np.mean(pose.xyz, axis=0)
-            translation = np.array([x, y, z]) - centroid
-            
-            # Apply translation
-            pose.translate(translation)
-            
-            # Random rotation
-            from scipy.spatial.transform import Rotation
-# Normal random rotation
-            rotation = Rotation.random()
-
-            # Add bias: rotate toward center of pocket
-            centroid = np.mean(pose.xyz, axis=0)
-            vector_to_center = center - centroid
-            vector_to_center /= np.linalg.norm(vector_to_center)
-
-            # Small rotation (~10 degrees) toward pocket center
-            bias_rotation = Rotation.from_rotvec(0.2 * vector_to_center)  # 0.2 rad ≈ 11 degrees
-            biased_rotation = rotation * bias_rotation
-
-            rotation_matrix = biased_rotation.as_matrix()
-
-            # Apply
-            pose.translate(-centroid)
-            pose.rotate(rotation_matrix)
-            pose.translate(centroid)
-
-            
-            # Evaluate score
+            pose = self.initialize_pose(protein, pose, center, current_radius)
+            if pose is None:
+                consecutive_failures += 1
+                if consecutive_failures > 10:
+                    current_radius += 1.0
+                    consecutive_failures = 0
+                    print(f"\u26a1 Expanding search radius to {current_radius:.2f} Å!")
+                continue
             score = self.scoring_function.score(protein, pose)
-            
-            # Add to replicas
             replicas.append({
                 'pose': pose,
                 'score': score,
                 'temperature': self.temperatures[i],
-                'replica_id': i,
-                'history': [(copy.deepcopy(pose), score)]
+                'history': [(pose, score)]
             })
-            
             print(f"Initialized replica {i+1} with score {score:.4f} at {self.temperatures[i]:.1f}K")
-        
-        # Track best pose across all replicas
+
         best_pose = None
         best_score = float('inf')
-        
-        # Track acceptance rates
-        mc_attempts = 0
-        mc_accepted = 0
-        exchange_attempts = 0
-        exchange_accepted = 0
-        
-        # Main replica exchange loop
+
         for exchange_step in range(self.exchange_steps):
-            print(f"\nExchange step {exchange_step+1}/{self.exchange_steps}")
-            
-            # Run Monte Carlo steps for each replica
-            for i, replica in enumerate(replicas):
-                print(f"  Running Monte Carlo for replica {i+1} at {replica['temperature']:.1f}K")
-                
-                # Extract current state
-                current_pose = replica['pose']
-                current_score = replica['score']
-                temperature = replica['temperature']
-                
-                # Run Monte Carlo steps
-                for mc_step in range(self.steps_per_exchange):
-                    # Generate candidate pose with small perturbation
-                    candidate_pose = copy.deepcopy(current_pose)
-                    
-                    # Random translation (smaller at lower temperatures)
-                    max_translation = 2.0 * (temperature / self.temperatures[-1])
+            print(f"Exchange step {exchange_step+1}/{self.exchange_steps}")
+
+            for replica in replicas:
+                for _ in range(self.steps_per_exchange):
+                    candidate_pose = copy.deepcopy(replica['pose'])
+                    max_translation = 2.0 * (replica['temperature'] / self.temperatures[-1])
                     translation = np.random.uniform(-max_translation, max_translation, 3)
                     candidate_pose.translate(translation)
-                    
-                    # Random rotation (smaller at lower temperatures)
-                    max_rotation = 0.3 * (temperature / self.temperatures[-1])
+
+                    max_rotation = 0.3 * (replica['temperature'] / self.temperatures[-1])
                     axis = np.random.randn(3)
-                    axis = axis / np.linalg.norm(axis)
+                    axis /= np.linalg.norm(axis)
                     angle = np.random.uniform(-max_rotation, max_rotation)
-                    
-                    from scipy.spatial.transform import Rotation
                     rotation = Rotation.from_rotvec(axis * angle)
-                    
-                    # Apply rotation around center of mass
                     centroid = np.mean(candidate_pose.xyz, axis=0)
                     candidate_pose.translate(-centroid)
                     candidate_pose.rotate(rotation.as_matrix())
                     candidate_pose.translate(centroid)
-                    
-                    # Evaluate candidate score
+
                     candidate_score = self.scoring_function.score(protein, candidate_pose)
-                    
-                    # Metropolis criterion
-                    mc_attempts += 1
-                    delta_score = candidate_score - current_score
-                    
-                    if delta_score <= 0 or np.random.random() < np.exp(-delta_score / (self.k_boltzmann * temperature)):
-                        # Accept move
-                        current_pose = candidate_pose
-                        current_score = candidate_score
-                        mc_accepted += 1
-                        
-                        # Update best pose if improved
-                        if current_score < best_score:
-                            best_pose = copy.deepcopy(current_pose)
-                            best_score = current_score
-                            print(f"    New best score: {best_score:.4f}")
-                        
-                        # Add to history (limit to last 10)
-                        replica['history'].append((copy.deepcopy(current_pose), current_score))
-                        if len(replica['history']) > 10:
-                            replica['history'] = replica['history'][-10:]
-                
-                # Update replica with final state
-                replica['pose'] = current_pose
-                replica['score'] = current_score
-            
-            # Attempt replica exchanges
-            for _ in range(self.n_replicas - 1):
-                # Select random adjacent pair
-                i = np.random.randint(0, self.n_replicas - 1)
-                j = i + 1
-                
-                # Get replicas and their states
-                replica_i = replicas[i]
-                replica_j = replicas[j]
-                
-                # Calculate exchange probability
-                delta = (1.0 / (self.k_boltzmann * replica_i['temperature']) - 
-                         1.0 / (self.k_boltzmann * replica_j['temperature'])) * (replica_j['score'] - replica_i['score'])
-                
-                exchange_attempts += 1
-                
-                # Metropolis criterion for exchange
+
+                    delta_score = candidate_score - replica['score']
+                    if delta_score <= 0 or np.random.random() < np.exp(-delta_score / (self.k_boltzmann * replica['temperature'])):
+                        replica['pose'] = candidate_pose
+                        replica['score'] = candidate_score
+                        replica['history'].append((candidate_pose, candidate_score))
+
+                        if candidate_score < best_score:
+                            best_score = candidate_score
+                            best_pose = candidate_pose
+
+            for i in range(self.n_replicas - 1):
+                r1, r2 = i, i+1
+                delta = (1.0 / (self.k_boltzmann * replicas[r1]['temperature']) - 1.0 / (self.k_boltzmann * replicas[r2]['temperature'])) * (replicas[r2]['score'] - replicas[r1]['score'])
                 if delta <= 0 or np.random.random() < np.exp(-delta):
-                    # Exchange replicas (swap poses and scores, but keep temperatures)
-                    replica_i['pose'], replica_j['pose'] = replica_j['pose'], replica_i['pose']
-                    replica_i['score'], replica_j['score'] = replica_j['score'], replica_i['score']
-                    exchange_accepted += 1
-                    
-                    print(f"  Exchanged replicas {i+1} and {j+1}: "
-                          f"{replica_i['score']:.4f} @ {replica_i['temperature']:.1f}K <-> "
-                          f"{replica_j['score']:.4f} @ {replica_j['temperature']:.1f}K")
-            
-            # Print current state
-            scores_list = [f"{r['score']:.4f}" for r in replicas]
-            scores_str = ', '.join(scores_list)
-            print(f"Current replica scores: {scores_str}")
-        
-        # Calculate acceptance rates
-        mc_rate = mc_accepted / mc_attempts if mc_attempts > 0 else 0
-        exchange_rate = exchange_accepted / exchange_attempts if exchange_attempts > 0 else 0
-        
-        print(f"\nReplica exchange completed:")
-        print(f"  Monte Carlo acceptance rate: {mc_rate:.2f}")
-        print(f"  Replica exchange acceptance rate: {exchange_rate:.2f}")
-        print(f"  Best score: {best_score:.4f}")
-        
-        # Collect all unique poses from all replicas' histories
+                    replicas[r1]['pose'], replicas[r2]['pose'] = replicas[r2]['pose'], replicas[r1]['pose']
+                    replicas[r1]['score'], replicas[r2]['score'] = replicas[r2]['score'], replicas[r1]['score']
+
         all_poses = []
-        seen_scores = set()
-        
         for replica in replicas:
-            for pose, score in replica['history']:
-                # Round score to avoid floating point comparison issues
-                rounded_score = round(score, 4)
-                if rounded_score not in seen_scores:
-                    all_poses.append((pose, score))
-                    seen_scores.add(rounded_score)
-        
-        # Sort by score
+            all_poses.extend(replica['history'])
+
         all_poses.sort(key=lambda x: x[1])
-        
         elapsed_time = time.time() - start_time
-        print(f"Replica exchange search completed in {elapsed_time:.2f} seconds")
-        
+        print(f"Replica Exchange search completed in {elapsed_time:.2f} seconds")
+        print(f"Best score: {all_poses[0][1]:.4f}")
+
         return all_poses
+
 
 
 class MLGuidedSearch(DockingSearch):
@@ -756,8 +696,10 @@ class MLGuidedSearch(DockingSearch):
         # Calculate distance to protein center or active site
         if protein.active_site:
             site_center = protein.active_site['center']
+            
         else:
             site_center = np.mean(protein.xyz, axis=0)
+        
         
         distance_to_center = np.linalg.norm(centroid - site_center)
         
@@ -884,294 +826,159 @@ class MLGuidedSearch(DockingSearch):
                     
             return SimpleModel(slope, intercept)
     
-    def search(self, protein, ligand):
+    def search(self, protein, ligand, current_radius=None):
         """
-        Perform ML-guided search.
-        
-        Parameters:
-        -----------
-        protein : Protein
-            Protein object
-        ligand : Ligand
-            Ligand object
-        
-        Returns:
-        --------
-        list
-            List of (pose, score) tuples, sorted by score
+        Perform ML-guided search with clash detection and adaptive radius expansion.
         """
         print(f"Starting ML-guided search with {self.max_iterations} iterations")
         print(f"Using {self.surrogate_model_type} surrogate model with exploitation factor {self.exploitation_factor}")
-        
+
         start_time = time.time()
-        
-        # Determine search space
+
         if protein.active_site:
             center = protein.active_site['center']
             radius = protein.active_site['radius']
         else:
-            # Use protein center of mass
             center = np.mean(protein.xyz, axis=0)
-            radius = 15.0  # Arbitrary search radius
+            radius = 15.0
+            if current_radius is None:
+                current_radius = radius
+
+        self.initialize_grid_points(center)
         
-        # Generate initial samples with pure exploration
+        # ✨ Insert here
+        if not hasattr(protein, 'active_site') or protein.active_site is None:
+            protein.active_site = {
+                'center': center,
+                'radius': radius
+            }
+        if 'atoms' not in protein.active_site or protein.active_site['atoms'] is None:
+            protein.active_site['atoms'] = [
+                atom for atom in protein.atoms
+                if np.linalg.norm(atom['coords'] - center) <= radius
+            ]
+            print(f"[INFO] Added {len(protein.active_site['atoms'])} atoms into active_site region")
+
+        if current_radius is None:
+            current_radius = radius
+
+        from .utils import generate_valid_random_pose
+
+        # Track failures
+        consecutive_failures = 0
+
+        # === Step 1: Initial sampling ===
         n_initial_samples = min(20, self.max_iterations // 5)
         print(f"Generating {n_initial_samples} initial samples for model training")
-        
+
         initial_poses = []
         initial_features = []
         initial_scores = []
-        
-        for i in range(n_initial_samples):
-            # Generate random pose
+
+        while len(initial_poses) < n_initial_samples:
             pose = copy.deepcopy(ligand)
-            
-            # Random position within sphere
-            r = radius * np.random.random() ** (1.0/3.0)
-            theta = np.random.uniform(0, 2 * np.pi)
-            phi = np.random.uniform(0, np.pi)
-            
-            x = center[0] + r * np.sin(phi) * np.cos(theta)
-            y = center[1] + r * np.sin(phi) * np.sin(theta)
-            z = center[2] + r * np.cos(phi)
-            
-            # Calculate translation vector
-            centroid = np.mean(pose.xyz, axis=0)
-            translation = np.array([x, y, z]) - centroid
-            
-            # Apply translation
-            pose.translate(translation)
-            
-            # Random rotation
-            from scipy.spatial.transform import Rotation
-            # Normal random rotation
-            rotation = Rotation.random()
+            pose = generate_valid_random_pose(protein, pose, center, current_radius)
+            if pose is None:
+                consecutive_failures += 1
+                if consecutive_failures > 10:
+                    current_radius += 1.0
+                    consecutive_failures = 0
+                    print(f"⚡ Expanding search radius to {current_radius:.2f} Å")
+                continue
 
-            # Add bias: rotate toward center of pocket
-            centroid = np.mean(pose.xyz, axis=0)
-            vector_to_center = center - centroid
-            vector_to_center /= np.linalg.norm(vector_to_center)
-
-            # Small rotation (~10 degrees) toward pocket center
-            bias_rotation = Rotation.from_rotvec(0.2 * vector_to_center)  # 0.2 rad ≈ 11 degrees
-            biased_rotation = rotation * bias_rotation
-
-            rotation_matrix = biased_rotation.as_matrix()
-
-            # Apply
-            pose.translate(-centroid)
-            pose.rotate(rotation_matrix)
-            pose.translate(centroid)
-
-            
-            # Extract features
-            features = self._extract_features(protein, pose)
-            
-            # Evaluate score
             score = self.scoring_function.score(protein, pose)
-            
-            # Store results
+            features = self._extract_features(protein, pose)
+
             initial_poses.append((pose, score))
             initial_features.append(features)
             initial_scores.append(score)
-            
-            print(f"  Initial sample {i+1}: score = {score:.4f}")
-        
+
+            print(f"  Initial sample {len(initial_poses)}/{n_initial_samples}: score = {score:.4f}")
+
         # Train initial surrogate model
         self.ml_model = self._train_surrogate_model(initial_features, initial_scores)
-        print(f"Trained initial surrogate model on {n_initial_samples} samples")
-        
-        # Use all poses and scores for tracking
+        print(f"Trained initial surrogate model on {len(initial_poses)} samples")
+
         all_poses = initial_poses.copy()
         all_features = initial_features.copy()
         all_scores = initial_scores.copy()
-        
-        # Main optimization loop
+
+        # === Step 2: Main optimization loop ===
         remaining_iterations = self.max_iterations - n_initial_samples
-        
+
         for iteration in range(remaining_iterations):
             print(f"Iteration {iteration+1}/{remaining_iterations}")
-            
-            # Decide between exploration and exploitation
+
             if np.random.random() < self.exploitation_factor:
-                # Exploitation: Generate candidates and select best according to model
+                # === Exploitation phase ===
                 print("  Exploitation phase (using surrogate model)")
-                
-                n_candidates = 10
+
                 candidates = []
-                
-                for _ in range(n_candidates):
-                    # Generate random pose
+                while len(candidates) < 10:
                     pose = copy.deepcopy(ligand)
-                    
-                    # Random position within sphere
-                    r = radius * np.random.random() ** (1.0/3.0)
-                    theta = np.random.uniform(0, 2 * np.pi)
-                    phi = np.random.uniform(0, np.pi)
-                    
-                    x = center[0] + r * np.sin(phi) * np.cos(theta)
-                    y = center[1] + r * np.sin(phi) * np.sin(theta)
-                    z = center[2] + r * np.cos(phi)
-                    
-                    # Calculate translation vector
-                    centroid = np.mean(pose.xyz, axis=0)
-                    translation = np.array([x, y, z]) - centroid
-                    
-                    # Apply translation
-                    pose.translate(translation)
-                    
-                    # Random rotation
-                    from scipy.spatial.transform import Rotation
-                    # Normal random rotation
-                    rotation = Rotation.random()
+                    pose = generate_valid_random_pose(protein, pose, center, current_radius)
+                    if pose is None:
+                        consecutive_failures += 1
+                        if consecutive_failures > 10:
+                            current_radius += 1.0
+                            consecutive_failures = 0
+                            print(f"⚡ Expanding search radius to {current_radius:.2f} Å")
+                        continue
 
-                    # Add bias: rotate toward center of pocket
-                    centroid = np.mean(pose.xyz, axis=0)
-                    vector_to_center = center - centroid
-                    vector_to_center /= np.linalg.norm(vector_to_center)
-
-                    # Small rotation (~10 degrees) toward pocket center
-                    bias_rotation = Rotation.from_rotvec(0.2 * vector_to_center)  # 0.2 rad ≈ 11 degrees
-                    biased_rotation = rotation * bias_rotation
-
-                    rotation_matrix = biased_rotation.as_matrix()
-
-                    # Apply
-                    pose.translate(-centroid)
-                    pose.rotate(rotation_matrix)
-                    pose.translate(centroid)
-
-                    
-                    # Extract features
                     features = self._extract_features(protein, pose)
-                    
-                    # Predict score using surrogate model
                     if self.feature_scaler:
                         features_scaled = self.feature_scaler.transform(features.reshape(1, -1))
                         predicted_score = self.ml_model.predict(features_scaled)[0]
                     else:
                         predicted_score = self.ml_model.predict(features.reshape(1, -1))[0]
-                    
+
                     candidates.append((pose, features, predicted_score))
-                
-                # Select best candidate according to model
+
+                # Select best predicted pose
                 candidates.sort(key=lambda x: x[2])
-                selected_pose, selected_features, predicted_score = candidates[0]
-                
-                # Evaluate true score
+                selected_pose, selected_features, _ = candidates[0]
                 true_score = self.scoring_function.score(protein, selected_pose)
-                
-                print(f"  Selected best candidate: predicted={predicted_score:.4f}, actual={true_score:.4f}")
-                
+                print(f"  Selected candidate: predicted = {candidates[0][2]:.4f}, actual = {true_score:.4f}")
+
             else:
-                # Exploration: Try something new, possibly using local optimization
+                # === Exploration phase ===
                 print("  Exploration phase (random sampling)")
-                
-                # Generate random pose
-                pose = copy.deepcopy(ligand)
-                
-                # Random position within sphere
-                r = radius * np.random.random() ** (1.0/3.0)
-                theta = np.random.uniform(0, 2 * np.pi)
-                phi = np.random.uniform(0, np.pi)
-                
-                x = center[0] + r * np.sin(phi) * np.cos(theta)
-                y = center[1] + r * np.sin(phi) * np.sin(theta)
-                z = center[2] + r * np.cos(phi)
-                
-                # Calculate translation vector
-                centroid = np.mean(pose.xyz, axis=0)
-                translation = np.array([x, y, z]) - centroid
-                
-                # Apply translation
-                pose.translate(translation)
-                
-                # Random rotation
-                from scipy.spatial.transform import Rotation
-                # Normal random rotation
-                rotation = Rotation.random()
 
-                # Add bias: rotate toward center of pocket
-                centroid = np.mean(pose.xyz, axis=0)
-                vector_to_center = center - centroid
-                vector_to_center /= np.linalg.norm(vector_to_center)
+                while True:
+                    pose = copy.deepcopy(ligand)
+                    pose = generate_valid_random_pose(protein, pose, center, current_radius)
+                    if pose is not None:
+                        break
+                    consecutive_failures += 1
+                    if consecutive_failures > 10:
+                        current_radius += 1.0
+                        consecutive_failures = 0
+                        print(f"⚡ Expanding search radius to {current_radius:.2f} Å")
 
-                # Small rotation (~10 degrees) toward pocket center
-                bias_rotation = Rotation.from_rotvec(0.2 * vector_to_center)  # 0.2 rad ≈ 11 degrees
-                biased_rotation = rotation * bias_rotation
-
-                rotation_matrix = biased_rotation.as_matrix()
-
-                # Apply
-                pose.translate(-centroid)
-                pose.rotate(rotation_matrix)
-                pose.translate(centroid)
-
-                
-                # Simple local optimization
-                if iteration % 5 == 0:  # Occasionally apply local optimization
-                    print("  Applying local optimization")
-                    best_pose = copy.deepcopy(pose)
-                    best_score = self.scoring_function.score(protein, best_pose)
-                    
-                    for _ in range(10):  # 10 local steps
-                        # Generate small perturbation
-                        test_pose = copy.deepcopy(best_pose)
-                        
-                        # Small random translation
-                        test_pose.translate(np.random.normal(0, 1.0, 3))
-                        
-                        # Small random rotation
-                        angle = np.random.normal(0, 0.2)
-                        axis = np.random.randn(3)
-                        axis = axis / np.linalg.norm(axis)
-                        
-                        rotation = Rotation.from_rotvec(axis * angle)
-                        
-                        # Apply rotation around center of mass
-                        centroid = np.mean(test_pose.xyz, axis=0)
-                        test_pose.translate(-centroid)
-                        test_pose.rotate(rotation.as_matrix())
-                        test_pose.translate(centroid)
-                        
-                        # Evaluate score
-                        test_score = self.scoring_function.score(protein, test_pose)
-                        
-                        # Update if improved
-                        if test_score < best_score:
-                            best_pose = test_pose
-                            best_score = test_score
-                    
-                    selected_pose = best_pose
-                    true_score = best_score
-                    print(f"  Local optimization result: {true_score:.4f}")
-                else:
-                    # Just evaluate the random pose
-                    selected_pose = pose
-                    true_score = self.scoring_function.score(protein, selected_pose)
-                    print(f"  Random pose score: {true_score:.4f}")
-                
-                # Extract features for model update
+                selected_pose = pose
+                true_score = self.scoring_function.score(protein, selected_pose)
                 selected_features = self._extract_features(protein, selected_pose)
-            
-            # Add to dataset
+                print(f"  Random exploration pose: score = {true_score:.4f}")
+
+            # Add selected pose
             all_poses.append((selected_pose, true_score))
             all_features.append(selected_features)
             all_scores.append(true_score)
-            
-            # Retrain model periodically
+
+            # Retrain surrogate every 5 iterations
             if (iteration + 1) % 5 == 0 or iteration == remaining_iterations - 1:
                 print("  Retraining surrogate model")
                 self.ml_model = self._train_surrogate_model(all_features, all_scores)
-        
-        # Sort results by score
+
+        # === Step 3: Finalize ===
         all_poses.sort(key=lambda x: x[1])
-        
+
         elapsed_time = time.time() - start_time
         print(f"ML-guided search completed in {elapsed_time:.2f} seconds")
         print(f"Best score: {all_poses[0][1]:.4f}")
-        
+
         return all_poses
+
 
 
 class FragmentBasedDocking(DockingSearch):
@@ -1398,7 +1205,7 @@ class FragmentBasedDocking(DockingSearch):
             frag_pose = copy.deepcopy(fragment)
             
             # Random position within sphere
-            r = radius * np.random.random() ** (1.0/3.0)
+            r = radius * random.betavariate(2, 5) ** (1/3)
             theta = np.random.uniform(0, 2 * np.pi)
             phi = np.random.uniform(0, np.pi)
             
@@ -1598,7 +1405,7 @@ class FragmentBasedDocking(DockingSearch):
         
         return result
     
-    def search(self, protein, ligand):
+    def search(self, protein, ligand, current_radius=None):
         """
         Perform fragment-based incremental docking.
         
@@ -1625,6 +1432,27 @@ class FragmentBasedDocking(DockingSearch):
             # Use protein center of mass
             center = np.mean(protein.xyz, axis=0)
             radius = 15.0  # Arbitrary search radius
+            self.initialize_grid_points(center)
+
+            if current_radius is None:
+                current_radius = radius
+
+            # Set the current search radius
+            print(f"Using current search radius: {current_radius}")
+        if not hasattr(protein, 'active_site') or protein.active_site is None:
+            protein.active_site = {
+                'center': center,
+                'radius': radius
+            }
+        if 'atoms' not in protein.active_site or protein.active_site['atoms'] is None:
+            protein.active_site['atoms'] = [
+                atom for atom in protein.atoms
+                if np.linalg.norm(atom['coords'] - center) <= radius
+            ]
+            print(f"[INFO] Added {len(protein.active_site['atoms'])} atoms into active_site region")
+
+        print(f"Searching around center {center} with radius {radius}")
+
         
         # Decompose ligand into fragments
         print("Decomposing ligand into fragments")
@@ -1762,7 +1590,7 @@ class HybridSearch(DockingSearch):
             mutation_rate=mutation_rate
         )
     
-    def search(self, protein, ligand):
+    def search(self, protein, ligand, current_radius=None):
         """
         Perform hybrid search with GA global search and L-BFGS local optimization.
         
@@ -1778,6 +1606,34 @@ class HybridSearch(DockingSearch):
         list
             List of (pose, score) tuples, sorted by score
         """
+        # Determine search space
+        if protein.active_site:
+            center = protein.active_site['center']
+            radius = protein.active_site['radius']
+        else:
+            # Use protein center of mass
+            center = np.mean(protein.xyz, axis=0)
+            radius = 15.0  # Arbitrary search radius
+            self.initialize_grid_points(center)
+
+            if current_radius is None:
+                current_radius = radius
+
+            # Set the current search radius
+            print(f"Using current search radius: {current_radius}")
+        if not hasattr(protein, 'active_site') or protein.active_site is None:
+            protein.active_site = {
+                'center': center,
+                'radius': radius
+            }
+        if 'atoms' not in protein.active_site or protein.active_site['atoms'] is None:
+            protein.active_site['atoms'] = [
+                atom for atom in protein.atoms
+                if np.linalg.norm(atom['coords'] - center) <= radius
+            ]
+            print(f"[INFO] Added {len(protein.active_site['atoms'])} atoms into active_site region")
+
+        print(f"Searching around center {center} with radius {radius}")
         print(f"Starting hybrid search with {self.ga_iterations} GA iterations and "
               f"{self.lbfgs_iterations} L-BFGS iterations")
         

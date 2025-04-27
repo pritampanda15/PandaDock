@@ -154,8 +154,6 @@ def create_initial_files(output_dir, args):
     """
     from datetime import datetime
     import json
-    import os
-    from pathlib import Path
     from .utils import setup_logging
 
     # Create directory structure
@@ -722,3 +720,49 @@ def calculate_rmsd(coords1, coords2):
     rmsd = np.sqrt(np.mean(squared_diff))
     
     return rmsd
+
+def generate_valid_random_pose(protein, ligand, center, radius, max_attempts=20):
+    """
+    Generate a random valid pose inside the sphere with clash checking.
+    Retries if clash is detected or outside sphere.
+    """
+    from .utils import detect_steric_clash
+    import copy
+    from scipy.spatial.transform import Rotation
+    import numpy as np
+    import random
+
+    for attempt in range(max_attempts):
+        pose = copy.deepcopy(ligand)
+
+        # Sample random point within the sphere
+        r = radius * random.betavariate(2, 5) ** (1/3)
+        theta = random.uniform(0, 2 * np.pi)
+        phi = random.uniform(0, np.pi)
+
+        x = center[0] + r * np.sin(phi) * np.cos(theta)
+        y = center[1] + r * np.sin(phi) * np.sin(theta)
+        z = center[2] + r * np.cos(phi)
+
+        centroid = np.mean(pose.xyz, axis=0)
+        translation = np.array([x, y, z]) - centroid
+        pose.translate(translation)
+
+        # Random rotation
+        centroid = np.mean(pose.xyz, axis=0)
+        pose.translate(-centroid)
+        pose.rotate(Rotation.random().as_matrix())
+        pose.translate(centroid)
+
+        # Check inside sphere
+        distance = np.linalg.norm(np.mean(pose.xyz, axis=0) - center)
+        if distance > radius:
+            continue  # Retry
+
+        # Check for steric clash
+        if detect_steric_clash(protein.atoms, pose.atoms):
+            continue  # Retry
+
+        return pose  # ✅ Valid pose found
+
+    return None  # ❌ Failed after retries

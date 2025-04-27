@@ -1,6 +1,7 @@
 # search.py
 import numpy as np
 from scipy.spatial.transform import Rotation
+import pathlib as Path
 import random
 import copy
 from .utils import setup_logging
@@ -91,6 +92,7 @@ class DockingSearch:
     # Define a method to set up the grid
     def initialize_grid_points(self, center):
         from .utils import generate_spherical_grid
+        from pathlib import Path
         if self.grid_points is None:
             self.grid_points = generate_spherical_grid(
                 center=center,
@@ -101,19 +103,19 @@ class DockingSearch:
                 f"Initialized spherical grid with {len(self.grid_points)} points "
                 f"(spacing: {self.grid_spacing}, radius: {self.grid_radius})"
             )
-        else:
-            self.logger.info(f"Spherical grid already initialized with {len(self.grid_points)} points")
-                # --- Save Sphere Here Automatically ---
-        from pathlib import Path
-        sphere_path = Path(self.output_dir) / "sphere.pdb"
-        sphere_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(sphere_path, 'w') as f:
-            for idx, point in enumerate(self.grid_points):
-                f.write(
-                    f"HETATM{idx+1:5d} {'S':<2s}   SPH A   1    "
-                    f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
-                )
-        self.logger.info(f"Sphere grid written to {sphere_path}")
+
+            # Save Sphere PDB
+            # Save Sphere PDB ONLY if output_dir is not None
+            if self.output_dir is not None:
+                sphere_path = Path(self.output_dir) / "sphere.pdb"
+                sphere_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(sphere_path, 'w') as f:
+                    for idx, point in enumerate(self.grid_points):
+                        f.write(
+                            f"HETATM{idx+1:5d} {'S':<2s}   SPH A   1    "
+                            f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
+                        )
+                self.logger.info(f"Sphere grid written to {sphere_path}")
 
     def save_sphere_to_pdb(self, grid_points, output_path):
         """
@@ -205,7 +207,6 @@ class DockingSearch:
         
         # Save the sphere to a PDB file for visualization
         # Save the grid sphere points to sphere.pdb
-        from pathlib import Path
         from .utils import generate_spherical_grid
         # Create the output directory if it doesn't exist
         if not self.output_dir.exists():
@@ -434,6 +435,7 @@ class DockingSearch:
         else:
             center = np.mean(protein.xyz, axis=0)
             radius = 15.0
+        self.initialize_grid_points(center)
         
         current_pose = copy.deepcopy(pose)
         current_score = self.scoring_function.score(protein, current_pose)
@@ -1391,6 +1393,7 @@ class RandomSearch(DockingSearch):
         else:
             center = np.mean(protein.xyz, axis=0)
             radius = 10.0  # Default
+        self.initialize_grid_points(center)
         
         # ✨ Insert here
         if not hasattr(protein, 'active_site') or protein.active_site is None:
@@ -1678,6 +1681,7 @@ class GeneticAlgorithm(DockingSearch):
         else:
             center = np.mean(protein.xyz, axis=0)
             radius = 10.0  # Default
+        self.initialize_grid_points(center)
         
         # ✨ Insert here
         if not hasattr(protein, 'active_site') or protein.active_site is None:

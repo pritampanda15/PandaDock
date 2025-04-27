@@ -77,6 +77,8 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
             center = np.mean(protein.xyz, axis=0)
             radius = 15.0  # Arbitrary default
 
+        self.initialize_grid_points(center)
+
         print(f"Using {self.n_processes} CPU cores for evaluation")
         print(f"Using {self.batch_size} poses per process for evaluation")
         print(f"Using {self.population_size} poses in total")
@@ -138,15 +140,17 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
             )
 
             # Save Sphere PDB
-            sphere_path = Path(self.output_dir) / "sphere.pdb"
-            sphere_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(sphere_path, 'w') as f:
-                for idx, point in enumerate(self.grid_points):
-                    f.write(
-                        f"HETATM{idx+1:5d} {'S':<2s}   SPH A   1    "
-                        f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
-                    )
-            self.logger.info(f"Sphere grid written to {sphere_path}")
+            # Save Sphere PDB ONLY if output_dir is not None
+            if self.output_dir is not None:
+                sphere_path = Path(self.output_dir) / "sphere.pdb"
+                sphere_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(sphere_path, 'w') as f:
+                    for idx, point in enumerate(self.grid_points):
+                        f.write(
+                            f"HETATM{idx+1:5d} {'S':<2s}   SPH A   1    "
+                            f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
+                        )
+                self.logger.info(f"Sphere grid written to {sphere_path}")
     
     def _adjust_search_radius(self, initial_radius, generation, total_generations):
         """
@@ -166,6 +170,8 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         else:
             center = np.mean(protein.xyz, axis=0)
             radius = 10.0
+        self.initialize_grid_points(center)
+
         
         # ✨ Insert here
         if not hasattr(protein, 'active_site') or protein.active_site is None:
@@ -180,8 +186,6 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
             ]
             print(f"[INFO] Added {len(protein.active_site['atoms'])} atoms into active_site region")
 
-        print(f"Searching around center {center} with radius {radius}")
-        
         print(f"Searching around center {center} with radius {radius}")
         
         # ✅ Save sphere.pdb
@@ -669,6 +673,7 @@ class ParallelRandomSearch(RandomSearch):
         else:
             center = np.mean(protein.xyz, axis=0)
             radius = 10.0
+        self.initialize_grid_points(center)
         
         # ✨ Insert here
         if not hasattr(protein, 'active_site') or protein.active_site is None:

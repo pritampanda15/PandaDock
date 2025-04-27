@@ -1,10 +1,19 @@
 import numpy as np
 from copy import deepcopy
 from pathlib import Path
+import pandas as pd
+import matplotlib
+import matplotlib.pyplot as plt
+import seaborn as sns
 import os
 import tempfile
 import seaborn as sns
 import matplotlib.pyplot as plt
+
+from .utils import save_docking_results
+from .ligand import Ligand
+from .protein import Protein
+from .utils import generate_valid_random_pose
 
 # -------------------------------------------
 # Constants section for shared parameters
@@ -989,7 +998,8 @@ class MonteCarloSampling:
         else:
             self.use_annealing = False
     
-    def run_sampling(self, protein, ligand, start_pose=None):
+    def run_sampling(self, protein, ligand, start_pose=None, center=None, radius=None):
+        
         """
         Run Monte Carlo sampling to explore ligand conformational space.
         
@@ -1010,12 +1020,43 @@ class MonteCarloSampling:
         import copy
         from scipy.spatial.transform import Rotation
         import numpy as np
+        import os
+
+        # If protein.active_site is missing, create a fake one
+        # Determine center and radius
+        if protein.active_site:
+            center = protein.active_site['center']
+            radius = protein.active_site['radius']
+        else:
+            center = np.mean(protein.xyz, axis=0)
+            radius = 15.0  # Default sphere search
         
+        self.initialize_grid_points(center)
+
+        # If no active site, create a valid one
+        if protein.active_site is None:
+            protein.active_site = {
+                'center': center,
+                'radius': radius,
+                'atoms': protein.atoms  # <-- not empty list! use full protein atoms
+            }
+
+
         # Use provided starting pose or ligand
         if start_pose is None:
             current_pose = copy.deepcopy(ligand)
         else:
             current_pose = copy.deepcopy(start_pose)
+        
+        if center is None:
+            center = np.mean(protein.xyz, axis=0)
+        if radius is None:
+            radius = 15.0
+        
+        print(f"Using center: {center} and radius: {radius}")
+        print(f"Using temperature: {self.temperature}K")
+        print(f"Using max translation: {self.max_translation}Å")
+        print(f"Using max rotation: {self.max_rotation} rad")
         
         # Evaluate initial pose
         current_score = self.scoring_function.score(protein, current_pose)
@@ -1043,6 +1084,13 @@ class MonteCarloSampling:
             # Apply random translation
             translation = np.random.uniform(-self.max_translation, self.max_translation, 3)
             candidate_pose.translate(translation)
+
+            # Check if candidate is within radius# ⚡ Add sphere constraint check
+            centroid = np.mean(candidate_pose.xyz, axis=0)
+            distance = np.linalg.norm(centroid - center)
+            if distance > radius:
+                # Pose outside allowed sphere, reject move
+                continue
             
             # Apply random rotation
             axis = np.random.randn(3)

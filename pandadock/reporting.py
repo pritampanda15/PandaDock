@@ -19,7 +19,6 @@ import csv
 from typing import List, Dict, Any
 from collections import defaultdict
 from datetime import timedelta
-from pathlib import Path
 import seaborn as sns
 from .utils import save_docking_results
 from .utils import save_complex_to_pdb
