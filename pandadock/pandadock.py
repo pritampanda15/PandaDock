@@ -8,6 +8,9 @@ import copy
 import random
 from scipy.spatial.transform import Rotation
 from .search import DockingSearch
+import time as time
+import pathlib as Path
+import os
 
 class PANDADOCKAlgorithm(DockingSearch):
     """
@@ -28,7 +31,11 @@ class PANDADOCKAlgorithm(DockingSearch):
                  high_temp=1000, target_temp=300, 
                  num_conformers=10, num_orientations=10,
                  md_steps=1000, minimize_steps=200, 
-                 use_grid=True, output_dir=None):
+                 use_grid=True, output_dir=None, grid_spacing=0.375, grid_radius=10.0, grid_center=None):
+        self.grid_spacing = grid_spacing  # Add grid_spacing as an attribute
+        self.grid_radius = grid_radius  # Add grid_radius as an attribute
+        self.grid_center = np.array(grid_center) if grid_center is not None else np.array([0.0, 0.0, 0.0])  # Default grid center
+
         """
         Initialize PANDADOCK algorithm.
         
@@ -63,7 +70,34 @@ class PANDADOCKAlgorithm(DockingSearch):
         self.minimize_steps = minimize_steps
         self.use_grid = use_grid
         self.output_dir = output_dir
-                     
+
+    def _save_sphere_pdb(self, center, radius, filename="sphere.pdb"):
+        """
+        Save a PDB file with a sphere of dummy atoms centered at `center` with radius `radius`.
+        
+        Parameters:
+        -----------
+        center : np.ndarray
+            3D center of the sphere
+        radius : float
+            Radius of the sphere
+        filename : str
+            Output PDB filename
+        """
+        with open(filename, 'w') as f:
+            for i in range(100):  # Sample 100 points on the sphere
+                theta = np.random.uniform(0, 2*np.pi)
+                phi = np.random.uniform(0, np.pi)
+                
+                x = center[0] + radius * np.sin(phi) * np.cos(theta)
+                y = center[1] + radius * np.sin(phi) * np.sin(theta)
+                z = center[2] + radius * np.cos(phi)
+                
+                f.write(
+                    f"ATOM  {i+1:5d}  X   SPH A   1    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00          X\n"
+                )
+            f.write("END\n")
+
     def search(self, protein, ligand):
         """
         Perform PANDADOCK-based search.
@@ -82,6 +116,19 @@ class PANDADOCKAlgorithm(DockingSearch):
         """
         print(f"Starting PANDADOCK docking protocol...")
         all_poses = []
+
+        # Step 1: Define center and radius
+        if protein.active_site:
+            center = protein.active_site['center']
+            radius = protein.active_site['radius']
+        else:
+            center = np.mean(protein.xyz, axis=0)
+            radius = 10.0  # Default fallback
+
+        # ✅ Save sphere.pdb
+        sphere_filename = os.path.join(self.output_dir, "sphere.pdb") if self.output_dir else "sphere.pdb"
+        self._save_sphere_pdb(center, radius, filename=sphere_filename)
+        print(f"[INFO] Sphere file saved at {sphere_filename}")
         
         # Step 1: Generate ligand conformers using high-temperature MD
         # Note: This is a simplified approach without actual MD
@@ -157,57 +204,63 @@ class PANDADOCKAlgorithm(DockingSearch):
     def _generate_orientations(self, ligand, protein):
         """
         Generate random orientations of the ligand within the protein active site.
+        
+        Parameters:
+        -----------
+        ligand : Ligand
+            Ligand conformer
+        protein : Protein
+            Protein object
+        
+        Returns:
+        --------
+        list
+            List of oriented ligand poses
         """
         orientations = []
         
+        # Get active site center and radius
         if protein.active_site:
             center = protein.active_site['center']
             radius = protein.active_site['radius']
         else:
+            # Use protein center of mass
             center = np.mean(protein.xyz, axis=0)
-            radius = 15.0
+            radius = 15.0  # Default radius
         
         bad_orientations = 0
-        max_bad_orientations = self.num_orientations * 10
+        max_bad_orientations = self.num_orientations * 10  # Allow 10x the number of desired orientations
         
         while len(orientations) < self.num_orientations and bad_orientations < max_bad_orientations:
+            # Create a copy of the ligand
             pose = copy.deepcopy(ligand)
             
+            # Translate to active site center first
             centroid = np.mean(pose.xyz, axis=0)
             translation = center - centroid
             pose.translate(translation)
             
-            # Random rotation
+            # Apply random rotation
+            # Normal random rotation
             rotation = Rotation.random()
-            
-            # Vector toward center
+
+            # Add bias: rotate toward center of pocket
             centroid = np.mean(pose.xyz, axis=0)
             vector_to_center = center - centroid
-            norm = np.linalg.norm(vector_to_center)
-            
-            # Only apply bias if vector is valid
-            if norm > 1e-6:
-                vector_to_center /= norm
-                bias_rotation = Rotation.from_rotvec(0.2 * vector_to_center)  # 0.2 rad ≈ 11 degrees
+            vector_to_center /= np.linalg.norm(vector_to_center)
 
-                # Validate rotations
-                if np.isclose(np.linalg.norm(rotation.as_quat()), 0.0):
-                    rotation = Rotation.random()
+            # Small rotation (~10 degrees) toward pocket center
+            bias_rotation = Rotation.from_rotvec(0.2 * vector_to_center)  # 0.2 rad ≈ 11 degrees
+            biased_rotation = rotation * bias_rotation
 
-                if np.isclose(np.linalg.norm(bias_rotation.as_quat()), 0.0):
-                    bias_rotation = Rotation.random()
-
-                biased_rotation = rotation * bias_rotation
-            else:
-                print("Warning: Zero-length vector to center, skipping bias rotation.")
-                biased_rotation = rotation  # Just use random rotation
-            
             rotation_matrix = biased_rotation.as_matrix()
 
+            # Apply
             pose.translate(-centroid)
             pose.rotate(rotation_matrix)
             pose.translate(centroid)
             
+            # Check if pose is valid (soft energy check)
             is_valid = self._check_pose_validity(pose, protein)
             
             if is_valid:
@@ -216,7 +269,6 @@ class PANDADOCKAlgorithm(DockingSearch):
                 bad_orientations += 1
         
         return orientations
-
     
     def _check_pose_validity(self, pose, protein):
         """
