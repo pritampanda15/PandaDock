@@ -9,6 +9,10 @@ import logging
 from pathlib import Path
 from datetime import datetime
 import numpy as np
+import subprocess
+import platform
+import pkg_resources
+from datetime import datetime
 
 def setup_logging(output_dir=None, log_name="pandadock", log_level=logging.INFO):
     """
@@ -141,7 +145,7 @@ def detect_steric_clash(protein_atoms, ligand_atoms, threshold=1.6):
                 return True
     return False
 
-def create_initial_files(output_dir, args):
+def create_initial_files(output_dir, args, status="running"):
     """
     Create initial files to confirm PandaDock run and document configuration.
 
@@ -181,6 +185,21 @@ def create_initial_files(output_dir, args):
     
     # Create a detailed README file
     readme_path = output_dir / "logs.txt"
+    # Gather metadata
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    python_version = platform.python_version()
+    os_info = platform.system() + " " + platform.release()
+    
+    try:
+        pandadock_version = pkg_resources.get_distribution("pandadock").version
+    except Exception:
+        pandadock_version = "dev"  # if not installed via pip
+    
+    # Try getting git commit ID if running from a repo
+    try:
+        git_commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=os.getcwd()).decode().strip()
+    except Exception:
+        git_commit = "N/A"
 
     with open(readme_path, 'w') as f:
         f.write(r"""
@@ -198,6 +217,17 @@ def create_initial_files(output_dir, args):
     """)
         
         f.write(f"Run Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        f.write(f"📅 Timestamp: {timestamp}\n")
+        f.write(f"🐍 Python Version: {python_version} on {os_info}\n")
+        f.write(f"🐼 PandaDock Version: {pandadock_version}\n")
+        f.write(f"🔖 Git Commit: {git_commit}\n\n")
+        
+        if hasattr(args, 'full_command'):
+            f.write("📜 Command-line used:\n")
+            f.write(f"    {args.full_command}\n\n")
+        
+        f.write(f"🎯 Docking Status: {str(status).upper()}\n")
+        f.write(f"⏱️ Elapsed Time: [pending at start]\n\n")
         
         f.write("INPUT FILES\n")
         f.write("-----------\n")
@@ -308,7 +338,7 @@ def create_initial_files(output_dir, args):
         f.write("\n\n")
         f.write("COMMAND USED TO RUN DOCKING\n")
         f.write("----------------------------\n")
-        f.write(f"{args.full_command}\n")
+        #f.write(f"{args.full_command}\n")
         f.write("=" * 60 + "\n")
         f.write("          PandaDock - Python Molecular Docking Tool\n")
         f.write("=" * 60 + "\n")

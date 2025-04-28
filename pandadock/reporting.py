@@ -337,20 +337,28 @@ class DockingReporter:
             f.write(f"Iterations/Generations: {iterations}\n")
             f.write(f"Total Runtime: {elapsed_time:.2f} seconds\n\n")
             
-            # Write summary of results
-            f.write("RESULTS SUMMARY\n")
-            f.write("--------------\n")
-            f.write(f"Total Poses Generated: {len(self.results)}\n")
-            f.write(f"Best Score: {sorted_results[0][1]:.4f}\n")
-            f.write(f"Worst Score: {sorted_results[-1][1]:.4f}\n")
-            f.write(f"Average Score: {sum([score for _, score in self.results])/len(self.results):.4f}\n\n")
-            
-            # Write top 10 poses
-            f.write("TOP 10 POSES\n")
-            f.write("--------------\n")
-            f.write("Rank\tScore\tFile\n")
-            for i, (pose, score) in enumerate(sorted_results[:10]):
-                f.write(f"{i+1}\t{score:.4f}\tpose_{i+1}_score_{score:.1f}.pdb\n")
+            if not self.results:
+                f.write("RESULTS SUMMARY\n")
+                f.write("--------------\n")
+                f.write("No valid docking solutions found.\n")
+                f.write("This can occur due to incompatible structures, overly strict scoring parameters,\n")
+                f.write("or issues with the search space definition.\n\n")
+            else:
+                sorted_results = sorted(self.results, key=lambda x: x[1])
+                
+                f.write("RESULTS SUMMARY\n")
+                f.write("--------------\n")
+                f.write(f"Total Poses Generated: {len(self.results)}\n")
+                f.write(f"Best Score: {sorted_results[0][1]:.4f}\n")
+                f.write(f"Worst Score: {sorted_results[-1][1]:.4f}\n")
+                f.write(f"Average Score: {sum([score for _, score in self.results])/len(self.results):.4f}\n\n")
+                f.write(f"Score Standard Deviation: {np.std([score for _, score in self.results]):.4f}\n\n")
+                
+                f.write("TOP 10 POSES\n")
+                f.write("--------------\n")
+                f.write("Rank\tScore\tFile\n")
+                for i, (pose, score) in enumerate(sorted_results[:10]):
+                    f.write(f"{i+1}\t{score:.4f}\tpose_{i+1}_score_{score:.1f}.pdb\n")     
             
             f.write("\n\nFull results are available in the output directory.\n")
             f.write("=====================================================\n")
@@ -452,17 +460,28 @@ class DockingReporter:
             if hasattr(self.args, 'local_opt') and self.args.local_opt:
                 f.write("Local Optimization: Enabled\n")
             
-            f.write("\n")
-            
-            # Write summary of results
-            f.write("RESULTS SUMMARY\n")
-            f.write("--------------\n")
-            f.write(f"Total Poses Generated: {len(self.results)}\n")
-            f.write(f"Best Score: {sorted_results[0][1]:.4f}\n")
-            f.write(f"Worst Score: {sorted_results[-1][1]:.4f}\n")
-            f.write(f"Average Score: {sum([score for _, score in self.results])/len(self.results):.4f}\n")
-            f.write(f"Score Standard Deviation: {np.std([score for _, score in self.results]):.4f}\n\n")
-            
+            if not self.results:
+                f.write("RESULTS SUMMARY\n")
+                f.write("--------------\n")
+                f.write("No valid docking solutions found.\n")
+                f.write("This can occur due to incompatible structures, overly strict scoring parameters,\n")
+                f.write("or issues with the search space definition.\n\n")
+            else:
+                sorted_results = sorted(self.results, key=lambda x: x[1])
+                
+                f.write("RESULTS SUMMARY\n")
+                f.write("--------------\n")
+                f.write(f"Total Poses Generated: {len(self.results)}\n")
+                f.write(f"Best Score: {sorted_results[0][1]:.4f}\n")
+                f.write(f"Worst Score: {sorted_results[-1][1]:.4f}\n")
+                f.write(f"Average Score: {sum([score for _, score in self.results])/len(self.results):.4f}\n\n")
+                f.write(f"Score Standard Deviation: {np.std([score for _, score in self.results]):.4f}\n\n")
+                
+                f.write("TOP 10 POSES\n")
+                f.write("--------------\n")
+                f.write("Rank\tScore\tFile\n")
+                for i, (pose, score) in enumerate(sorted_results[:10]):
+                    f.write(f"{i+1}\t{score:.4f}\tpose_{i+1}_score_{score:.1f}.pdb\n")      
             # Write top poses
             f.write("TOP POSES RANKING\n")
             f.write("----------------\n")
