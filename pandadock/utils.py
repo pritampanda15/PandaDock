@@ -180,7 +180,7 @@ def create_initial_files(output_dir, args):
     logger.info(f"Status file created at {status_path}")
     
     # Create a detailed README file
-    readme_path = output_dir / "README.txt"
+    readme_path = output_dir / "logs.txt"
 
     with open(readme_path, 'w') as f:
         f.write(r"""
@@ -305,7 +305,10 @@ def create_initial_files(output_dir, args):
         f.write("- status.json\n")
         f.write("- poses/ : Top ranked poses\n")
         f.write("- plots/ : Score distribution and energy component plots\n\n")
-        
+        f.write("\n\n")
+        f.write("COMMAND USED TO RUN DOCKING\n")
+        f.write("----------------------------\n")
+        f.write(f"{args.full_command}\n")
         f.write("=" * 60 + "\n")
         f.write("          PandaDock - Python Molecular Docking Tool\n")
         f.write("=" * 60 + "\n")

@@ -463,10 +463,16 @@ def main():
     # Record start time immediately
     start_time = time.time()
 
-    # Initialize variables that might be used in finally block
-    temp_dir = None
+ 
+    # Initialize variables early to avoid UnboundLocalError
+    energy_breakdown = None
+    validation_results = None
     hybrid_manager = None
+    temp_dir = None
     output_dir = None
+    energy_decomposition = None
+
+
     
     try:
         # Parse command line arguments
@@ -597,6 +603,10 @@ def main():
         add_analysis_options(parser)
         print_pandadock_ascii()
         args = parser.parse_args()
+
+        import sys
+        full_command = "pandadock " + " ".join(sys.argv[1:])
+        args.full_command = full_command
     
         # Check for required arguments
         if not args.protein or not args.ligand:
@@ -1200,7 +1210,7 @@ def main():
                     protein, 
                     [pose for pose, _ in all_results[:min(20, len(all_results))]]
                 )
-                reporter.add_results(all_results, energy_breakdown)
+                reporter.add_results(all_results, energy_breakdown=energy_breakdown)
             else:
                 reporter.add_results([])  # Add empty results
         except Exception as e:
