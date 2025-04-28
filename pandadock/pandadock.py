@@ -157,63 +157,57 @@ class PANDADOCKAlgorithm(DockingSearch):
     def _generate_orientations(self, ligand, protein):
         """
         Generate random orientations of the ligand within the protein active site.
-        
-        Parameters:
-        -----------
-        ligand : Ligand
-            Ligand conformer
-        protein : Protein
-            Protein object
-        
-        Returns:
-        --------
-        list
-            List of oriented ligand poses
         """
         orientations = []
         
-        # Get active site center and radius
         if protein.active_site:
             center = protein.active_site['center']
             radius = protein.active_site['radius']
         else:
-            # Use protein center of mass
             center = np.mean(protein.xyz, axis=0)
-            radius = 15.0  # Default radius
+            radius = 15.0
         
         bad_orientations = 0
-        max_bad_orientations = self.num_orientations * 10  # Allow 10x the number of desired orientations
+        max_bad_orientations = self.num_orientations * 10
         
         while len(orientations) < self.num_orientations and bad_orientations < max_bad_orientations:
-            # Create a copy of the ligand
             pose = copy.deepcopy(ligand)
             
-            # Translate to active site center first
             centroid = np.mean(pose.xyz, axis=0)
             translation = center - centroid
             pose.translate(translation)
             
-            # Apply random rotation
-            # Normal random rotation
+            # Random rotation
             rotation = Rotation.random()
-
-            # Add bias: rotate toward center of pocket
+            
+            # Vector toward center
             centroid = np.mean(pose.xyz, axis=0)
             vector_to_center = center - centroid
-            vector_to_center /= np.linalg.norm(vector_to_center)
+            norm = np.linalg.norm(vector_to_center)
+            
+            # Only apply bias if vector is valid
+            if norm > 1e-6:
+                vector_to_center /= norm
+                bias_rotation = Rotation.from_rotvec(0.2 * vector_to_center)  # 0.2 rad ≈ 11 degrees
 
-            # Small rotation (~10 degrees) toward pocket center
-            bias_rotation = Rotation.from_rotvec(0.2 * vector_to_center)  # 0.2 rad ≈ 11 degrees
-            biased_rotation = rotation * bias_rotation
+                # Validate rotations
+                if np.isclose(np.linalg.norm(rotation.as_quat()), 0.0):
+                    rotation = Rotation.random()
 
+                if np.isclose(np.linalg.norm(bias_rotation.as_quat()), 0.0):
+                    bias_rotation = Rotation.random()
+
+                biased_rotation = rotation * bias_rotation
+            else:
+                print("Warning: Zero-length vector to center, skipping bias rotation.")
+                biased_rotation = rotation  # Just use random rotation
+            
             rotation_matrix = biased_rotation.as_matrix()
 
-            # Apply
             pose.translate(-centroid)
             pose.rotate(rotation_matrix)
             pose.translate(centroid)
             
-            # Check if pose is valid (soft energy check)
             is_valid = self._check_pose_validity(pose, protein)
             
             if is_valid:
@@ -222,6 +216,7 @@ class PANDADOCKAlgorithm(DockingSearch):
                 bad_orientations += 1
         
         return orientations
+
     
     def _check_pose_validity(self, pose, protein):
         """
