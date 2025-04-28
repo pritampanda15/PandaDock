@@ -172,9 +172,14 @@ def validate_against_reference(args, results, output_dir):
     validation_results = calculate_ensemble_rmsd(poses, reference_ligand)
     
     # Report results
+    if not validation_results:
+        print("Warning: No poses available for validation.")
+        return None
+
+    # Safe to proceed
     best_rmsd = validation_results[0]['rmsd']
     best_index = validation_results[0]['pose_index']
-    
+
     print(f"Best RMSD: {best_rmsd:.2f} Å (Pose {best_index + 1})")
     print(f"Docking accuracy: {'Successful' if best_rmsd < 2.0 else 'Unsuccessful'}")
     

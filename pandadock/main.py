@@ -1340,6 +1340,17 @@ def main():
             print(f"Elapsed time before failure: {elapsed_time:.2f} seconds")
 
 
+    except SystemExit as e:
+        # Catches argparse or sys.exit
+        return_code = 1
+        print("\n❌ PandaDock terminated early due to command-line parsing error.\n")
+        raise   # re-raise so it exits properly
+        
+    except Exception as e:
+        # Other unexpected errors
+        return_code = 1
+        print("\n❌ An unexpected error occurred in PandaDock.\n")
+        print(e)
             
         # Try to update status file if output_dir exists
         if output_dir:
@@ -1386,6 +1397,7 @@ def main():
                     logger.warning(f"Failed to clean up hardware resources: {e}")
                 else:
                     print(f"Failed to clean up hardware resources: {e}")
+
             
         # Final log message
         if 'logger' in locals():
