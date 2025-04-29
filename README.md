@@ -354,11 +354,6 @@ If you use **PandaDock** in your research:
 
 > PandaDock is intended for research purposes.  
 > Always verify docking predictions through experimental validation.
-
-    ╔════════════════════════════════╗
-    ║      🎉 Happy Docking! 🎉      ║
-    ║                                ║
-    ║       🐼  PandaDock            ║ 
-    ║                                ║
-    ║  Dock Smarter. Discover Faster.║
-    ╚════════════════════════════════╝
+╔════════════════════════════════════════════╗
+║   🐼  Dock Smarter. Discover Faster.       ║
+╚════════════════════════════════════════════╝
