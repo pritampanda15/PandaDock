@@ -114,10 +114,12 @@ pip install pandadock
 ```bash
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 ```
-# PyTorch with CUDA support
+### PyTorch with CUDA support
+```bash
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-
-# OR CuPy
+```
+### OR CuPy
+```bash
 pip install cupy-cuda11x
 ```
 
