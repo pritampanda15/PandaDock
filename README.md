@@ -208,7 +208,9 @@ Example:
 <p align="center">
   <img src="https://github.com/pritampanda15/PandaDock/blob/main/example_outputs/plots/sphere.png" width="350">
 </p>
-Each docking run generates:
+
+
+### Each docking run generates:
 - 📄 **Reports** in CSV, TXT, JSON, and interactive HTML formats
 - 📈 **Analysis plots** (binding energy breakdowns, score distributions, ranking curves)
 - 🧬 **Pose files** (.pdb) for each predicted ligand conformation
