@@ -261,7 +261,7 @@ def _detect_flexible_residues(protein, binding_site_residues, max_residues=5, lo
 
 def write_results_to_txt(results, output_dir, elapsed_time, protein_path, ligand_path, algorithm, iterations, logger):
     """
-    Write detailed docking results to a text file.
+    Write docking results to a text file.
     
     Parameters:
     -----------
@@ -282,7 +282,7 @@ def write_results_to_txt(results, output_dir, elapsed_time, protein_path, ligand
     logger : logging.Logger
         Logger instance
     """
-    results_path = Path(output_dir) / "docking_results.txt"
+    results_path = Path(output_dir) / "docking_scores.txt"
     
     with open(results_path, 'w') as f:
         f.write(r"""
@@ -1212,12 +1212,12 @@ def main():
                 )
                 reporter.add_results(all_results, energy_breakdown=energy_breakdown)
                 # Generate all reports
-                reporter.generate_basic_report()
+                #reporter.generate_basic_report()
                 reporter.generate_detailed_report(include_energy_breakdown=True)
                 reporter.generate_csv_report()
                 reporter.generate_json_report()
                 html_report = reporter.generate_html_report()
-                reporter.plot_binding_affinities()
+                #reporter.plot_binding_affinities()
                 reporter.generate_binding_affinity_report()
 
                 # Generate energy breakdown plots
@@ -1414,7 +1414,7 @@ def main():
         # ✅ Only if docking succeeded
         success_ascii = r"""
     ╔════════════════════════════════╗
-    ║  🎉 Successful Docking! 🎉     ║
+    ║   🎉 Successful Docking! 🎉    ║
     ║                                ║
     ║   🐼  PandaDock Completed!     ║ 
     ║                                ║

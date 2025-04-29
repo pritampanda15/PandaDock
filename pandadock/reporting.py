@@ -353,7 +353,7 @@ class DockingReporter:
             f.write("\n\nFull results are available in the output directory.\n")
             f.write("=====================================================\n")
         
-        print(f"Basic report written to {report_path}")
+        #print(f"Basic report written to {report_path}")
         return report_path
     
     def generate_detailed_report(self, include_energy_breakdown=True):
@@ -1226,8 +1226,21 @@ class DockingReporter:
             writer = csv.writer(f_csv)
             writer.writerow(["Pose", "DeltaG (kcal/mol)", "Kd (M)", "IC50 (M)"])
             
+            f_txt.write(r"""
+════════════════════════════════════════════════════════════════════════════════
+    ██████╗  █████╗ ███╗   ██╗██████╗  █████╗ ██████╗  ██████╗  ██████╗██╗  ██╗
+    ██╔══██╗██╔══██╗████╗  ██║██╔══██╗██╔══██╗██╔══██╗██╔═══██╗██╔════╝██║ ██╔╝
+    ██████╔╝███████║██╔██╗ ██║██║  ██║███████║██║  ██║██║   ██║██║     █████╔╝ 
+    ██╔═══╝ ██╔══██║██║╚██╗██║██║  ██║██╔══██║██║  ██║██║   ██║██║     ██╔═██╗ 
+    ██║     ██║  ██║██║ ╚████║██████╔╝██║  ██║██████╔╝╚██████╔╝╚██████╗██║  ██╗
+    ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚═╝  ╚═╝╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝
+                                                                                                                                                                                                                                  
+               PandaDock - Python Molecular Docking Tool                             
+               https://github.com/pritampanda15/PandaDock                   
+════════════════════════════════════════════════════════════════════════════════
+    """)
             f_txt.write("Binding Affinity Report\n")
-            f_txt.write("=======================\n\n")
+            f_txt.write("===============================\n\n")
             
             if self.results:
                 sorted_results = sorted(self.results, key=lambda x: x[1])
