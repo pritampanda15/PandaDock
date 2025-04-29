@@ -528,27 +528,35 @@ def create_descriptive_output_dir(args):
     # Get algorithm name
     algo_name = args.algorithm
     if args.monte_carlo:
-        algo_name = "monte-carlo"
+        algo_name = "MC"
     elif args.genetic_algorithm:
-        algo_name = "genetic-algorithm"
+        algo_name = "GA"
     elif args.pandadock:
-        algo_name = "pandadock"
+        algo_name = "PD"
     elif args.random:
-        algo_name = "random"
+        algo_name = "RAND"
     elif args.default:
-        algo_name = "default-algorithm"
+        algo_name = "DEFAULT"
     elif args.enhanced_scoring:
-        algo_name = "enhanced-scoring"
+        algo_name = "ES"
     elif args.physics_based:
-        algo_name = "physics-based"
+        algo_name = "PHYSICS"
     elif args.standard_scoring:
-        algo_name = "standard-scoring"
+        algo_name = "STANDARD"
     elif args.docking:
         algo_name = "docking"
     else:
-        algo_name = "default-algorithm"
+        algo_name = "DEFAULT"
+    # Check if protein and ligand are provided
+    if args.protein is None or args.ligand is None:
+        raise ValueError("Protein and ligand files must be provided")
+    # Check if protein and ligand are valid files
+    if not os.path.isfile(args.protein):
+        raise ValueError(f"Invalid protein file: {args.protein}")
+    if not os.path.isfile(args.ligand):
+        raise ValueError(f"Invalid ligand file: {args.ligand}")
     # Check if algorithm is valid
-    if algo_name not in ["default-algorithm", "genetic-algorithm", "monte-carlo"]:
+    if algo_name not in ["DEFAULT", "GA", "MC", "PD", "RAND", "ES", "PHYSICS", "STANDARD", "docking"]:
         raise ValueError(f"Invalid algorithm: {algo_name}")
     # Check if output directory is provided
     if args.output is None:

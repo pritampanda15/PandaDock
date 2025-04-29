@@ -1347,7 +1347,7 @@ class DockingReporter:
             html_content += f"<tr><td>CPU Workers</td><td>{cpu_workers}</td></tr>\n"
             
         # Add scoring function information
-        scoring_type = "Standard"
+        scoring_type = "Advanced"
         if hasattr(self.args, 'enhanced_scoring') and self.args.enhanced_scoring:
             scoring_type = "Enhanced"
         if hasattr(self.args, 'physics_based') and self.args.physics_based:
@@ -1634,6 +1634,27 @@ class DockingReporter:
             'IC50 (M)': IC50
         }
 
+    # def calculate_ligand_efficiency(self, deltaG, ligand):
+    #     heavy_atoms = sum(1 for atom in ligand.atoms if atom.get('symbol') not in ['H'])
+    #     return deltaG / heavy_atoms if heavy_atoms > 0 else 0.0
+
+    # def calculate_lle(self, pIC50, clogp):
+    #     return pIC50 - clogp if clogp is not None else None
+
+    # def calculate_BEI(self, pKd, mw):
+    #     return (pKd * 1000) / mw if mw else None
+
+    # def calculate_SEI(self, pIC50, psa):
+    #     return pIC50 / psa if psa else None
+
+    # def calculate_drugscore(self, ligand):
+    #     clogp = ligand.properties.get('clogp', 0)
+    #     mw = ligand.properties.get('molweight', 0)
+    #     hbd = ligand.properties.get('hbd', 0)
+    #     hba = ligand.properties.get('hba', 0)
+    #     psa = ligand.properties.get('psa', 0)
+    #     score = (-0.01 * mw) - (0.5 * abs(clogp - 2.5)) - (0.3 * (hbd + hba)) - (0.02 * psa)
+    #     return score
     def generate_binding_affinity_report(self):
         """
         Generate a well-formatted table report and CSV of binding affinities.
@@ -1689,7 +1710,6 @@ class DockingReporter:
         
         print(f"Binding affinity report written to {binding_affinity_path} and {csv_path}")
         return binding_affinity_path
-    
 
     
     def plot_binding_affinities(self, save_dir=None, dpi=300):
@@ -1905,3 +1925,5 @@ class DockingReporter:
         print(f"Combined metrics plot saved to {combined_path}")
         
         return plot_paths
+    
+    
