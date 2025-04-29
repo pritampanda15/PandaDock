@@ -1,24 +1,33 @@
-# 🐼 PandaDock
-
-        ██████╗  █████╗ ███╗   ██╗██████╗  █████╗ ██████╗  ██████╗  ██████╗██╗  ██╗
-        ██╔══██╗██╔══██╗████╗  ██║██╔══██╗██╔══██╗██╔══██╗██╔═══██╗██╔════╝██║ ██╔╝
-        ██████╔╝███████║██╔██╗ ██║██║  ██║███████║██║  ██║██║   ██║██║     █████╔╝ 
-        ██╔═══╝ ██╔══██║██║╚██╗██║██║  ██║██╔══██║██║  ██║██║   ██║██║     ██╔═██╗ 
-        ██║     ██║  ██║██║ ╚████║██████╔╝██║  ██║██████╔╝╚██████╔╝╚██████╗██║  ██╗
-        ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚═╝  ╚═╝╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝                                                                        
-        
-PandaDock Molecular Docking Suite 🚀
-Version: 2.0.0
+# 🐼 PandaDock: Version: 2.0.0
 
 **Python-based Molecular Docking Platform for Drug Discovery, Bioinformatics, and Computational Chemistry**.
 
-![PandaDock Logo](https://github.com/pritampanda15/PandaDock/blob/main/logo/pandadock-logo.svg)
-[![PyPI Version](https://img.shields.io/pypi/v/pandadock.svg)](https://pypi.org/project/pandadock/)
-[![License](https://img.shields.io/github/license/pritampanda15/PandaDock)](https://github.com/pritampanda15/PandaDock/blob/main/LICENSE)
-[![Stars](https://img.shields.io/github/stars/pritampanda15/PandaDock?style=social)](https://github.com/pritampanda15/PandaDock/stargazers)
-[![Issues](https://img.shields.io/github/issues/pritampanda15/PandaDock)](https://github.com/pritampanda15/PandaDock/issues)
-[![GitHub forks](https://img.shields.io/github/forks/pritampanda15/PandaDock?style=social)](https://github.com/pritampanda15/PandaDock/network/members)
-[![Downloads](https://static.pepy.tech/badge/pandadock)](https://pepy.tech/project/pandadock)
+<p align="center">
+  <a href="https://github.com/pritampanda15/PandaDock">
+    <img src="https://github.com/pritampanda15/PandaDock/blob/main/logo/pandadock-logo.svg" width="150" alt="PandaDock Logo"/>
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://pypi.org/project/pandadock/">
+    <img src="https://img.shields.io/pypi/v/pandadock.svg" alt="PyPI Version">
+  </a>
+  <a href="https://github.com/pritampanda15/PandaDock/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/pritampanda15/PandaDock" alt="License">
+  </a>
+  <a href="https://github.com/pritampanda15/PandaDock/stargazers">
+    <img src="https://img.shields.io/github/stars/pritampanda15/PandaDock?style=social" alt="GitHub Stars">
+  </a>
+  <a href="https://github.com/pritampanda15/PandaDock/issues">
+    <img src="https://img.shields.io/github/issues/pritampanda15/PandaDock" alt="GitHub Issues">
+  </a>
+  <a href="https://github.com/pritampanda15/PandaDock/network/members">
+    <img src="https://img.shields.io/github/forks/pritampanda15/PandaDock?style=social" alt="GitHub Forks">
+  </a>
+  <a href="https://pepy.tech/project/pandadock">
+    <img src="https://static.pepy.tech/badge/pandadock" alt="Downloads">
+  </a>
+</p>
 
 ---
 
@@ -113,21 +122,167 @@ pip install cupy-cuda11x
 ```
 
 ## 🔥 Quick Start
+**🚀 Pro Tip:**  
+Always provide an active site center using `-s X Y Z`.  
+It significantly **boosts docking speed, precision, and reliability** in PandaDock.
+If GPU is available then it would run smoothly and efficiently or if you have multi-core CPU
 
 ```bash
 # Simple run (default Genetic Algorithm)
-pandadock -p protein.pdb -l ligand.sdf -o results/
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 --grid-radius 10.0 --grid-spacing 0.375  -i 10 -a genetic --use-gpu
+
+# Physics-Based docking 
+pandadock -p protein.pdb -l ligand.sdf -a genetic --physics-based -s -15.7 -17.7 8.1 --grid-radius 10.0 --grid-spacing 0.375  --use-gpu
 
 # Physics-Based docking (PANDADOCK + MMGBSA scoring)
 pandadock -p protein.pdb -l ligand.sdf -a pandadock --physics-based
+pandadock -p protein.pdb -l ligand.sdf -a pandadock --physics-based -s -15.7 -17.7 8.1 --grid-radius 10.0 --grid-spacing 0.375 
 
 # Use GPU
-pandadock -p protein.pdb -l ligand.sdf --use-gpu --physics-based
+pandadock -p protein.pdb -l ligand.sdf --use-gpu --physics-based -s -15.7 -17.7 8.1 --grid-radius 10.0 --grid-spacing 0.375 
 
 # Automatic algorithm selection
-pandadock -p protein.pdb -l ligand.sdf --auto-algorithm
+pandadock -p protein.pdb -l ligand.sdf --auto-algorithm -s -15.7 -17.7 8.1 --grid-radius 10.0 --grid-spacing 0.375 
+```
+#### Running Modes
+
+PandaDock offers flexible running modes to balance between speed and accuracy:
+
+- **Fast Mode**: `--fast-mode` - Quick docking with minimal enhancements
+- **Default Mode**: Basic docking with standard scoring
+- **Enhanced Mode**: Use any combination of enhancement flags:
+  - `--enhanced-scoring` - More accurate scoring with electrostatics
+  - `--local-opt` - Fine-tune top poses for better results
+  - `--exhaustiveness 5` - Run multiple independent searches
+  - `--prepare-molecules` - Optimize molecule geometry before docking
+  - `--flex-residues` - Use flexible residues
+- **Physics Mode**: More advanced algorithm
+- **Pandadock**: Pandadock algorithm with conformer generation
+
+#### Example Commands
+
+```bash
+# 1. Quick and Simple Docking
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --fast-mode
+
+# 2. Standard Accurate Docking
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced-scoring --local-opt --prepare-molecules
+
+# 3. High-Accuracy Docking with Hardware Acceleration
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --enhanced-scoring --local-opt --prepare-molecules --use-gpu --auto-tune
+
+# 4. Reference-Guided Docking for Known Binding Modes
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --reference ref_ligand.sdf --enhanced-scoring --local-opt
+
+# 5. Exact Alignment to Reference Structure
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --reference ref_ligand.sdf --exact-alignment --no-local-optimization
+
+# 6. Exact Alignment with Refinement
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --reference ref_ligand.sdf --exact-alignment
+
+# 7. Flexible Side Chains in Binding Site
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --auto-flex --local-opt
+
+# 8. Manual Flexible Side Chains
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --flex-residues A_123 B_45 --max-flex-bonds 4
+
+# 9. Physics-Based Docking
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --physics-based --mmff-minimization --local-opt
+
+# 10. Monte Carlo Sampling (Alternative to Genetic Algorithm)
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --monte-carlo --mc-steps 2000 --temperature 300
+
+# 11. Exhaustive Search for Better Pose Diversity
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --exhaustiveness 8 --population-size 200
+
+# 12. Automatic Binding Site Detection
+pandadock -p protein.pdb -l ligand.sdf --detect-pockets --enhanced-scoring --local-opt
+
+# 13. Maximum Performance on CPU
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --cpu-workers 8 --cpu-affinity
+
+# 14. Maximum Performance on GPU
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --use-gpu --gpu-id 0 --gpu-precision float32 --workload-balance 0.9
+
+# 15. Hybrid CPU/GPU with Auto-Tuning
+pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --use-gpu --auto-tune --cpu-workers 4
 ```
 
+#### Advanced Algorithm Commands
+
+```bash
+# Gradient-based search
+pandadock -p protein.pdb -l ligand.mol --advanced-search gradient --gradient-step 0.01 --convergence-threshold 0.001 --reference ref_ligand.mol
+
+# Replica exchange Monte Carlo
+pandadock -p protein.pdb -l ligand.mol --advanced-search replica-exchange --n-replicas 4 --replica-temperatures 300 400 500 600 --exchange-steps 100 --reference ref_ligand.mol
+
+# ML-guided search
+pandadock -p protein.pdb -l ligand.mol --advanced-search ml-guided --surrogate-model gp --exploitation-factor 0.7 --reference ref_ligand.mol
+
+# Fragment-based docking
+pandadock -p protein.pdb -l ligand.mol --advanced-search fragment-based --fragment-min-size 5 --growth-steps 3 --enhanced-scoring --reference ref_ligand.mol
+
+# Hybrid optimization
+pandadock -p protein.pdb -l ligand.mol --advanced-search hybrid --ga-iterations 100 --lbfgs-iterations 50 --top-n-for-local 5 --reference ref_ligand.mol
+```
+
+#### Analysis and Reporting Commands
+
+```bash
+# Clustering docking poses
+pandadock -p protein.pdb -l ligand.mol -a genetic --iterations 200 --cluster-poses --clustering-method hierarchical --rmsd-cutoff 2.0 --reference ref_ligand.mol
+
+# Interaction analysis
+pandadock -p protein.pdb -l ligand.mol -a genetic --iterations 200 --analyze-interactions --interaction-types hbond hydrophobic ionic --reference ref_ligand.mol
+
+# Binding mode classification
+pandadock -p protein.pdb -l ligand.mol -a genetic --iterations 200 --classify-modes --discover-modes --n-modes 3 --reference ref_ligand.mol
+
+# Energy decomposition analysis
+pandadock -p protein.pdb -l ligand.mol -a genetic --iterations 200 --energy-decomposition --detailed-energy --reference ref_ligand.mol
+
+# Per-residue energy analysis
+pandadock -p protein.pdb -l ligand.mol -a genetic --iterations 200 --per-residue-energy --reference ref_ligand.mol
+
+# Comprehensive analysis report
+pandadock -p protein.pdb -l ligand.mol -a genetic --iterations 200 --generate-analysis-report --analysis-report-format html --analysis-report-sections summary clusters interactions energetics --reference ref_ligand.mol
+```
+
+#### Physics-Based Docking
+
+```bash
+# Use MMFF94 minimization (requires RDKit)
+pandadock -p protein.pdb -l ligand.mol --mmff-minimization
+
+# Enhanced electrostatics with solvation
+pandadock -p protein.pdb -l ligand.mol --enhanced-scoring
+
+# Full physics-based scoring (MM-GBSA inspired)
+pandadock -p protein.pdb -l ligand.mol --physics-based
+
+# Monte Carlo sampling with simulated annealing
+pandadock -p protein.pdb -l ligand.mol --monte-carlo --mc-steps 2000 --temperature 300
+
+# Combined approach for best accuracy
+pandadock -p protein.pdb -l ligand.mol --physics-based --mmff-minimization --local-opt
+```
+
+#### Hardware Acceleration
+
+```bash
+# Enable GPU acceleration (if available)
+pandadock -p protein.pdb -l ligand.mol --use-gpu
+
+# Specify CPU workers for parallelization
+pandadock -p protein.pdb -l ligand.mol --cpu-workers 8
+
+# Auto-tune hardware settings for optimal performance
+pandadock -p protein.pdb -l ligand.mol --auto-tune
+
+# Combine hardware acceleration with physics-based methods
+pandadock -p protein.pdb -l ligand.mol --use-gpu --physics-based --mmff-minimization
+```
 ---
 
 ## PANDADOCK Algorithm
@@ -271,39 +426,6 @@ PandaDock includes physics-based molecular modeling capabilities that significan
 - **Monte Carlo Sampling**: Enhanced conformational sampling with Metropolis criterion
 - **Physics-Based Scoring**: Complete MM-GBSA inspired scoring function
 
-## Python API Example
-
-```python
-from pandadock.protein import Protein
-from pandadock.ligand import Ligand
-from pandadock.unified_scoring import EnhancedScoringFunction
-from pandadock.search import GeneticAlgorithm
-from pandadock.utils import save_docking_results
-
-# Load protein and ligand
-protein = Protein("protein.pdb")
-ligand = Ligand("ligand.sdf")
-
-# Define active site (optional)
-protein.define_active_site([10.0, 20.0, 30.0], 12.0)
-
-# Create scoring function
-scoring_function = EnhancedScoringFunction()
-
-# Create search algorithm
-search_algorithm = GeneticAlgorithm(
-    scoring_function, 
-    max_iterations=1000,
-    population_size=100
-)
-
-# Perform docking
-results = search_algorithm.search(protein, ligand)
-
-# Save results
-save_docking_results(results, "docking_results")
-```
-
 ## 🧠 Advanced Features
 
 - **Physics-Based Energy Decomposition**:
@@ -316,6 +438,116 @@ save_docking_results(results, "docking_results")
 
 ---
 
+## Python API Example
+
+Yes! You can absolutely showcase **multiple PandaDock Python APIs** in your README or docs for different use cases.
+
+Here’s a well-structured **section** with **three API blocks** you can include:
+
+---
+
+## 🐼 Python API Examples
+
+### 🔬 Basic Docking with Genetic Algorithm
+
+```python
+from pandadock.protein import Protein
+from pandadock.ligand import Ligand
+from pandadock.unified_scoring import EnhancedScoringFunction
+from pandadock.search import GeneticAlgorithm
+from pandadock.utils import save_docking_results
+
+protein = Protein("protein.pdb")
+ligand = Ligand("ligand.sdf")
+protein.define_active_site([10.0, 20.0, 30.0], 12.0)
+
+scoring = EnhancedScoringFunction()
+search = GeneticAlgorithm(scoring, max_iterations=1000, population_size=100)
+
+results = search.search(protein, ligand)
+save_docking_results(results, "docking_results")
+```
+
+---
+
+### ⚗️ Physics-Based Scoring with PANDADOCK Algorithm
+
+```python
+from pandadock import Protein, Ligand
+from pandadock.unified_scoring import PhysicsScoringFunction
+from pandadock.pandadock import PandaDockSearch
+
+protein = Protein("protein.pdb")
+ligand = Ligand("ligand.sdf")
+protein.auto_detect_pocket()  # Auto-detect binding pocket
+
+scoring = PhysicsScoringFunction()
+search = PandaDockSearch(scoring, md_steps=100, minimize_steps=50)
+
+results = search.search(protein, ligand)
+```
+
+---
+
+### 🧬 Flexible Residue Docking (Auto Flex)
+
+```python
+from pandadock import Protein, Ligand
+from pandadock.unified_scoring import EnhancedScoringFunction
+from pandadock.search import GeneticAlgorithm
+
+protein = Protein("protein.pdb")
+ligand = Ligand("ligand.sdf")
+protein.define_active_site([35.0, 22.0, 18.0], 10.0)
+protein.auto_define_flexible_residues(max_residues=5)
+
+scoring = EnhancedScoringFunction()
+search = GeneticAlgorithm(scoring, max_iterations=500)
+
+results = search.search(protein, ligand)
+```
+
+---
+
+## 📚 Batch Screening API Example
+
+```python
+from pandadock.batch_screening import run
+from pandadock.utils import setup_logging
+
+# Define batch screening configuration
+config = {
+    "protein": "protein.pdb",                     # Path to protein file
+    "ligand_library": "ligands/",                  # Folder containing many ligands (MOL/SDF)
+    "output_dir": "batch_screening_results",       # Output folder
+    "screening_params": {
+        "hardware": {
+            "use_gpu": True,                       # Use GPU if available
+            "gpu_id": 0,
+            "gpu_precision": "float32"
+        },
+        "scoring": "enhanced",                      # Use 'basic', 'enhanced', or 'physics-based'
+        "algorithm": "genetic",                     # Docking algorithm: 'genetic', 'random', 'pandadock', etc.
+        "iterations": 500,
+        "population_size": 50,
+        "detect_pockets": True,                     # Auto detect binding site
+        "prepare_molecules": True                   # Auto prepare ligands
+    }
+}
+
+# Setup logger (optional)
+setup_logging("batch_screening_results")
+
+# Run batch screening
+results = run(config)
+
+# Access results
+for ligand_name, info in results.items():
+    print(f"Ligand: {ligand_name}, Best Score: {info['score']:.2f}, Runtime: {info['runtime']:.2f} sec")
+```
+
+---
+
 ## 📊 Result Outputs
 
 | Output | Description |
@@ -325,6 +557,17 @@ save_docking_results(results, "docking_results")
 | `validation_report.txt` | RMSD vs reference ligand |
 | `energy_breakdown.txt` | Energy components |
 | `report.html` | Interactive full docking report |
+
+---
+
+## Acknowledgments
+
+PandaDock incorporates concepts from several established molecular docking and computational chemistry packages:
+
+- CDOCKER (Wu et al. 2003)
+- AutoDock Vina (Trott & Olson, 2010)
+- DOCK (Allen et al., 2015)
+- RDKit (http://www.rdkit.org)
 
 ---
 ## 📜 License
@@ -354,6 +597,5 @@ If you use **PandaDock** in your research:
 
 > PandaDock is intended for research purposes.  
 > Always verify docking predictions through experimental validation.
-╔════════════════════════════════════════════╗
-║   🐼  Dock Smarter. Discover Faster.       ║
-╚════════════════════════════════════════════╝
+
+**Dock Smarter. Discover Faster**
