@@ -494,6 +494,18 @@ class DockingReporter:
                     for i, energy in enumerate(self.scoring_breakdown[:min(10, len(self.scoring_breakdown))]):
                         energy_str = f"{i+1:4d}  " + "  ".join([f"{energy.get(comp, 0.0):10.2f}" for comp in components])
                         print(energy_str)
+                    
+                                        # Binding affinity estimation
+                    f.write("\nBINDING AFFINITY ESTIMATION\n")
+                    f.write("---------------------------\n")
+                    for i, (pose, score) in enumerate(sorted_results[:min(10, len(sorted_results))]):
+                        affinities = self.calculate_binding_affinity(score)
+                        f.write(f"Pose {i+1}: Score = {score:.2f} kcal/mol\n")
+                        f.write(f"  Estimated ΔG: {affinities['DeltaG (kcal/mol)']:.2f} kcal/mol\n")
+                        f.write(f"  Estimated Kd: {affinities['Kd (M)']:.2e} M\n")
+                        f.write(f"  Estimated IC50: {affinities['IC50 (M)']:.2e} M\n")
+                        f.write("\n")
+
 
             
                 # Write validation results if available
@@ -815,7 +827,12 @@ class DockingReporter:
         # Generate plots in a plots subdirectory
         plots_dir = self.output_dir / "plots"
         os.makedirs(plots_dir, exist_ok=True)
+        #plot_paths = self.generate_plots(save_dir=plots_dir)
+        # Generate all plots (basic + binding affinity)
         plot_paths = self.generate_plots(save_dir=plots_dir)
+        affinity_plot_paths = self.plot_binding_affinities(save_dir=plots_dir)
+        plot_paths.extend(affinity_plot_paths)  # Add Kd and IC50 plots to the list
+
         
         # Extract relative paths
         rel_plot_paths = [os.path.relpath(path, self.output_dir) for path in plot_paths]
@@ -1005,6 +1022,32 @@ class DockingReporter:
                 </div>
             """
 
+        # Add binding affinity estimation if available
+        if self.results:
+            html_content += """
+                <div class="section">
+                    <h2>Binding Affinity Estimation</h2>
+                    <table>
+                        <tr><th>Pose</th><th>Score (kcal/mol)</th><th>ΔG (kcal/mol)</th><th>Kd (M)</th><th>IC50 (M)</th></tr>
+            """
+            
+            for i, (pose, score) in enumerate(sorted_results[:min(10, len(sorted_results))]):
+                affinities = self.calculate_binding_affinity(score)
+                html_content += f"""
+                    <tr>
+                        <td>{i+1}</td>
+                        <td>{score:.2f}</td>
+                        <td>{affinities['DeltaG (kcal/mol)']:.2f}</td>
+                        <td>{affinities['Kd (M)']:.2e}</td>
+                        <td>{affinities['IC50 (M)']:.2e}</td>
+                    </tr>
+                """
+            
+            html_content += """
+                    </table>
+                </div>
+            """
+
             
         # Add validation results if available
         if self.validation_results:
@@ -1135,4 +1178,140 @@ class DockingReporter:
         print(f"HTML report written to {html_path}")
         return html_path
     
-   
+    def calculate_binding_affinity(self, docking_score, temperature=298.15):
+        """
+        Estimate Kd, IC50, and delta G from docking score.
+
+        Parameters:
+        -----------
+        docking_score : float
+            Docking score (assumed to approximate ΔG in kcal/mol)
+        temperature : float
+            Temperature in Kelvin (default: 298.15K)
+        
+        Returns:
+        --------
+        dict
+            Dictionary with DeltaG, Kd (M), IC50 (M)
+        """
+        R = 1.9872e-3  # kcal/mol/K
+        delta_G = docking_score  # Assume docking score approximates ΔG
+        try:
+            Kd = np.exp(delta_G / (R * temperature))  # Dissociation constant in M
+        except OverflowError:
+            Kd = float('inf')
+        IC50 = 2 * Kd  # Rough estimate
+
+        return {
+            'DeltaG (kcal/mol)': delta_G,
+            'Kd (M)': Kd,
+            'IC50 (M)': IC50
+        }
+
+    def generate_binding_affinity_report(self):
+        """
+        Generate a well-formatted table report and CSV of binding affinities.
+        
+        Returns:
+        --------
+        str
+            Path to the generated binding affinity report
+        """
+        import csv
+
+        binding_affinity_path = self.output_dir / "binding_affinity_report.txt"
+        csv_path = self.output_dir / "binding_affinity_report.csv"
+        
+        with open(binding_affinity_path, 'w') as f_txt, open(csv_path, 'w', newline='') as f_csv:
+            writer = csv.writer(f_csv)
+            writer.writerow(["Pose", "DeltaG (kcal/mol)", "Kd (M)", "IC50 (M)"])
+            
+            f_txt.write("Binding Affinity Report\n")
+            f_txt.write("=======================\n\n")
+            
+            if self.results:
+                sorted_results = sorted(self.results, key=lambda x: x[1])
+                
+                # Write header for TXT
+                f_txt.write(f"{'Pose':<6}{'ΔG (kcal/mol)':>20}{'Kd (M)':>20}{'IC50 (M)':>20}\n")
+                f_txt.write("-"*66 + "\n")
+                
+                for i, (pose, score) in enumerate(sorted_results[:min(10, len(sorted_results))]):
+                    affinities = self.calculate_binding_affinity(score)
+                    deltaG = affinities['DeltaG (kcal/mol)']
+                    kd = affinities['Kd (M)']
+                    ic50 = affinities['IC50 (M)']
+                    
+                    f_txt.write(f"{i+1:<6}{deltaG:>20.2f}{kd:>20.2e}{ic50:>20.2e}\n")
+                    writer.writerow([i+1, f"{deltaG:.2f}", f"{kd:.2e}", f"{ic50:.2e}"])
+            else:
+                f_txt.write("No docking results available.\n")
+                writer.writerow(["No docking results available."])
+        
+        print(f"Binding affinity report written to {binding_affinity_path} and {csv_path}")
+        return binding_affinity_path
+    
+
+    
+    def plot_binding_affinities(self, save_dir=None):
+        """
+        Generate plots for Kd and IC50 vs pose rank.
+        """
+        import matplotlib.pyplot as plt
+        import numpy as np
+        from pathlib import Path
+
+        if save_dir is None:
+            save_dir = self.output_dir
+        else:
+            save_dir = Path(save_dir)
+            save_dir.mkdir(parents=True, exist_ok=True)
+
+        if not self.results or len(self.results) == 0:
+            print("No results available for binding affinity plots.")
+            return []
+
+        sorted_results = sorted(self.results, key=lambda x: x[1])
+        ranks = np.arange(1, len(sorted_results)+1)
+
+        deltaGs = []
+        Kds = []
+        IC50s = []
+
+        for pose, score in sorted_results:
+            affinities = self.calculate_binding_affinity(score)
+            deltaGs.append(affinities['DeltaG (kcal/mol)'])
+            Kds.append(affinities['Kd (M)'])
+            IC50s.append(affinities['IC50 (M)'])
+
+        plot_paths = []
+
+        # Kd Plot
+        kd_plot_path = save_dir / "kd_vs_rank.png"
+        plt.figure(figsize=(10, 6))
+        plt.semilogy(ranks, Kds, marker='o', linestyle='-')
+        plt.xlabel('Pose Rank')
+        plt.ylabel('Kd (M)')
+        plt.title('Kd vs Pose Rank')
+        plt.grid(alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(kd_plot_path)
+        plt.close()
+        plot_paths.append(kd_plot_path)
+        print(f"Kd vs Pose Rank plot saved to {kd_plot_path}")
+
+        # IC50 Plot
+        ic50_plot_path = save_dir / "ic50_vs_rank.png"
+        plt.figure(figsize=(10, 6))
+        plt.semilogy(ranks, IC50s, marker='o', linestyle='-', color='green')
+        plt.xlabel('Pose Rank')
+        plt.ylabel('IC50 (M)')
+        plt.title('IC50 vs Pose Rank')
+        plt.grid(alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(ic50_plot_path)
+        plt.close()
+        plot_paths.append(ic50_plot_path)
+        print(f"IC50 vs Pose Rank plot saved to {ic50_plot_path}")
+
+        return plot_paths

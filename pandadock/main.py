@@ -615,19 +615,6 @@ def main():
 
         if not args.output:
             parser.error("--output argument is required")
-        
-    # except SystemExit as e:
-    #         # 🛑 This is thrown by argparse when input is wrong
-    #         if e.code != 0:
-    #             # Mistyped something like --helpfff or missing -p/-l
-    #             print("\n🐼❌ PandaDock Error: Invalid command or missing inputs. Use '-h or --help' for guidance!\n")
-    #         raise e  # re-raise to let normal exit happen
-
-    # except Exception as ex:
-    #     # 🛑 Unexpected error (inside docking etc.)
-    #     print("\n🐼💥 PandaDock Internal Error! Something went wrong.\n")
-    #     print(f"Details: {ex}")
-    #     return_code = 1
 
         # Create descriptive output directory name
         protein_base = Path(args.protein).stem
@@ -1230,6 +1217,8 @@ def main():
                 reporter.generate_csv_report()
                 reporter.generate_json_report()
                 html_report = reporter.generate_html_report()
+                reporter.plot_binding_affinities()
+                reporter.generate_binding_affinity_report()
 
                 # Generate energy breakdown plots
                 reporter.plot_energy_breakdown()
