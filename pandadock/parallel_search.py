@@ -170,29 +170,44 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
             radius = protein.active_site['radius']
         else:
             center = np.mean(protein.xyz, axis=0)
-            radius = 15.0  # default
+            radius = 15.0
 
         bad_orientations = 0
         max_bad_orientations = self.num_orientations * 10
 
         while len(orientations) < self.num_orientations and bad_orientations < max_bad_orientations:
             pose = copy.deepcopy(ligand)
-
-            # Random rotation + translation
             pose.random_rotate()
+
             displacement = np.random.normal(0, 1, size=3)
             pose.translate(center + displacement)
 
-            # Compute centroid
+            # Check if pose is inside the pocket
             centroid = np.mean(pose.xyz, axis=0)
             distance = np.linalg.norm(centroid - center)
 
             if distance <= radius:
-                orientations.append(pose)
+                # 🧪 Add clash filter
+                is_valid = self._check_pose_validity(pose, protein)
+                if is_valid:
+                    orientations.append(pose)
+                else:
+                    bad_orientations += 1
             else:
                 bad_orientations += 1
 
         return orientations
+
+    def _check_pose_validity(self, pose, protein):
+        """
+        Check whether a pose has acceptable steric clashes or energy.
+        """
+        if hasattr(self.scoring_function, '_calculate_clashes'):
+            clash_score = self.scoring_function._calculate_clashes(protein, pose)
+            return clash_score < 10.0  # or make this configurable
+        else:
+            score = self.scoring_function.score(protein, pose)
+            return score < 100.0
 
 
     def search(self, protein, ligand):
@@ -512,7 +527,6 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         
         for attempt in range(max_attempts):
             #print(f"Repair attempt {attempt + 1}/{max_attempts}...")
-            
             # Apply small random perturbations to atom positions
             perturbation = np.random.normal(0, 0.2, ligand.xyz.shape)  # 0.2 Å standard deviation
             ligand.xyz += perturbation
@@ -788,15 +802,54 @@ class ParallelRandomSearch(RandomSearch):
 
         return results
 
-    def _check_pose_validity(self, pose, center, radius):
-        """
-        Check if pose centroid is inside current search sphere.
-        """
-        centroid = np.mean(pose.xyz, axis=0)
-        distance = np.linalg.norm(centroid - center)
-        # Check if centroid is within the radius
+    def _generate_orientations(self, ligand, protein):
+        orientations = []
+        
+        # Get active site center and radius
+        if protein.active_site:
+            center = protein.active_site['center']
+            radius = protein.active_site['radius']
+        else:
+            center = np.mean(protein.xyz, axis=0)
+            radius = 15.0
 
-        return distance <= radius
+        bad_orientations = 0
+        max_bad_orientations = self.num_orientations * 10
+
+        while len(orientations) < self.num_orientations and bad_orientations < max_bad_orientations:
+            pose = copy.deepcopy(ligand)
+            pose.random_rotate()
+
+            displacement = np.random.normal(0, 1, size=3)
+            pose.translate(center + displacement)
+
+            # Check if pose is inside the pocket
+            centroid = np.mean(pose.xyz, axis=0)
+            distance = np.linalg.norm(centroid - center)
+
+            if distance <= radius:
+                # 🧪 Add clash filter
+                is_valid = self._check_pose_validity(pose, protein)
+                if is_valid:
+                    orientations.append(pose)
+                else:
+                    bad_orientations += 1
+            else:
+                bad_orientations += 1
+
+        return orientations
+
+    def _check_pose_validity(self, pose, protein):
+        """
+        Check whether a pose has acceptable steric clashes or energy.
+        """
+        if hasattr(self.scoring_function, '_calculate_clashes'):
+            clash_score = self.scoring_function._calculate_clashes(protein, pose)
+            return clash_score < 10.0  # or make this configurable
+        else:
+            score = self.scoring_function.score(protein, pose)
+            return score < 100.0
+
 
     def _generate_random_pose(self, ligand, center, radius):
         # More uniform sampling within sphere volume
