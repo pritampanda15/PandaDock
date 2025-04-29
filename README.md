@@ -216,7 +216,70 @@ Example:
 - 🧬 **Pose files** (.pdb) for each predicted ligand conformation
 - 🛠️ **Parameters** and **status** tracking for reproducibility
 
----
+One example output in detailed_docking_report.txt is appened below:
+```bash
+ALGORITHM DETAILS
+-----------------
+Algorithm: Genetic
+Population Size: 100
+Scoring Function: Advanced
+Hardware Acceleration: GPU (ID: 0)
+GPU Precision: float32
+Exhaustiveness: 1
+RESULTS SUMMARY
+--------------
+Total Poses Generated: 4
+Best Score: -14.2475
+Worst Score: -12.3464
+Average Score: -13.6515
+
+Score Standard Deviation: 0.7612
+
+TOP 10 POSES
+--------------
+Rank	Score	File
+ENERGY COMPONENT BREAKDOWN (TOP 10 POSES)
+----------------------------------------
+Pose       Clash    Desolvat    Electros     Entropy      H-Bond    Hydropho    Van der 
+----------------------------------------------------------------------------------------
+   1       -0.46       -0.00       -0.09       -0.12       -0.09       -0.09       -0.14
+   2       -0.93       -0.00       -0.19       -0.23       -0.19       -0.19       -0.28
+   3       -1.39       -0.01       -0.28       -0.35       -0.28       -0.28       -0.42
+   4       -1.86       -0.01       -0.37       -0.46       -0.37       -0.37       -0.56
+
+BINDING AFFINITY ESTIMATION
+---------------------------
+Pose 1: Score = -14.25 kcal/mol
+  Estimated ΔG: -14.25 kcal/mol
+  Estimated Kd: 3.60e-11 M
+  Estimated IC50: 7.20e-11 M
+
+Pose 2: Score = -14.07 kcal/mol
+  Estimated ΔG: -14.07 kcal/mol
+  Estimated Kd: 4.87e-11 M
+  Estimated IC50: 9.75e-11 M
+
+Pose 3: Score = -13.94 kcal/mol
+  Estimated ΔG: -13.94 kcal/mol
+  Estimated Kd: 6.02e-11 M
+  Estimated IC50: 1.20e-10 M
+
+Pose 4: Score = -12.35 kcal/mol
+  Estimated ΔG: -12.35 kcal/mol
+  Estimated Kd: 8.91e-10 M
+  Estimated IC50: 1.78e-09 M
+════════════════════════════════════════════════════════════════════════════════
+    Binding Affinity Report
+================================================================================
+
+Pose         ΔG (kcal/mol)              Kd (M)            IC50 (M)
+------------------------------------------------------------------
+1                   -14.25            3.60e-11            7.20e-11
+2                   -14.07            4.87e-11            9.75e-11
+3                   -13.94            6.02e-11            1.20e-10
+4                   -12.35            8.91e-10            1.78e-09
+
+```
 
 ## 📈 Example Docking Plots
 
