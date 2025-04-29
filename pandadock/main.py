@@ -615,6 +615,19 @@ def main():
 
         if not args.output:
             parser.error("--output argument is required")
+        
+    except SystemExit as e:
+            # 🛑 This is thrown by argparse when input is wrong
+            if e.code != 0:
+                # Mistyped something like --helpfff or missing -p/-l
+                print("\n🐼❌ PandaDock Error: Invalid command or missing inputs. Use '-h or --help' for guidance!\n")
+            raise e  # re-raise to let normal exit happen
+
+    except Exception as ex:
+        # 🛑 Unexpected error (inside docking etc.)
+        print("\n🐼💥 PandaDock Internal Error! Something went wrong.\n")
+        print(f"Details: {ex}")
+        return_code = 1
 
         # Create descriptive output directory name
         protein_base = Path(args.protein).stem
@@ -1297,32 +1310,32 @@ def main():
             logger.info("No valid docking solutions found.")
         logger.info(f"============================================================")
         
-        # Generate comprehensive reports
-        logger.info("Generating comprehensive docking reports...")
-        update_status(output_dir, status="generating_reports")
-        if hasattr(args, 'report_format') and args.report_format != 'all':
-            # Generate only the requested format
-            if args.report_format == 'text':
-                reporter.generate_detailed_report()
-            elif args.report_format == 'csv':
-                reporter.generate_csv_report()
-            elif args.report_format == 'json':
-                reporter.generate_json_report()
-            elif args.report_format == 'html':
-                reporter.generate_html_report()
-            elif args.report_format == 'plots':
-                reporter.generate_plots(save_dir=os.path.join(output_dir, "plots"))
+        # # Generate comprehensive reports
+        # logger.info("Generating comprehensive docking reports...")
+        # update_status(output_dir, status="generating_reports")
+        # if hasattr(args, 'report_format') and args.report_format != 'all':
+        #     # Generate only the requested format
+        #     if args.report_format == 'text':
+        #         reporter.generate_detailed_report()
+        #     elif args.report_format == 'csv':
+        #         reporter.generate_csv_report()
+        #     elif args.report_format == 'json':
+        #         reporter.generate_json_report()
+        #     elif args.report_format == 'html':
+        #         reporter.generate_html_report()
+        #     elif args.report_format == 'plots':
+        #         reporter.generate_plots(save_dir=os.path.join(output_dir, "plots"))
 
-        else:
-            # Generate all report formats
-            reporter.generate_detailed_report()
-            reporter.generate_csv_report()
-            reporter.generate_json_report()
+        # else:
+        #     # Generate all report formats
+        #     reporter.generate_detailed_report()
+        #     reporter.generate_csv_report()
+        #     reporter.generate_json_report()
             
-            # Generate HTML report with visualizations if plots are not skipped
-            if not (hasattr(args, 'skip_plots') and args.skip_plots):
-                html_report = reporter.generate_html_report()
-                logger.info(f"Comprehensive HTML report with visualizations saved to: {html_report}")
+        #     # Generate HTML report with visualizations if plots are not skipped
+        #     if not (hasattr(args, 'skip_plots') and args.skip_plots):
+        #         html_report = reporter.generate_html_report()
+        #         logger.info(f"Comprehensive HTML report with visualizations saved to: {html_report}")
         
         # Final status update
         update_status(
@@ -1407,48 +1420,58 @@ def main():
 
     # 🛑 DO NOT always print success ascii
 
-        if return_code == 0:
-            # Only if docking succeeded
-            success_ascii = r"""
-███████╗██╗   ██╗ ██████╗ ██████╗███████╗███████╗███████╗
-██╔════╝██║   ██║██╔════╝██╔════╝██╔════╝██╔════╝██╔════╝
-███████╗██║   ██║██║     ██║     █████╗  ███████╗███████╗
-╚════██║██║   ██║██║     ██║     ██╔══╝  ╚════██║╚════██║
-███████║╚██████╔╝╚██████╗╚██████╗███████╗███████║███████║
-╚══════╝ ╚═════╝  ╚═════╝ ╚═════╝╚══════╝╚══════╝╚══════╝
-                                                           
- 🎯 Docking completed successfully! Ready for analysis! 🚀
-            """
-            print(success_ascii)
-        else:
-            # Only if docking failed
+        # Final status update based on return code
+    if return_code == 0:
+        # ✅ Only if docking succeeded
+        success_ascii = r"""
+    ╔════════════════════════════════╗
+    ║  🎉 Successful Docking! 🎉     ║
+    ║                                ║
+    ║   🐼  PandaDock Completed!     ║ 
+    ║                                ║
+    ║ Dock Smarter. Discover Faster. ║
+    ╚════════════════════════════════╝
+    """
+        print(success_ascii)
+
+    else:
+        # ❌ Docking failed
+        # Now differentiate: Did the user mistype or did docking fail internally?
+
+        if hasattr(args, 'protein') and hasattr(args, 'ligand'):
+            # Docking failed AFTER valid command (e.g., structure error, scoring failed)
             error_ascii = r"""
+                                            \ / _
+                                        ___,,,
+                                        \_[o o]
+        Errare humanum est!              C\  _\/
+                /                     _____),_/__
+            ________                  /     \/   /
+        _|       .|                /      o   /
+        | |       .|               /          /
+        \|       .|              /          /
+        |________|             /_        \/
+        __|___|__             _//\        \
+    _____|_________|____       \  \ \        \
+                        _|       ///  \        \
+                    |               \       /
+                    |               /      /
+                    |              /      /
+    ________________  |             /__    /_
+    b'ger        ...|_|.............. /______\.......
 
-                                           \ / _
-                                      ___,,,
-                                      \_[o o]
-     Errare humanum est!              C\  _\/
-             /                     _____),_/__
-        ________                  /     \/   /
-      _|       .|                /      o   /
-     | |       .|               /          /
-      \|       .|              /          /
-       |________|             /_        \/
-       __|___|__             _//\        \
- _____|_________|____       \  \ \        \
-                    _|       ///  \        \
-                   |               \       /
-                   |               /      /
-                   |              /      /
- ________________  |             /__    /_
- b'ger        ...|_|.............. /______\.......
-
-                    
-            ❌ Error: The docking process encountered an issue! 🐼💥
-            """
+                ❌ Error: The docking process encountered an issue! 🐼💥
+    """
             print(error_ascii)
+
+        else:
+            # Argument parsing failure or bad CLI usage (like --helpf etc)
+            tiny_error = "🐼❌ PandaDock Error: Invalid command or missing inputs. Use '--help' for guidance!"
+            print(tiny_error)
 
     return return_code
 
+
 if __name__ == "__main__":
+    check_for_updates()
     main()
