@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/pritampanda15/PandaDock">
-    <img src="https://github.com/pritampanda15/PandaDock/blob/main/logo/pandadock-logo.svg" width="500" alt="PandaDock Logo"/>
+    <img src="https://github.com/pritampanda15/PandaDock/blob/main/logo/pandadock-logo.svg" width="1000" alt="PandaDock Logo"/>
   </a>
 </p>
 
@@ -237,131 +237,210 @@ Each docking run generates:
 ---
 
 
-#### Example Commands
 
-```bash
-# 1. Quick and Simple Docking
-pandadock -p protein.pdb -l ligand.sdf -s X Y Z --fast-mode
+# 📖 **Docking Command Examples**
 
-# 2. Standard Accurate Docking
-pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced-scoring --local-opt --prepare-molecules
+## 🎯 Basic Docking (Random / Genetic / Auto-Algorithm)
 
-# 3. High-Accuracy Docking with Hardware Acceleration
-pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --enhanced-scoring --local-opt --prepare-molecules --use-gpu --auto-tune
+| Description | Command |
+|:------------|:--------|
+| **Random Search** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a random -i 100` |
+| **Genetic Algorithm (default)** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a genetic -i 100` |
+| **Auto Algorithm Selection** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 --auto-algorithm` |
 
-# 4. Reference-Guided Docking for Known Binding Modes
-pandadock -p protein.pdb -l ligand.sdf -s X Y Z --reference ref_ligand.sdf --enhanced-scoring --local-opt
-
-# 5. Exact Alignment to Reference Structure
-pandadock -p protein.pdb -l ligand.sdf -s X Y Z --reference ref_ligand.sdf --exact-alignment --no-local-optimization
-
-# 6. Exact Alignment with Refinement
-pandadock -p protein.pdb -l ligand.sdf -s X Y Z --reference ref_ligand.sdf --exact-alignment
-
-# 7. Flexible Side Chains in Binding Site
-pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --auto-flex --local-opt
-
-# 8. Manual Flexible Side Chains
-pandadock -p protein.pdb -l ligand.sdf -s X Y Z --flex-residues A_123 B_45 --max-flex-bonds 4
-
-# 9. Physics-Based Docking
-pandadock -p protein.pdb -l ligand.sdf -s X Y Z --physics-based --mmff-minimization --local-opt
-
-# 10. Monte Carlo Sampling (Alternative to Genetic Algorithm)
-pandadock -p protein.pdb -l ligand.sdf -s X Y Z --monte-carlo --mc-steps 2000 --temperature 300
-
-# 11. Exhaustive Search for Better Pose Diversity
-pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --exhaustiveness 8 --population-size 200
-
-# 12. Automatic Binding Site Detection
-pandadock -p protein.pdb -l ligand.sdf --detect-pockets --enhanced-scoring --local-opt
-
-# 13. Maximum Performance on CPU
-pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --cpu-workers 8 --cpu-affinity
-
-# 14. Maximum Performance on GPU
-pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --use-gpu --gpu-id 0 --gpu-precision float32 --workload-balance 0.9
-
-# 15. Hybrid CPU/GPU with Auto-Tuning
-pandadock -p protein.pdb -l ligand.sdf -s X Y Z --enhanced --use-gpu --auto-tune --cpu-workers 4
-```
-
-#### Advanced Algorithm Commands
-
-```bash
-# Gradient-based search
-pandadock -p protein.pdb -l ligand.mol --advanced-search gradient --gradient-step 0.01 --convergence-threshold 0.001 --reference ref_ligand.mol
-
-# Replica exchange Monte Carlo
-pandadock -p protein.pdb -l ligand.mol --advanced-search replica-exchange --n-replicas 4 --replica-temperatures 300 400 500 600 --exchange-steps 100 --reference ref_ligand.mol
-
-# ML-guided search
-pandadock -p protein.pdb -l ligand.mol --advanced-search ml-guided --surrogate-model gp --exploitation-factor 0.7 --reference ref_ligand.mol
-
-# Fragment-based docking
-pandadock -p protein.pdb -l ligand.mol --advanced-search fragment-based --fragment-min-size 5 --growth-steps 3 --enhanced-scoring --reference ref_ligand.mol
-
-# Hybrid optimization
-pandadock -p protein.pdb -l ligand.mol --advanced-search hybrid --ga-iterations 100 --lbfgs-iterations 50 --top-n-for-local 5 --reference ref_ligand.mol
-```
-
-#### Analysis and Reporting Commands
-
-```bash
-# Clustering docking poses
-pandadock -p protein.pdb -l ligand.mol -a genetic --iterations 200 --cluster-poses --clustering-method hierarchical --rmsd-cutoff 2.0 --reference ref_ligand.mol
-
-# Interaction analysis
-pandadock -p protein.pdb -l ligand.mol -a genetic --iterations 200 --analyze-interactions --interaction-types hbond hydrophobic ionic --reference ref_ligand.mol
-
-# Binding mode classification
-pandadock -p protein.pdb -l ligand.mol -a genetic --iterations 200 --classify-modes --discover-modes --n-modes 3 --reference ref_ligand.mol
-
-# Energy decomposition analysis
-pandadock -p protein.pdb -l ligand.mol -a genetic --iterations 200 --energy-decomposition --detailed-energy --reference ref_ligand.mol
-
-# Per-residue energy analysis
-pandadock -p protein.pdb -l ligand.mol -a genetic --iterations 200 --per-residue-energy --reference ref_ligand.mol
-
-# Comprehensive analysis report
-pandadock -p protein.pdb -l ligand.mol -a genetic --iterations 200 --generate-analysis-report --analysis-report-format html --analysis-report-sections summary clusters interactions energetics --reference ref_ligand.mol
-```
-
-#### Physics-Based Docking
-
-```bash
-# Use MMFF94 minimization (requires RDKit)
-pandadock -p protein.pdb -l ligand.mol --mmff-minimization
-
-# Enhanced electrostatics with solvation
-pandadock -p protein.pdb -l ligand.mol --enhanced-scoring
-
-# Full physics-based scoring (MM-GBSA inspired)
-pandadock -p protein.pdb -l ligand.mol --physics-based
-
-# Monte Carlo sampling with simulated annealing
-pandadock -p protein.pdb -l ligand.mol --monte-carlo --mc-steps 2000 --temperature 300
-
-# Combined approach for best accuracy
-pandadock -p protein.pdb -l ligand.mol --physics-based --mmff-minimization --local-opt
-```
-
-#### Hardware Acceleration
-
-```bash
-# Enable GPU acceleration (if available)
-pandadock -p protein.pdb -l ligand.mol --use-gpu
-
-# Specify CPU workers for parallelization
-pandadock -p protein.pdb -l ligand.mol --cpu-workers 8
-
-# Auto-tune hardware settings for optimal performance
-pandadock -p protein.pdb -l ligand.mol --auto-tune
-
-# Combine hardware acceleration with physics-based methods
-pandadock -p protein.pdb -l ligand.mol --use-gpu --physics-based --mmff-minimization
-```
 ---
+
+## 🧪 Physics-Based Docking
+
+| Description | Command |
+|:------------|:--------|
+| **Physics-Based Scoring (CPU)** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a genetic --physics-based` |
+| **Physics-Based Scoring (GPU accelerated)** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a genetic --physics-based --use-gpu` |
+
+---
+
+## 🧬 Monte Carlo Sampling + Docking
+
+| Description | Command |
+|:------------|:--------|
+| **Monte Carlo Sampling + Genetic Optimization** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a genetic --monte-carlo` |
+| **Monte Carlo with Physics-Based Scoring** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a genetic --monte-carlo --physics-based` |
+
+---
+
+## 🧊 PANDADOCK Algorithm (Simulated Annealing + Final Minimization)
+
+| Description | Command |
+|:------------|:--------|
+| **PANDADOCK Docking (default parameters)** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a pandadock` |
+| **PANDADOCK Docking with Physics-Based Scoring** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a pandadock --physics-based` |
+| **PANDADOCK using Grid-Based Energies** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a pandadock --use-grid` |
+| **Fine-tune PANDADOCK MD Parameters** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a pandadock --high-temp 500 --target-temp 300 --cooling-factor 0.95` |
+
+---
+
+## ⚡ Hardware Acceleration Examples (GPU/CPU Hybrid)
+
+| Description | Command |
+|:------------|:--------|
+| **GPU-Only Docking** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a genetic --use-gpu` |
+| **Hybrid CPU/GPU Workload (80% GPU)** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a genetic --use-gpu --workload-balance 0.8` |
+| **Float64 Precision on GPU** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 --use-gpu --gpu-precision float64` |
+
+---
+
+## 🧠 Advanced Search Algorithms
+
+| Description | Command |
+|:------------|:--------|
+| **Gradient-Based Search** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 --advanced-search gradient` |
+| **Replica Exchange Docking** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 --advanced-search replica-exchange` |
+| **ML-Guided Docking (Random Forest Surrogate)** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 --advanced-search ml-guided --surrogate-model rf` |
+| **Fragment-Based Docking** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 --advanced-search fragment-based` |
+| **Hybrid GA + L-BFGS Docking** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 --advanced-search hybrid` |
+
+---
+
+## 📑 Reporting Options (Recommended after docking)
+
+| Description | Command |
+|:------------|:--------|
+| **Generate Detailed HTML Report** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a genetic --generate-analysis-report --analysis-report-format html` |
+| **Save Report as Text/CSV/JSON** | `pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a genetic --report-format all` |
+
+---
+
+
+# 🚀 PandaDock Docking Command Examples
+
+<details>
+<summary>🎯 <strong>Basic Docking (Random / Genetic / Auto)</strong></summary>
+
+```bash
+# Random Search Docking
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a random -i 100
+
+# Genetic Algorithm Docking (Default)
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a genetic -i 100
+
+# Auto Algorithm Selection
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 --auto-algorithm
+```
+</details>
+
+---
+
+<details>
+<summary>🧪 <strong>Physics-Based Docking (High Accuracy)</strong></summary>
+
+```bash
+# CPU Physics-Based Docking
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a genetic --physics-based
+
+# GPU-Accelerated Physics-Based Docking
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a genetic --physics-based --use-gpu
+```
+</details>
+
+---
+
+<details>
+<summary>🧬 <strong>Monte Carlo Sampling + Docking</strong></summary>
+
+```bash
+# Monte Carlo Sampling with Genetic Optimization
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a genetic --monte-carlo
+
+# Monte Carlo + Physics-Based Scoring
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a genetic --monte-carlo --physics-based
+```
+</details>
+
+---
+
+<details>
+<summary>🧊 <strong>PANDADOCK Algorithm (Simulated Annealing)</strong></summary>
+
+```bash
+# PANDADOCK Docking (Default Parameters)
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a pandadock
+
+# PANDADOCK + Physics-Based Scoring
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a pandadock --physics-based
+
+# PANDADOCK Using Grid-Based Energies
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a pandadock --use-grid
+
+# Fine-Tune PANDADOCK MD Parameters
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a pandadock --high-temp 500 --target-temp 300 --cooling-factor 0.95
+```
+</details>
+
+---
+
+<details>
+<summary>⚡ <strong>Hardware Acceleration (CPU/GPU Hybrid)</strong></summary>
+
+```bash
+# GPU-Only Docking
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a genetic --use-gpu
+
+# CPU/GPU Hybrid Workload Balancing
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 -a genetic --use-gpu --workload-balance 0.8
+
+# GPU Float64 Precision Docking
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 --use-gpu --gpu-precision float64
+```
+</details>
+
+---
+
+<details>
+<summary>🧠 <strong>Advanced Search Algorithms (Gradient / Replica Exchange / ML-Guided / Fragment-Based / Hybrid)</strong></summary>
+
+```bash
+# Gradient-Based Search
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 --advanced-search gradient
+
+# Replica Exchange Monte Carlo
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 --advanced-search replica-exchange
+
+# ML-Guided Docking (Random Forest Surrogate)
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 --advanced-search ml-guided --surrogate-model rf
+
+# Fragment-Based Docking
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 --advanced-search fragment-based
+
+# Hybrid Genetic Algorithm + L-BFGS Docking
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 --advanced-search hybrid
+```
+</details>
+
+---
+
+<details>
+<summary>📑 <strong>Optional Reporting & Analysis</strong></summary>
+
+```bash
+# Generate Detailed HTML Analysis Report
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 --generate-analysis-report --analysis-report-format html
+
+# Save Results as Text, CSV, and JSON
+pandadock -p protein.pdb -l ligand.sdf -s -15.7 -17.7 8.1 --report-format all
+```
+</details>
+
+---
+
+# 🏁 **Recommended Best Practices**
+
+✅ Always add `--prepare-molecules` to automatically protonate and minimize molecules.  
+✅ Use `--enhanced-scoring` or `--physics-based` for better electrostatics (even in non-physics mode).  
+✅ Use `--local-opt` to refine poses with local energy minimization.  
+✅ Add `--generate-analysis-report` for detailed visual inspection after docking.
+
+---
+
 
 ## PANDADOCK Algorithm
 
