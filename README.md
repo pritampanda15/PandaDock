@@ -2,7 +2,7 @@
 
 Python-based molecular docking software for bioinformatics and drug design with physics-based approach
 
-![PandaDock Logo](https://github.com/pritampanda15/PandaDock/blob/main/logo/pandadock-logo.svg)
+![PandaDock Logo](https://github.com/pritampanda15/PandaDock/blob/main/logo/pandadock-logo.png)
 
 ## Overview
 
