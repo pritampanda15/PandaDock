@@ -9,6 +9,9 @@ tabulate
 tqdm
 seaborn
 weasyprint
+rich
+rich-argparse
+pyyaml
 
 [dev]
 pytest>=6.0.0

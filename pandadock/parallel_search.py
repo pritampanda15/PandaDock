@@ -138,19 +138,20 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
                 f"Initialized spherical grid with {len(self.grid_points)} points "
                 f"(spacing: {self.grid_spacing}, radius: {self.grid_radius})"
             )
+            # Save Light Sphere PDB
+            subsample_rate = 20  # <-- Only keep 1 out of every 5 points
 
-            # Save Sphere PDB
-            # Save Sphere PDB ONLY if output_dir is not None
             if self.output_dir is not None:
                 sphere_path = Path(self.output_dir) / "sphere.pdb"
                 sphere_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(sphere_path, 'w') as f:
                     for idx, point in enumerate(self.grid_points):
-                        f.write(
-                            f"HETATM{idx+1:5d} {'S':<2s}   SPH A   1    "
-                            f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
-                        )
-                self.logger.info(f"Sphere grid written to {sphere_path}")
+                        if idx % subsample_rate == 0:  # <-- Only write every Nth point
+                            f.write(
+                                f"HETATM{idx+1:5d} {'S':<2s}   SPH A   1    "
+                                f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
+                            )
+                self.logger.info(f"Sphere grid written to {sphere_path} (subsampled every {subsample_rate} points)")
     
     def _adjust_search_radius(self, initial_radius, generation, total_generations):
         """
@@ -159,6 +160,39 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         decay_rate = 0.5  # You can tune it (0.3 or 0.7)
         factor = 1.0 - (generation / total_generations) * decay_rate
         return max(initial_radius * factor, initial_radius * 0.5)
+
+    def _generate_orientations(self, ligand, protein):
+        orientations = []
+        
+        # Get active site center and radius
+        if protein.active_site:
+            center = protein.active_site['center']
+            radius = protein.active_site['radius']
+        else:
+            center = np.mean(protein.xyz, axis=0)
+            radius = 15.0  # default
+
+        bad_orientations = 0
+        max_bad_orientations = self.num_orientations * 10
+
+        while len(orientations) < self.num_orientations and bad_orientations < max_bad_orientations:
+            pose = copy.deepcopy(ligand)
+
+            # Random rotation + translation
+            pose.random_rotate()
+            displacement = np.random.normal(0, 1, size=3)
+            pose.translate(center + displacement)
+
+            # Compute centroid
+            centroid = np.mean(pose.xyz, axis=0)
+            distance = np.linalg.norm(centroid - center)
+
+            if distance <= radius:
+                orientations.append(pose)
+            else:
+                bad_orientations += 1
+
+        return orientations
 
 
     def search(self, protein, ligand):

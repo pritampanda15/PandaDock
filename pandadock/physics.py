@@ -1257,9 +1257,9 @@ class PhysicsBasedScoring(BaseScoringFunction):
             self.weights['hbond'] * hbond +
             self.weights['elec'] * elec +
             self.weights['desolv'] * desolv +
-            self.weights['entropy'] * entropy +
-            self.weights['hydrophobic'] * hydrophobic +
-            self.weights['clash'] * clash
+            self.weights['hydrophobic'] * hydrophobic -
+            self.weights['clash'] * clash -
+            self.weights['entropy'] * entropy 
         )
         
         return total
@@ -1346,6 +1346,12 @@ class PhysicsBasedScoring(BaseScoringFunction):
 
         ligand_coords = np.array([atom['coords'] for atom in ligand.atoms])
         protein_coords = np.array([atom['coords'] for atom in protein.active_site['atoms']])
+        # Check if protein_coords are valid
+        if protein_coords.ndim != 2 or protein_coords.shape[1] != 3 or len(protein_coords) == 0:
+            if not hasattr(self, '_entropy_warning_printed'):
+                print("Warning: Protein coordinates invalid for entropy calculation. Skipping entropy term.")
+                self._entropy_warning_printed = True
+            return 0.0
 
         # Compute pairwise distances
         from scipy.spatial import cKDTree
@@ -1589,9 +1595,9 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
             self.weights['hbond'] * hbond +
             self.weights['elec'] * elec +
             self.weights['desolv'] * desolv +
-            self.weights['entropy'] * entropy +
-            self.weights['hydrophobic'] * hydrophobic +
-            self.weights['clash'] * clash
+            self.weights['hydrophobic'] * hydrophobic -
+            self.weights['clash'] * clash -
+            self.weights['entropy'] * entropy
         )
         
         return total
@@ -1901,6 +1907,12 @@ class PhysicsBasedScoringFunction(PhysicsBasedScoring):
 
         ligand_coords = np.array([atom['coords'] for atom in ligand.atoms])
         protein_coords = np.array([atom['coords'] for atom in protein.active_site['atoms']])
+        # Check if protein_coords are valid
+        if protein_coords.ndim != 2 or protein_coords.shape[1] != 3 or len(protein_coords) == 0:
+            if not hasattr(self, '_entropy_warning_printed'):
+                print("Warning: Protein coordinates invalid for entropy calculation. Skipping entropy term.")
+                self._entropy_warning_printed = True
+            return 0.0
 
         # Compute pairwise distances
         from scipy.spatial import cKDTree

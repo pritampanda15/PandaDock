@@ -82,6 +82,8 @@ class DockingReporter:
         self.results = []
         self.scoring_breakdown = []
         self.validation_results = None
+        self.energy_breakdown = None
+
     
     def _get_hardware_info(self, args):
         """Extract hardware configuration information from arguments."""
@@ -96,26 +98,12 @@ class DockingReporter:
         
         return hardware
     
-    def add_results(self, results, detailed_energy=None):
-        """
-        Add docking results to the report.
-        
-        Parameters:
-        -----------
-        results : list
-            List of (pose, score) tuples
-        detailed_energy : list, optional
-            List of detailed energy breakdowns as dictionaries
-        """
+    def add_results(self, results, energy_breakdown=None):
         self.results = results
-        
-        # If detailed energy information is provided, store it
-        if detailed_energy:
-            self.scoring_breakdown = detailed_energy
-        
-        # Sort results by score if not already sorted
+        if energy_breakdown:
+            self.scoring_breakdown = energy_breakdown  # <--- simple
         self.results.sort(key=lambda x: x[1])
-    
+
     def add_validation_results(self, validation_results):
         """
         Add validation results to the report.
@@ -291,6 +279,8 @@ class DockingReporter:
         
         return energy_breakdown
 
+        
+
     
     def generate_basic_report(self):
         """
@@ -401,7 +391,7 @@ class DockingReporter:
                 algorithm_params["Temperature"] = f"{self.args.temperature} K"
         
         # Get scoring function details
-        scoring_type = "standard"
+        scoring_type = "advanced"
         if hasattr(self.args, 'enhanced_scoring') and self.args.enhanced_scoring:
             scoring_type = "enhanced"
         if hasattr(self.args, 'physics_based') and self.args.physics_based:
@@ -480,89 +470,80 @@ class DockingReporter:
                 f.write("TOP 10 POSES\n")
                 f.write("--------------\n")
                 f.write("Rank\tScore\tFile\n")
-                for i, (pose, score) in enumerate(sorted_results[:10]):
-                    f.write(f"{i+1}\t{score:.4f}\tpose_{i+1}_score_{score:.1f}.pdb\n")      
-            # Write top poses
-            f.write("TOP POSES RANKING\n")
-            f.write("----------------\n")
-            f.write("Rank  Score      Filename\n")
-            f.write("----- ---------- ----------------------------------------\n")
-            for i, (pose, score) in enumerate(sorted_results[:min(20, len(sorted_results))]):
-                f.write(f"{i+1:5d} {score:10.4f} pose_{i+1}_score_{score:.1f}.pdb\n")
-            f.write("\n")
-            
-            # Write energy breakdown if available
-            if include_energy_breakdown and self.scoring_breakdown:
-                f.write("ENERGY COMPONENT BREAKDOWN (TOP 10 POSES)\n")
-                f.write("----------------------------------------\n")
-                
-                # Create a header based on first energy breakdown
-                if len(self.scoring_breakdown) > 0:
-                    if not self.scoring_breakdown or not isinstance(self.scoring_breakdown[0], dict) or not self.scoring_breakdown[0]:
-                        f.write("No detailed energy components available.\n\n")
-                        return report_path  # or skip this section in HTML
+                if include_energy_breakdown and self.scoring_breakdown and len(self.scoring_breakdown) > 0:
+                    f.write("ENERGY COMPONENT BREAKDOWN (TOP 10 POSES)\n")
+                    f.write("----------------------------------------\n")
                     components = list(self.scoring_breakdown[0].keys())
-                    header = "Pose  " + "  ".join([f"{comp[:7]:>8}" for comp in components])
+                    header = "Pose  " + "  ".join([f"{comp[:8]:>10}" for comp in components])
+                    
+                    # Write to file
                     f.write(header + "\n")
                     f.write("-" * len(header) + "\n")
-                    
-                    # Write energy breakdown for top poses
                     for i, energy in enumerate(self.scoring_breakdown[:min(10, len(self.scoring_breakdown))]):
-                        energy_str = f"{i+1:4d}  " + "  ".join([f"{energy[comp]:8.2f}" for comp in components])
+                        energy_str = f"{i+1:4d}  " + "  ".join([f"{energy.get(comp, 0.0):10.2f}" for comp in components])
                         f.write(energy_str + "\n")
+
+                    # ✅ Print to CLI
+                    print("\nENERGY COMPONENT BREAKDOWN (TOP 10 POSES)")
+                    print("----------------------------------------")
+                    print(header)
+                    print("-" * len(header))
+                    for i, energy in enumerate(self.scoring_breakdown[:min(10, len(self.scoring_breakdown))]):
+                        energy_str = f"{i+1:4d}  " + "  ".join([f"{energy.get(comp, 0.0):10.2f}" for comp in components])
+                        print(energy_str)
+
+            
+                # Write validation results if available
+                if self.validation_results:
+                    f.write("VALIDATION AGAINST REFERENCE STRUCTURE\n")
+                    f.write("------------------------------------\n")
+                    
+                    if isinstance(self.validation_results, list):
+                        # List of validation results for multiple poses
+                        f.write("RMSD Results for Top Poses:\n")
+                        f.write("Rank  Pose     RMSD (Å)  Status\n")
+                        f.write("----- -------- --------- --------------\n")
+                        
+                        for i, result in enumerate(self.validation_results[:min(10, len(self.validation_results))]):
+                            pose_idx = result.get('pose_index', i)
+                            rmsd = result.get('rmsd', 0.0)
+                            status = "Success" if rmsd < 2.0 else "Failure"
+                            f.write(f"{i+1:5d} {pose_idx+1:8d} {rmsd:9.4f} {status}\n")
+                        
+                        # Best RMSD
+                        if len(self.validation_results) > 0:
+                            best_rmsd = min(result.get('rmsd', float('inf')) for result in self.validation_results)
+                            f.write(f"\nBest RMSD: {best_rmsd:.4f} Å\n")
+                            f.write(f"Docking Success: {'Yes' if best_rmsd < 2.0 else 'No'}\n")
+                    
+                    elif isinstance(self.validation_results, dict):
+                        # Single validation result
+                        rmsd = self.validation_results.get('rmsd', 0.0)
+                        max_dev = self.validation_results.get('max_deviation', 0.0)
+                        min_dev = self.validation_results.get('min_deviation', 0.0)
+                        success = self.validation_results.get('success', False)
+                        
+                        f.write(f"Overall RMSD: {rmsd:.4f} Å\n")
+                        f.write(f"Maximum Atomic Deviation: {max_dev:.4f} Å\n")
+                        f.write(f"Minimum Atomic Deviation: {min_dev:.4f} Å\n")
+                        f.write(f"Docking Success: {'Yes' if success else 'No'}\n")
+                        
+                        # Report per-atom deviations if available
+                        atom_deviations = self.validation_results.get('atom_deviations', None)
+                        if atom_deviations is not None:
+                            f.write("\nTop 10 Atom Deviations:\n")
+                            sorted_indices = np.argsort(atom_deviations)[::-1]
+                            for i in range(min(10, len(sorted_indices))):
+                                idx = sorted_indices[i]
+                                f.write(f"Atom {idx + 1}: {atom_deviations[idx]:.4f} Å\n")
+                    
                     f.write("\n")
+                
+                f.write("===========================================================\n")
+                f.write("Report generated by PandaDock - Python Molecular Docking Tool\n")
             
-            # Write validation results if available
-            if self.validation_results:
-                f.write("VALIDATION AGAINST REFERENCE STRUCTURE\n")
-                f.write("------------------------------------\n")
-                
-                if isinstance(self.validation_results, list):
-                    # List of validation results for multiple poses
-                    f.write("RMSD Results for Top Poses:\n")
-                    f.write("Rank  Pose     RMSD (Å)  Status\n")
-                    f.write("----- -------- --------- --------------\n")
-                    
-                    for i, result in enumerate(self.validation_results[:min(10, len(self.validation_results))]):
-                        pose_idx = result.get('pose_index', i)
-                        rmsd = result.get('rmsd', 0.0)
-                        status = "Success" if rmsd < 2.0 else "Failure"
-                        f.write(f"{i+1:5d} {pose_idx+1:8d} {rmsd:9.4f} {status}\n")
-                    
-                    # Best RMSD
-                    if len(self.validation_results) > 0:
-                        best_rmsd = min(result.get('rmsd', float('inf')) for result in self.validation_results)
-                        f.write(f"\nBest RMSD: {best_rmsd:.4f} Å\n")
-                        f.write(f"Docking Success: {'Yes' if best_rmsd < 2.0 else 'No'}\n")
-                
-                elif isinstance(self.validation_results, dict):
-                    # Single validation result
-                    rmsd = self.validation_results.get('rmsd', 0.0)
-                    max_dev = self.validation_results.get('max_deviation', 0.0)
-                    min_dev = self.validation_results.get('min_deviation', 0.0)
-                    success = self.validation_results.get('success', False)
-                    
-                    f.write(f"Overall RMSD: {rmsd:.4f} Å\n")
-                    f.write(f"Maximum Atomic Deviation: {max_dev:.4f} Å\n")
-                    f.write(f"Minimum Atomic Deviation: {min_dev:.4f} Å\n")
-                    f.write(f"Docking Success: {'Yes' if success else 'No'}\n")
-                    
-                    # Report per-atom deviations if available
-                    atom_deviations = self.validation_results.get('atom_deviations', None)
-                    if atom_deviations is not None:
-                        f.write("\nTop 10 Atom Deviations:\n")
-                        sorted_indices = np.argsort(atom_deviations)[::-1]
-                        for i in range(min(10, len(sorted_indices))):
-                            idx = sorted_indices[i]
-                            f.write(f"Atom {idx + 1}: {atom_deviations[idx]:.4f} Å\n")
-                
-                f.write("\n")
-            
-            f.write("===========================================================\n")
-            f.write("Report generated by PandaDock - Python Molecular Docking Tool\n")
-        
-        print(f"Detailed report written to {report_path}")
-        return report_path
+            print(f"Detailed report written to {report_path}")
+            return report_path
     
     def generate_csv_report(self):
         """
@@ -985,37 +966,32 @@ class DockingReporter:
                 </div>
         """
         
+                # Energy Component Breakdown Table
         if self.scoring_breakdown:
             html_content += """
                 <div class="section">
-                    <h2>Energy Component Breakdown</h2>
-            """
-            
-            # Get all energy components
-            components = list(self.scoring_breakdown[0].keys())
-            
-            html_content += """
+                    <h2>Energy Component Breakdown (Top 10 Poses)</h2>
                     <table>
-                        <tr>
-                            <th>Pose</th>
+                        <tr><th>Pose</th>
             """
-            
+            # Create headers
+            components = list(self.scoring_breakdown[0].keys())
             for comp in components:
-                html_content += f"<th>{comp}</th>\n"
-            
+                html_content += f"<th>{comp}</th>"
             html_content += "</tr>\n"
-            
-            # Add energy values for top poses
-            for i, energy in enumerate(self.scoring_breakdown[:min(10, len(self.scoring_breakdown))]):
-                html_content += f"<tr><td>{i+1}</td>\n"
+
+            # Add values
+            for i, energy in enumerate(self.scoring_breakdown[:10]):
+                html_content += f"<tr><td>{i+1}</td>"
                 for comp in components:
-                    html_content += f"<td>{energy[comp]:.2f}</td>\n"
+                    html_content += f"<td>{energy.get(comp, 0.0):.2f}</td>"
                 html_content += "</tr>\n"
-            
+
             html_content += """
                     </table>
                 </div>
             """
+
             
         # Add validation results if available
         if self.validation_results:

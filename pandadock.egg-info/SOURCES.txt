@@ -10,10 +10,12 @@ pandadock/analysis.py
 pandadock/batch_screening.py
 pandadock/flexible_residues.py
 pandadock/hybrid_manager.py
+pandadock/indentation-linter.py
 pandadock/integration.py
 pandadock/ligand.py
 pandadock/main.py
 pandadock/main_integration.py
+pandadock/pandadock-indentation-analyzer.py
 pandadock/pandadock.py
 pandadock/parallel_search.py
 pandadock/physics.py

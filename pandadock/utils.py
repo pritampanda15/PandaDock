@@ -12,7 +12,15 @@ import numpy as np
 import subprocess
 import platform
 import pkg_resources
-from datetime import datetime
+import platform
+import subprocess
+import pkg_resources
+import importlib.util
+import random
+import json
+
+from pathlib import Path
+import json
 
 def setup_logging(output_dir=None, log_name="pandadock", log_level=logging.INFO):
     """
@@ -147,32 +155,20 @@ def detect_steric_clash(protein_atoms, ligand_atoms, threshold=1.6):
 
 def create_initial_files(output_dir, args, status="running"):
     """
-    Create initial files to confirm PandaDock run and document configuration.
-
-    Parameters:
-    -----------
-    output_dir : str or Path
-        Output directory for docking results
-    args : argparse.Namespace
-        Command-line arguments
+    Create premium aesthetic initial files documenting PandaDock run.
     """
-    from datetime import datetime
-    import json
-    from .utils import setup_logging
 
-    # Create directory structure
     output_dir = Path(output_dir)
-    
     logger = setup_logging(output_dir)
-    logger.info(f"Creating initial files in {output_dir}")
-    
-    # Create a status file
-    status = {
+    logger.info(f"📁 Creating initial docking files in: {output_dir}")
+
+    # Save status.json
+    status_data = {
         "start_time": datetime.now().isoformat(),
         "protein": str(args.protein),
         "ligand": str(args.ligand),
         "algorithm": args.algorithm,
-        "status": "running",
+        "status": status,
         "progress": 0.0,
         "total_iterations": getattr(args, 'iterations', 1000),
         "current_iteration": 0,
@@ -180,31 +176,45 @@ def create_initial_files(output_dir, args, status="running"):
     }
     status_path = output_dir / "status.json"
     with open(status_path, 'w') as f:
-        json.dump(status, f, indent=2)
-    logger.info(f"Status file created at {status_path}")
-    
-    # Create a detailed README file
-    readme_path = output_dir / "logs.txt"
-    # Gather metadata
+        json.dump(status_data, f, indent=2)
+    logger.info(f"✅ Status file created: {status_path}")
+
+    # Detect environment info
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     python_version = platform.python_version()
-    os_info = platform.system() + " " + platform.release()
-    
+    os_info = f"{platform.system()} {platform.release()}"
+    cpu_info = platform.processor() or "Unknown CPU"
+    cpu_cores = os.cpu_count() or "Unknown cores"
+
     try:
         pandadock_version = pkg_resources.get_distribution("pandadock").version
     except Exception:
-        pandadock_version = "dev"  # if not installed via pip
-    
-    # Try getting git commit ID if running from a repo
+        pandadock_version = "development"
+
     try:
         git_commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=os.getcwd()).decode().strip()
     except Exception:
         git_commit = "N/A"
 
-    with open(readme_path, 'w') as f:
-        f.write(r"""
+    # GPU check
+    try:
+        import torch
+        gpu_available = torch.cuda.is_available()
+        gpu_name = torch.cuda.get_device_name(0) if gpu_available else "N/A"
+    except ImportError:
+        gpu_available = False
+        gpu_name = "N/A"
+
+    # Optional packages
+    rdkit_available = importlib.util.find_spec("rdkit") is not None
+    openbabel_available = importlib.util.find_spec("openbabel") is not None
+
+    # Create nice dynamic logo
+    atoms = ['C', 'N', 'O', 'S']
+    random_atoms = [random.choice(atoms) for _ in range(6)]
+    dynamic_logo = f"""
 ════════════════════════════════════════════════════════════════════════════════
-   ██████╗  █████╗ ███╗   ██╗██████╗  █████╗ ██████╗  ██████╗  ██████╗██╗  ██╗
+   `██████╗  █████╗ ███╗   ██╗██████╗  █████╗ ██████╗  ██████╗  ██████╗██╗  ██╗
     ██╔══██╗██╔══██╗████╗  ██║██╔══██╗██╔══██╗██╔══██╗██╔═══██╗██╔════╝██║ ██╔╝
     ██████╔╝███████║██╔██╗ ██║██║  ██║███████║██║  ██║██║   ██║██║     █████╔╝ 
     ██╔═══╝ ██╔══██║██║╚██╗██║██║  ██║██╔══██║██║  ██║██║   ██║██║     ██╔═██╗ 
@@ -212,42 +222,58 @@ def create_initial_files(output_dir, args, status="running"):
     ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚═╝  ╚═╝╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝
                                                                                                                                                                                                                                   
                PandaDock - Python Molecular Docking Tool                             
-               https://github.com/pritampanda15/PandaDock                   
+               https://github.com/pritampanda15/PandaDock   
+              (📦 PandaDock Version: {pandadock_version}\n")                
 ════════════════════════════════════════════════════════════════════════════════
-    """)
-        
-        f.write(f"Run Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-        f.write(f"📅 Timestamp: {timestamp}\n")
-        f.write(f"🐍 Python Version: {python_version} on {os_info}\n")
-        f.write(f"🐼 PandaDock Version: {pandadock_version}\n")
-        f.write(f"🔖 Git Commit: {git_commit}\n\n")
-        
-        if hasattr(args, 'full_command'):
-            f.write("📜 Command-line used:\n")
-            f.write(f"    {args.full_command}\n\n")
-        
-        f.write(f"🎯 Docking Status: {str(status).upper()}\n")
-        f.write(f"⏱️ Elapsed Time: [pending at start]\n\n")
-        
-        f.write("INPUT FILES\n")
-        f.write("-----------\n")
-        f.write(f"Protein File: {args.protein}\n")
-        f.write(f"Ligand File: {args.ligand}\n\n")
-        
-        f.write("DOCKING PARAMETERS\n")
-        f.write("------------------\n")
-        f.write(f"Algorithm: {args.algorithm}\n")
-        f.write(f"Iterations / Generations: {getattr(args, 'iterations', 'N/A')}\n")
+    """
+    
+    # Write README
+    readme_path = output_dir / "parameters.txt"
+    with open(readme_path, 'w') as f:
+        f.write(dynamic_logo)
+        f.write("\n")
+
+        f.write("📅 Run Started: {}\n".format(timestamp))
+        f.write("🐍 Python Version: {} on {}\n".format(python_version, os_info))
+        f.write(f"🖥️ CPU: {cpu_info} ({cpu_cores} cores)\n")
+        f.write(f"🚀 GPU Available: {'Yes' if gpu_available else 'No'}\n")
+        if gpu_available:
+            f.write(f"   GPU Device: {gpu_name}\n")
+        f.write(f"🧪 RDKit Installed: {'Yes' if rdkit_available else 'No'}\n")
+        f.write(f"🧪 OpenBabel Installed: {'Yes' if openbabel_available else 'No'}\n")
+        f.write(f"📦 PandaDock Version: {pandadock_version}\n")
+        f.write(f"🔖 Git Commit: {git_commit}\n")
+        f.write("\n")
+
+        f.write("════════════════════════════════════════════════════════════════════════════════\n")
+        f.write("🧬 INPUTS\n")
+        f.write("───────────────\n")
+        f.write(f"• Protein : {args.protein}\n")
+        f.write(f"• Ligand  : {args.ligand}\n")
+        if hasattr(args, 'grid_center'):
+            f.write(f"• Grid Center: {args.grid_center}\n")
+        if hasattr(args, 'grid_spacing'):
+            f.write(f"• Grid Spacing: {args.grid_spacing} Å\n")
+        if hasattr(args, 'grid_radius'):
+            f.write(f"• Grid Radius: {args.grid_radius} Å\n")
+        if hasattr(args, 'spherical_sampling') and args.spherical_sampling:
+            f.write(f"Spherical Sampling Enabled (Radius: {getattr(args, 'sampling_radius', 'default')})\n")
+        f.write("\n")
+
+        f.write("⚙️ DOCKING CONFIGURATION\n")
+        f.write("───────────────────────\n")
+        f.write(f"• Algorithm         : {args.algorithm}\n")
+        f.write(f"• Iterations        : {getattr(args, 'iterations', 'N/A')}\n")
+        f.write(f"• Population Size   : {getattr(args, 'population_size', 'N/A')}\n")
         if args.algorithm == 'genetic':
             if hasattr(args, 'population_size'):
-                f.write(f"Population Size: {args.population_size}\n")
+                {args.population_size}
             if hasattr(args, 'mutation_rate'):
                 f.write(f"Mutation Rate: {args.mutation_rate}\n")
             if hasattr(args, 'crossover_rate'):
                 f.write(f"Crossover Rate: {args.crossover_rate}\n")
             if hasattr(args, 'selection_method'):
                 f.write(f"Selection Method: {args.selection_method}\n")
-
         elif args.algorithm == 'monte-carlo':
             if hasattr(args, 'mc_steps'):
                 f.write(f"Monte Carlo Steps: {args.mc_steps}\n")
@@ -293,57 +319,32 @@ def create_initial_files(output_dir, args, status="running"):
         if hasattr(args, 'fixed_ligand'):
             f.write(f"Fixed Ligand: {args.fixed_ligand}\n")
 
-            #################################################
-        f.write("\nSCORING PARAMETERS\n")
-        f.write("-------------------\n")
-        if hasattr(args, 'physics_based') and args.physics_based:
-            f.write("Scoring Function: Physics-based\n")
-        elif hasattr(args, 'enhanced_scoring') and args.enhanced_scoring:
-            f.write("Scoring Function: Enhanced\n")
+        f.write("\n")
+        f.write("🎯 SCORING\n")
+        f.write("───────────────────────\n")
+        if getattr(args, 'physics_based', False):
+            f.write("• Scoring Function: Physics-based\n")
+        elif getattr(args, 'enhanced_scoring', False):
+            f.write("• Scoring Function: Enhanced\n")
         else:
-            f.write("Scoring Function: Standard\n")
-        
-        if hasattr(args, 'grid_center'):
-            f.write(f"Grid Center: {args.grid_center}\n")
-        if hasattr(args, 'grid_spacing'):
-            f.write(f"Grid Spacing: {args.grid_spacing} Å\n")
-        if hasattr(args, 'grid_size'):
-            f.write(f"Grid Size: {args.grid_size} Å³\n")
-        if hasattr(args, 'spherical_sampling') and args.spherical_sampling:
-            f.write(f"Spherical Sampling Enabled (Radius: {getattr(args, 'sampling_radius', 'default')})\n")
-        
-        f.write("\nHARDWARE SETTINGS\n")
-        f.write("-----------------\n")
-        if hasattr(args, 'use_gpu') and args.use_gpu:
-            f.write("GPU Acceleration: Enabled\n")
-            if hasattr(args, 'gpu_id'):
-                f.write(f"GPU ID: {args.gpu_id}\n")
-            if hasattr(args, 'gpu_precision'):
-                f.write(f"GPU Precision: {args.gpu_precision}\n")
-        else:
-            f.write("GPU Acceleration: Disabled (CPU-only)\n")
-        if hasattr(args, 'cpu_workers'):
-            f.write(f"CPU Workers: {args.cpu_workers}\n")
-        
-        f.write("\nOUTPUT STRUCTURE\n")
-        f.write("----------------\n")
-        f.write("The following files and directories will be generated:\n")
+            f.write("• Scoring Function: Standard\n")
+
+        f.write("\n")
+        f.write("📂 OUTPUT STRUCTURE\n")
+        f.write("───────────────────────\n")
+        f.write("- poses/\n")
+        f.write("- plots/\n")
         f.write("- docking_report.txt\n")
         f.write("- docking_report.html\n")
-        f.write("- docking_results.csv\n")
         f.write("- energy_breakdown.csv\n")
         f.write("- status.json\n")
-        f.write("- poses/ : Top ranked poses\n")
-        f.write("- plots/ : Score distribution and energy component plots\n\n")
-        f.write("\n\n")
-        f.write("COMMAND USED TO RUN DOCKING\n")
-        f.write("----------------------------\n")
-        #f.write(f"{args.full_command}\n")
-        f.write("=" * 60 + "\n")
-        f.write("          PandaDock - Python Molecular Docking Tool\n")
-        f.write("=" * 60 + "\n")
-    
-    logger.info(f"README file created at {readme_path}")
+
+        f.write("\n════════════════════════════════════════════════════════════════════════════════\n")
+        f.write("🚀 Happy Docking with PandaDock! Dock Smarter. Discover Faster\n")
+        f.write("════════════════════════════════════════════════════════════════════════════════\n")
+
+    logger.info(f"📝 Enhanced initial README created: {readme_path}")
+
 
 def save_intermediate_result(pose, score, iteration, output_dir, total_iterations=None):
     """

@@ -89,7 +89,21 @@ class DockingSearch:
         self.grid_spacing = self.grid_spacing
         self.output_dir = output_dir
         self.max_iterations = max_iterations
-        
+    
+    def save_sphere_to_pdb(self, grid_points, output_path):
+        """
+        Save spherical grid points as PDB file for visualization.
+        """
+        with open(output_path, 'w') as f:
+            for i, point in enumerate(grid_points):
+                f.write(
+                    f"HETATM{i+1:5d}  C   SPH A   1    "
+                    f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00           C\n"
+                )
+            f.write("END\n")
+        self.logger.info(f"Saved spherical grid to {output_path}")
+        self.logger.info("Spherical grid points saved for visualization.")
+        self.logger.info(f"Grid points saved to {output_path}")
     # Define a method to set up the grid
     def initialize_grid_points(self, center):
         from .utils import generate_spherical_grid
@@ -107,43 +121,20 @@ class DockingSearch:
 
             # Save Sphere PDB
             # Save Sphere PDB ONLY if output_dir is not None
+            # Save Light Sphere PDB
+            subsample_rate = 20  # <-- Only keep 1 out of every 5 points
+
             if self.output_dir is not None:
                 sphere_path = Path(self.output_dir) / "sphere.pdb"
                 sphere_path.parent.mkdir(parents=True, exist_ok=True)
-
-                # Downsample grid points if too many
-                save_points = self.grid_points
-                if len(self.grid_points) > 10000:
-                    save_points = self.grid_points[::10]  # Save 1 out of 10
-                elif len(self.grid_points) > 5000:
-                    save_points = self.grid_points[::5]
-                else:
-                    save_points = self.grid_points
                 with open(sphere_path, 'w') as f:
-                    for idx, point in enumerate(save_points):
-                        f.write(
-                            f"HETATM{idx+1:5d} {'S':<2s}   SPH A   1    "
-                            f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
-                        )
-                self.logger.info(f"Sphere grid written to {sphere_path} ({len(save_points)} points)")
-
-    def save_sphere_to_pdb(self, grid_points, output_path):
-        """
-        Save spherical grid points as PDB file for visualization.
-        """
-        with open(output_path, 'w') as f:
-            for i, point in enumerate(grid_points):
-                f.write(
-                    f"HETATM{i+1:5d}  C   SPH A   1    "
-                    f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00           C\n"
-                )
-            f.write("END\n")
-        self.logger.info(f"Saved spherical grid to {output_path}")
-        self.logger.info("Spherical grid points saved for visualization.")
-        self.logger.info(f"Grid points saved to {output_path}")
-    
-
-        
+                    for idx, point in enumerate(self.grid_points):
+                        if idx % subsample_rate == 0:  # <-- Only write every Nth point
+                            f.write(
+                                f"HETATM{idx+1:5d} {'S':<2s}   SPH A   1    "
+                                f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
+                            )
+                self.logger.info(f"Sphere grid written to {sphere_path} (subsampled every {subsample_rate} points)")    
     def search(self, protein, ligand):
         """
         Perform docking search.
@@ -170,7 +161,38 @@ class DockingSearch:
         factor = 1.0 - (generation / total_generations) * decay_rate
         return max(initial_radius * factor, initial_radius * 0.5)  # Do not shrink below 50%
 
+    def _generate_orientations(self, ligand, protein):
+        orientations = []
+        
+        # Get active site center and radius
+        if protein.active_site:
+            center = protein.active_site['center']
+            radius = protein.active_site['radius']
+        else:
+            center = np.mean(protein.xyz, axis=0)
+            radius = 15.0  # default
 
+        bad_orientations = 0
+        max_bad_orientations = self.num_orientations * 10
+
+        while len(orientations) < self.num_orientations and bad_orientations < max_bad_orientations:
+            pose = copy.deepcopy(ligand)
+
+            # Random rotation + translation
+            pose.random_rotate()
+            displacement = np.random.normal(0, 1, size=3)
+            pose.translate(center + displacement)
+
+            # Compute centroid
+            centroid = np.mean(pose.xyz, axis=0)
+            distance = np.linalg.norm(centroid - center)
+
+            if distance <= radius:
+                orientations.append(pose)
+            else:
+                bad_orientations += 1
+
+        return orientations
     def improve_rigid_docking(self, protein, ligand, args):
         """
         Improved rigid docking implementation with more focused search.

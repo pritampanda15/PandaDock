@@ -287,7 +287,7 @@ def write_results_to_txt(results, output_dir, elapsed_time, protein_path, ligand
     with open(results_path, 'w') as f:
         f.write(r"""
 ════════════════════════════════════════════════════════════════════════════════
-   ██████╗  █████╗ ███╗   ██╗██████╗  █████╗ ██████╗  ██████╗  ██████╗██╗  ██╗
+    ██████╗  █████╗ ███╗   ██╗██████╗  █████╗ ██████╗  ██████╗  ██████╗██╗  ██╗
     ██╔══██╗██╔══██╗████╗  ██║██╔══██╗██╔══██╗██╔══██╗██╔═══██╗██╔════╝██║ ██╔╝
     ██████╔╝███████║██╔██╗ ██║██║  ██║███████║██║  ██║██║   ██║██║     █████╔╝ 
     ██╔═══╝ ██╔══██║██║╚██╗██║██║  ██║██╔══██║██║  ██║██║   ██║██║     ██╔═██╗ 
@@ -1211,6 +1211,15 @@ def main():
                     [pose for pose, _ in all_results[:min(20, len(all_results))]]
                 )
                 reporter.add_results(all_results, energy_breakdown=energy_breakdown)
+                # Generate all reports
+                reporter.generate_basic_report()
+                reporter.generate_detailed_report(include_energy_breakdown=True)
+                reporter.generate_csv_report()
+                reporter.generate_json_report()
+                html_report = reporter.generate_html_report()
+
+                # Generate energy breakdown plots
+                reporter.plot_energy_breakdown()
             else:
                 reporter.add_results([])  # Add empty results
         except Exception as e:
@@ -1340,17 +1349,6 @@ def main():
             print(f"Elapsed time before failure: {elapsed_time:.2f} seconds")
 
 
-    except SystemExit as e:
-        # Catches argparse or sys.exit
-        return_code = 1
-        print("\n❌ PandaDock terminated early due to command-line parsing error.\n")
-        raise   # re-raise so it exits properly
-        
-    except Exception as e:
-        # Other unexpected errors
-        return_code = 1
-        print("\n❌ An unexpected error occurred in PandaDock.\n")
-        print(e)
             
         # Try to update status file if output_dir exists
         if output_dir:
@@ -1397,7 +1395,6 @@ def main():
                     logger.warning(f"Failed to clean up hardware resources: {e}")
                 else:
                     print(f"Failed to clean up hardware resources: {e}")
-
             
         # Final log message
         if 'logger' in locals():

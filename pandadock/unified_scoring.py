@@ -238,6 +238,8 @@ class ScoringFunction:
         """Get active site atoms if defined, otherwise all protein atoms."""
         if protein.active_site and 'atoms' in protein.active_site:
             return protein.active_site['atoms']
+        #if hasattr(protein, 'active_site') and protein.active_site:
+            #return protein.active_site['atoms']
         else:
             return protein.atoms
         
@@ -249,22 +251,24 @@ class ScoringFunction:
         """
         Estimate pose-specific conformational restriction.
         Returns a factor between 0 (fully restricted) and 1 (fully flexible).
-        Currently based on fraction of ligand atoms buried in protein.
-        
-        Parameters:
-        -----------
-        ligand : Ligand
-        protein : Protein (optional)
-        
-        Returns:
-        --------
-        float : Restriction factor (0.0 to 1.0)
         """
-        if not protein or not hasattr(protein, 'active_site'):
+        if not protein or not hasattr(protein, 'active_site') or not protein.active_site.get('atoms'):
             return 0.5  # Fallback if no protein info
 
-        ligand_coords = np.array([atom['coords'] for atom in ligand.atoms])
-        protein_coords = np.array([atom['coords'] for atom in protein.active_site['atoms']])
+        ligand_coords = np.array([atom['coords'] for atom in ligand.atoms if 'coords' in atom])
+        protein_coords = np.array([atom['coords'] for atom in protein.active_site['atoms'] if 'coords' in atom])
+
+        # Safety checks
+        if len(protein_coords) == 0 or len(ligand_coords) == 0:
+            print("Warning: Empty protein or ligand coordinates for pose restriction. Skipping entropy.")
+            return 0.5
+
+        ligand_coords = np.array(ligand_coords)
+        protein_coords = np.array(protein_coords)
+
+        if ligand_coords.ndim != 2 or protein_coords.ndim != 2 or protein_coords.shape[1] != 3 or ligand_coords.shape[1] != 3:
+            print("Warning: Malformed coordinates for pose restriction. Skipping entropy.")
+            return 0.5
 
         # Compute pairwise distances
         from scipy.spatial import cKDTree
@@ -279,6 +283,7 @@ class ScoringFunction:
 
         # Clamp to [0.1, 1.0] for numerical stability
         return max(0.1, min(1.0, flexibility_factor))
+
         # Adjusted from 0.5 to 0.1 for more realistic flexibility estimation
 class CPUScoringFunction(ScoringFunction):
     """
@@ -657,9 +662,9 @@ class CompositeScoringFunction(CPUScoringFunction):
             self.weights['hbond'] * hbond +
             self.weights['elec'] * elec +
             self.weights['desolv'] * desolv +
-            self.weights['hydrophobic'] * hydrophobic +
-            self.weights['clash'] * clash +
-            self.weights['entropy'] * entropy
+            self.weights['hydrophobic'] * hydrophobic 
+            - self.weights['clash'] * clash 
+            - self.weights['entropy'] * entropy
         )
         
         # Print breakdown if verbose
@@ -669,7 +674,7 @@ class CompositeScoringFunction(CPUScoringFunction):
                  f"Clash: {clash:.2f}, Entropy: {entropy:.2f}")
             print(f"Total: {total:.2f}")
         
-        return total
+        return total * -1.0 * 0.03
 
 
 class EnhancedScoringFunction(CompositeScoringFunction):
@@ -824,8 +829,8 @@ class GPUScoringFunction(ScoringFunction):
             self.weights['hbond'] * hbond +
             self.weights['elec'] * elec +
             self.weights['desolv'] * desolv +
-            self.weights['hydrophobic'] * hydrophobic +
-            self.weights['clash'] * clash +
+            self.weights['hydrophobic'] * hydrophobic -
+            self.weights['clash'] * clash -
             self.weights['entropy'] * entropy
         )
         
@@ -836,7 +841,7 @@ class GPUScoringFunction(ScoringFunction):
                  f"Desolv: {desolv:.2f}, Hydrophobic: {hydrophobic:.2f}, "
                  f"Clash: {clash:.2f}, Entropy: {entropy:.2f}")
         
-        return total
+        return total * -1.0 * 0.03
     
     def calculate_vdw(self, protein, ligand):
         """
