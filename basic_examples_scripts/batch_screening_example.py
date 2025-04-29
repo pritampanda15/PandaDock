@@ -104,7 +104,7 @@ if __name__ == "__main__":
     #basic_example()
     
     # Uncomment to run parallel example
-     parallel_example()
+     #parallel_example()
     
     # Uncomment to run advanced example
-    # advanced_example()
+     advanced_example()

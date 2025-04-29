@@ -69,6 +69,8 @@ It is designed for high-accuracy drug discovery, computational chemistry, and ne
   - Pose clustering
   - RMSD validation
   - Full HTML visualization
+  - Binding Affinity calculations 
+  - All score plots
 - 🛠️ **Extensible Python API** for custom workflows and integrations
 
 ---
@@ -160,6 +162,82 @@ PandaDock offers flexible running modes to balance between speed and accuracy:
   - `--flex-residues` - Use flexible residues
 - **Physics Mode**: More advanced algorithm
 - **Pandadock**: Pandadock algorithm with conformer generation
+
+---
+
+## 📊 Result Outputs
+
+# 📂 Example: **Docking Output Structure**
+
+After running PandaDock, a comprehensive report is automatically generated:
+
+```
+├── binding_affinity_report.csv
+├── binding_affinity_report.txt
+├── complex_pose_1_score:-14.25.pdb
+├── complex_pose_2_score:-14.07.pdb
+├── complex_pose_3_score:-13.94.pdb
+├── complex_pose_4_score:-12.35.pdb
+├── detailed_docking_report.txt
+├── docking_report.html
+├── docking_report.json
+├── docking_results.csv
+├── docking_scores.txt
+├── energy_breakdown.csv
+├── parameters.txt
+├── plots/
+│   ├── combined_metrics_vs_rank.png
+│   ├── energy_breakdown.png
+│   ├── energy_stacked.png
+│   ├── ic50_vs_deltag.png
+│   ├── kd_vs_deltag.png
+│   ├── score_analysis.png
+│   ├── score_distribution.png
+│   ├── score_improvement.png
+│   ├── score_plot.png
+│   ├── score_rank.png
+├── pose_1_score:-14.2.pdb
+├── pose_2_score:-14.1.pdb
+├── pose_3_score:-13.9.pdb
+├── pose_4_score:-12.3.pdb
+├── sphere.pdb
+└── status.json
+```
+Each docking run generates:
+- 📄 **Reports** in CSV, TXT, JSON, and interactive HTML formats
+- 📈 **Analysis plots** (binding energy breakdowns, score distributions, ranking curves)
+- 🧬 **Pose files** (.pdb) for each predicted ligand conformation
+- 🛠️ **Parameters** and **status** tracking for reproducibility
+
+---
+
+# 📊 Example Plots
+
+## 📈 Example Docking Plots
+
+<p align="center">
+  <img src="https://github.com/pritampanda15/PandaDock/blob/main/example_outputs/plots/combined_metrics_vs_rank.png" width="220">
+  <img src="https://github.com/pritampanda15/PandaDock/blob/main/example_outputs/plots/energy_breakdown.png" width="220">
+  <img src="https://github.com/pritampanda15/PandaDock/blob/main/example_outputs/plots/energy_stacked.png" width="220">
+  <img src="https://github.com/pritampanda15/PandaDock/blob/main/example_outputs/plots/ic50_vs_deltag.png" width="220">
+</p>
+
+<p align="center">
+  <img src="https://github.com/pritampanda15/PandaDock/blob/main/example_outputs/plots/ic50_vs_rank.png" width="220">
+  <img src="https://github.com/pritampanda15/PandaDock/blob/main/example_outputs/plots/kd_vs_deltag.png" width="220">
+  <img src="https://github.com/pritampanda15/PandaDock/blob/main/example_outputs/plots/kd_vs_rank.png" width="220">
+  <img src="https://github.com/pritampanda15/PandaDock/blob/main/example_outputs/plots/score_analysis.png" width="220">
+</p>
+
+<p align="center">
+  <img src="https://github.com/pritampanda15/PandaDock/blob/main/example_outputs/plots/score_distribution.png" width="220">
+  <img src="https://github.com/pritampanda15/PandaDock/blob/main/example_outputs/plots/score_improvement.png" width="220">
+  <img src="https://github.com/pritampanda15/PandaDock/blob/main/example_outputs/plots/score_plot.png" width="220">
+  <img src="https://github.com/pritampanda15/PandaDock/blob/main/example_outputs/plots/score_rank.png" width="220">
+</p>
+
+---
+
 
 #### Example Commands
 
@@ -547,18 +625,6 @@ results = run(config)
 for ligand_name, info in results.items():
     print(f"Ligand: {ligand_name}, Best Score: {info['score']:.2f}, Runtime: {info['runtime']:.2f} sec")
 ```
-
----
-
-## 📊 Result Outputs
-
-| Output | Description |
-|:-------|:------------|
-| `poses/` | Top-ranked ligand poses (PDB files) |
-| `plots/` | Score distributions, RMSD plots |
-| `validation_report.txt` | RMSD vs reference ligand |
-| `energy_breakdown.txt` | Energy components |
-| `report.html` | Interactive full docking report |
 
 ---
 
