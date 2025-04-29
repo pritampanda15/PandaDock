@@ -203,6 +203,11 @@ After running PandaDock, a comprehensive report is automatically generated:
 ├── sphere.pdb
 └── status.json
 ```
+Even generates a grid sphere where you define your grid center
+Example:
+<p align="center">
+  <img src="https://github.com/pritampanda15/PandaDock/blob/main/example_outputs/plots/combined_metrics_vs_rank.png" width="220">
+</p>
 Each docking run generates:
 - 📄 **Reports** in CSV, TXT, JSON, and interactive HTML formats
 - 📈 **Analysis plots** (binding energy breakdowns, score distributions, ranking curves)
