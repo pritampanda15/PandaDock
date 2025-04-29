@@ -22,6 +22,11 @@ from datetime import timedelta
 import seaborn as sns
 from .utils import save_docking_results
 from .utils import save_complex_to_pdb
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib import rcParams
+import matplotlib.ticker as ticker
+from pathlib import Path
 
 
 class EnhancedJSONEncoder(json.JSONEncoder):
@@ -687,20 +692,46 @@ class DockingReporter:
     
     
             
-    def generate_plots(self, save_dir=None):
+    def generate_plots(self, save_dir=None, dpi=300):
         """
-        Generate plots visualizing the docking results.
+        Generate publication-quality plots visualizing the docking results.
         
         Parameters:
         -----------
-        save_dir : str, optional
+        save_dir : str or Path, optional
             Directory to save plots, defaults to the output directory
-        
+        dpi : int
+            Resolution of saved figures
+            
         Returns:
         --------
         list
             Paths to the generated plot files
         """
+        import matplotlib.pyplot as plt
+        import numpy as np
+        from matplotlib import rcParams
+        import os
+        from pathlib import Path
+        
+        # Set publication-quality parameters
+        rcParams['font.family'] = 'sans-serif'
+        rcParams['font.sans-serif'] = ['Arial', 'Helvetica', 'DejaVu Sans']
+        rcParams['font.size'] = 12
+        rcParams['axes.linewidth'] = 1.5
+        rcParams['axes.labelsize'] = 14
+        rcParams['axes.titlesize'] = 16
+        rcParams['xtick.major.width'] = 1.5
+        rcParams['ytick.major.width'] = 1.5
+        rcParams['xtick.labelsize'] = 12
+        rcParams['ytick.labelsize'] = 12
+        rcParams['legend.fontsize'] = 12
+        rcParams['figure.dpi'] = 100
+        rcParams['savefig.dpi'] = dpi
+        rcParams['savefig.bbox'] = 'tight'
+        rcParams['savefig.pad_inches'] = 0.1
+        
+        # Setup save directory
         if save_dir is None:
             save_dir = self.output_dir
         else:
@@ -711,39 +742,200 @@ class DockingReporter:
         
         # Always generate these two plots regardless of energy component availability
         if self.results and len(self.results) > 0:
-            # 1. Score distribution plot
             try:
-                score_plot_path = save_dir / "score_distribution.png"
-                plt.figure(figsize=(10, 6))
-                
+                # Get scores and prepare data
                 scores = [score for _, score in self.results]
-                plt.hist(scores, bins=min(20, len(scores)), color='skyblue', edgecolor='black')
-                plt.xlabel('Docking Score')
-                plt.ylabel('Frequency')
-                plt.title('Distribution of Docking Scores')
-                plt.grid(alpha=0.3)
+                sorted_scores = sorted(scores)
+                ranks = range(1, len(sorted_scores) + 1)
+                
+                # 1. Score distribution plot - enhanced
+                score_plot_path = save_dir / "score_distribution.png"
+                plt.figure(figsize=(8, 6))
+                
+                # Calculate optimal number of bins
+                n_bins = min(20, max(5, int(len(scores) / 2)))
+                
+                # Create histogram with better styling
+                _, bins, patches = plt.hist(scores, bins=n_bins, 
+                                            color='#1f77b4', edgecolor='black', 
+                                            alpha=0.8, linewidth=1.5)
+                
+                # Add statistical indicators
+                mean_score = np.mean(scores)
+                median_score = np.median(scores)
+                plt.axvline(mean_score, color='crimson', linestyle='--', linewidth=2, 
+                            label=f'Mean: {mean_score:.2f}')
+                plt.axvline(median_score, color='darkgreen', linestyle=':', linewidth=2, 
+                            label=f'Median: {median_score:.2f}')
+                
+                plt.xlabel('Docking Score (kcal/mol)', fontweight='bold')
+                plt.ylabel('Frequency', fontweight='bold')
+                plt.title('Distribution of Docking Scores', fontweight='bold')
+                plt.grid(True, linestyle='--', alpha=0.7)
+                plt.legend(frameon=True, fancybox=True, framealpha=0.8)
+                
+                plt.tight_layout()
                 plt.savefig(score_plot_path)
+                #plt.savefig(str(score_plot_path).replace('.png', '.pdf'))
+                plt.savefig(str(score_plot_path).replace('.png', '.svg'))
                 plt.close()
                 plot_paths.append(score_plot_path)
                 print(f"Score distribution plot saved to {score_plot_path}")
                 
-                # 2. Score rank plot
+                # 2. Score rank plot - enhanced
                 rank_plot_path = save_dir / "score_rank.png"
-                plt.figure(figsize=(10, 6))
+                plt.figure(figsize=(8, 6))
                 
-                sorted_scores = sorted(scores)
-                plt.plot(range(1, len(sorted_scores) + 1), sorted_scores, marker='o', linestyle='-', 
-                        color='darkorange', markersize=5)
-                plt.xlabel('Rank')
-                plt.ylabel('Docking Score')
-                plt.title('Docking Scores by Rank')
-                plt.grid(alpha=0.3)
+                # Create scatter plot with connecting line for better visibility
+                plt.scatter(ranks, sorted_scores, 
+                        marker='o', s=60, c='#ff7f0e', edgecolor='black', alpha=0.8,
+                        label='Individual Poses')
+                plt.plot(ranks, sorted_scores, 
+                        linestyle='-', color='#ff7f0e', linewidth=2, alpha=0.6)
+                
+                # Add trendline
+                if len(ranks) > 2:
+                    z = np.polyfit(ranks, sorted_scores, 1)
+                    p = np.poly1d(z)
+                    plt.plot(ranks, p(ranks), 
+                            linestyle='--', color='navy', linewidth=2,
+                            label=f'Trend (slope: {z[0]:.2f})')
+                
+                # Highlight top 3 poses if we have at least 3
+                if len(ranks) >= 3:
+                    plt.scatter(ranks[:3], sorted_scores[:3], 
+                            marker='*', s=150, c='green', edgecolor='black', zorder=5,
+                            label='Top 3 Poses')
+                
+                plt.xlabel('Pose Rank', fontweight='bold')
+                plt.ylabel('Docking Score (kcal/mol)', fontweight='bold')
+                plt.title('Docking Scores by Rank', fontweight='bold')
+                plt.grid(True, linestyle='--', alpha=0.7)
+                plt.legend(frameon=True, fancybox=True, framealpha=0.8)
+                
+                # Set x-ticks to appropriate values based on number of poses
+                if len(ranks) <= 10:
+                    plt.xticks(list(ranks))
+                else:
+                    plt.xticks(np.linspace(min(ranks), max(ranks), 10, dtype=int))
+                
+                # Annotate best score
+                plt.annotate(f'Best: {sorted_scores[0]:.2f}', 
+                            xy=(1, sorted_scores[0]), 
+                            xytext=(5, 10), 
+                            textcoords='offset points',
+                            fontweight='bold',
+                            bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8))
+                
+                plt.tight_layout()
                 plt.savefig(rank_plot_path)
+                plt.savefig(str(rank_plot_path).replace('.png', '.pdf'))
+                plt.savefig(str(rank_plot_path).replace('.png', '.svg'))
                 plt.close()
                 plot_paths.append(rank_plot_path)
                 print(f"Score rank plot saved to {rank_plot_path}")
+                
+                # 3. Combined visualization with pose quality assessment
+                combined_plot_path = save_dir / "score_analysis.png"
+                fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+                
+                # Left panel: Score distribution
+                ax1.hist(scores, bins=n_bins, color='#1f77b4', edgecolor='black', alpha=0.8, linewidth=1.5)
+                ax1.axvline(mean_score, color='crimson', linestyle='--', linewidth=2, label=f'Mean: {mean_score:.2f}')
+                ax1.axvline(median_score, color='darkgreen', linestyle=':', linewidth=2, label=f'Median: {median_score:.2f}')
+                ax1.set_xlabel('Docking Score (kcal/mol)', fontweight='bold')
+                ax1.set_ylabel('Frequency', fontweight='bold')
+                ax1.set_title('Score Distribution', fontweight='bold')
+                ax1.grid(True, linestyle='--', alpha=0.7)
+                ax1.legend(frameon=True, fancybox=True, framealpha=0.8)
+                
+                # Right panel: Score vs Rank with score categories
+                score_range = max(scores) - min(scores)
+                score_threshold_good = min(scores) + score_range * 0.3
+                score_threshold_ok = min(scores) + score_range * 0.6
+                
+                # Define pose categories
+                good_poses = [i for i, s in enumerate(sorted_scores) if s <= score_threshold_good]
+                ok_poses = [i for i, s in enumerate(sorted_scores) if score_threshold_good < s <= score_threshold_ok]
+                poor_poses = [i for i, s in enumerate(sorted_scores) if s > score_threshold_ok]
+                
+                # Plot each category
+                if good_poses:
+                    ax2.scatter([ranks[i] for i in good_poses], [sorted_scores[i] for i in good_poses], 
+                            color='green', s=60, label='Good poses', zorder=3)
+                if ok_poses:
+                    ax2.scatter([ranks[i] for i in ok_poses], [sorted_scores[i] for i in ok_poses], 
+                            color='orange', s=60, label='Acceptable poses', zorder=2)
+                if poor_poses:
+                    ax2.scatter([ranks[i] for i in poor_poses], [sorted_scores[i] for i in poor_poses], 
+                            color='red', s=60, label='Poor poses', zorder=1)
+                
+                # Add connecting line for all poses
+                ax2.plot(ranks, sorted_scores, linestyle='-', color='gray', linewidth=1.5, alpha=0.5)
+                
+                ax2.set_xlabel('Pose Rank', fontweight='bold')
+                ax2.set_ylabel('Docking Score (kcal/mol)', fontweight='bold')
+                ax2.set_title('Pose Quality Assessment', fontweight='bold')
+                ax2.grid(True, linestyle='--', alpha=0.7)
+                ax2.legend(frameon=True, fancybox=True, framealpha=0.8)
+                
+                # Set x-ticks based on number of poses
+                if len(ranks) <= 10:
+                    ax2.set_xticks(list(ranks))
+                else:
+                    ax2.set_xticks(np.linspace(min(ranks), max(ranks), 10, dtype=int))
+                
+                plt.tight_layout()
+                plt.savefig(combined_plot_path)
+                plt.savefig(str(combined_plot_path).replace('.png', '.pdf'))
+                plt.savefig(str(combined_plot_path).replace('.png', '.svg'))
+                plt.close()
+                plot_paths.append(combined_plot_path)
+                print(f"Combined score analysis plot saved to {combined_plot_path}")
+                
+                # 4. Score improvement visualization
+                if len(sorted_scores) > 1:
+                    improvement_plot_path = save_dir / "score_improvement.png"
+                    plt.figure(figsize=(8, 6))
+                    
+                    # Calculate score improvements relative to the worst score
+                    worst_score = max(sorted_scores)
+                    improvements = [worst_score - score for score in sorted_scores]
+                    
+                    # Create bar chart of improvements
+                    bars = plt.bar(ranks, improvements, color='#2ca02c', alpha=0.8, edgecolor='black')
+                    
+                    # Add percentage labels on bars
+                    max_improvement = worst_score - min(sorted_scores)
+                    if max_improvement > 0:  # Avoid division by zero
+                        for i, bar in enumerate(bars):
+                            height = bar.get_height()
+                            percentage = (height / max_improvement) * 100
+                            if percentage >= 5:  # Only label bars with significant height
+                                plt.text(bar.get_x() + bar.get_width()/2., height + max_improvement*0.02,
+                                        f'{percentage:.0f}%', ha='center', va='bottom', fontsize=10)
+                    
+                    plt.xlabel('Pose Rank', fontweight='bold')
+                    plt.ylabel('Score Improvement (kcal/mol)', fontweight='bold')
+                    plt.title('Score Improvement Relative to Worst Pose', fontweight='bold')
+                    plt.grid(True, linestyle='--', alpha=0.7, axis='y')
+                    
+                    # Set x-ticks based on number of poses
+                    if len(ranks) <= 10:
+                        plt.xticks(list(ranks))
+                    else:
+                        plt.xticks(np.linspace(min(ranks), max(ranks), 10, dtype=int))
+                    
+                    plt.tight_layout()
+                    plt.savefig(improvement_plot_path)
+                    plt.savefig(str(improvement_plot_path).replace('.png', '.pdf'))
+                    plt.savefig(str(improvement_plot_path).replace('.png', '.svg'))
+                    plt.close()
+                    plot_paths.append(improvement_plot_path)
+                    print(f"Score improvement plot saved to {improvement_plot_path}")
+                
             except Exception as e:
-                print(f"Error generating basic plots: {e}")
+                print(f"Error generating plots: {e}")
 
 
         # 3. Energy breakdown plot
@@ -751,43 +943,150 @@ class DockingReporter:
             top_poses = min(10, len(self.scoring_breakdown))
             if not isinstance(self.scoring_breakdown[0], dict) or len(self.scoring_breakdown[0]) == 0:
                 print("No energy components available for plotting.")
-                return plot_paths  # return empty list
-
-            # components = list(self.scoring_breakdown[0].keys())
+                return plot_paths  # return existing plots
+                    
+            # Get components excluding 'pose', 'score', 'total'
             components = [c for c in self.scoring_breakdown[0].keys() if c.lower() not in ['pose', 'score', 'total']]
-            # Sort components by name
-            components.sort()
-
-            # ✅ Skip if no components to plot
+            
+            # Skip if no components to plot
             if not components:
                 print("No energy components to plot. Skipping energy breakdown plot.")
                 return plot_paths
-
+            
+            # Sort components by absolute magnitude of first pose for better visualization
+            components.sort(key=lambda x: abs(self.scoring_breakdown[0].get(x, 0.0)))
+            
             energy_plot_path = save_dir / "energy_breakdown.png"
-            plt.figure(figsize=(12, 8))
-
-            colors = plt.cm.tab10(np.linspace(0, 1, len(components)))
+            plt.figure(figsize=(10, 8))
+            
+            # Use a better color palette
+            color_palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+                            '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+            colors = [color_palette[i % len(color_palette)] for i in range(len(components))]
+            
             bar_width = 0.8 / len(components)
             r = np.arange(top_poses)
-
+            
+            # Create stacked bars for negative and positive components
+            neg_components = [c for c in components if self.scoring_breakdown[0].get(c, 0.0) < 0]
+            pos_components = [c for c in components if self.scoring_breakdown[0].get(c, 0.0) >= 0]
+            
+            # Set hatch patterns for better distinction in B&W printing
+            hatches = ['', '/', '\\', 'x', '+', '*', 'o', 'O', '.', '-']
+            
+            # Plot the components
             for i, component in enumerate(components):
                 values = [energy.get(component, 0.0) for energy in self.scoring_breakdown[:top_poses]]
-                plt.bar(r + i * bar_width, values, width=bar_width, color=colors[i],
-                        edgecolor='gray', alpha=0.7, label=component)
-
-            plt.xlabel('Pose Rank')
-            plt.ylabel('Energy Contribution')
-            plt.title('Energy Component Breakdown for Top Poses')
-            plt.xticks(r + bar_width * (len(components) - 1) / 2, [f'{i+1}' for i in range(top_poses)])
-            plt.legend()
-            plt.grid(axis='y', alpha=0.3)
+                
+                # Use different color for negative (favorable) vs positive (unfavorable) components
+                is_negative = values[0] < 0
+                edge_color = 'black'
+                hatch = hatches[i % len(hatches)]
+                
+                plt.bar(r + i * bar_width, values, width=bar_width, 
+                        color=colors[i], edgecolor=edge_color, linewidth=1.5, 
+                        hatch=hatch, alpha=0.8, label=component.capitalize())
+            
+            # Get total energy for each pose
+            if 'total' in self.scoring_breakdown[0]:
+                totals = [energy.get('total', 0.0) for energy in self.scoring_breakdown[:top_poses]]
+                # Add total energy as a line
+                plt.plot(r + bar_width * (len(components) - 1) / 2, totals, 'ko-', 
+                        linewidth=2, markersize=8, label='Total Energy')
+                
+                # Add total value annotations
+                for i, total in enumerate(totals):
+                    plt.annotate(f'{total:.1f}', 
+                                xy=(r[i] + bar_width * (len(components) - 1) / 2, total),
+                                xytext=(0, 10 if total > 0 else -20), 
+                                textcoords='offset points',
+                                ha='center', fontweight='bold', fontsize=9,
+                                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8))
+            
+            # Improve axis labels and title
+            plt.xlabel('Pose Rank', fontweight='bold', fontsize=14)
+            plt.ylabel('Energy Contribution (kcal/mol)', fontweight='bold', fontsize=14)
+            plt.title('Energy Component Breakdown for Top Poses', fontweight='bold', fontsize=16)
+            
+            # Improve x-ticks
+            plt.xticks(r + bar_width * (len(components) - 1) / 2, [f'{i+1}' for i in range(top_poses)], 
+                    fontsize=12)
+            
+            # Add a zero line for reference
+            plt.axhline(y=0, color='black', linestyle='-', linewidth=1.0, alpha=0.5)
+            
+            # Improve legend
+            plt.legend(frameon=True, fancybox=True, framealpha=0.9, fontsize=12, 
+                    loc='best', title="Energy Components")
+            
+            # Improve grid
+            plt.grid(axis='y', linestyle='--', alpha=0.7)
+            
             plt.tight_layout()
-            plt.savefig(energy_plot_path)
+            plt.savefig(energy_plot_path, dpi=300)
+            #plt.savefig(str(energy_plot_path).replace('.png', '.pdf'))
+            plt.savefig(str(energy_plot_path).replace('.png', '.svg'))
             plt.close()
             plot_paths.append(energy_plot_path)
             print(f"Energy breakdown plot saved to {energy_plot_path}")
+            
+            # Add a separate stacked bar chart for better component visualization
+            stacked_plot_path = save_dir / "energy_stacked.png"
+            plt.figure(figsize=(10, 8))
+            
+            # Plot negative components (favorable interactions)
+            bottom = np.zeros(top_poses)
+            for i, component in enumerate(neg_components):
+                values = [min(0, energy.get(component, 0.0)) for energy in self.scoring_breakdown[:top_poses]]
+                plt.bar(r, values, bottom=bottom, width=0.7, 
+                        color=colors[components.index(component)], 
+                        edgecolor='black', linewidth=1, alpha=0.8, 
+                        hatch=hatches[i % len(hatches)],
+                        label=component.capitalize())
+                bottom += values
+            
+            # Reset bottom for positive components
+            bottom = np.zeros(top_poses)
+            for i, component in enumerate(pos_components):
+                values = [max(0, energy.get(component, 0.0)) for energy in self.scoring_breakdown[:top_poses]]
+                plt.bar(r, values, bottom=bottom, width=0.7, 
+                        color=colors[components.index(component)], 
+                        edgecolor='black', linewidth=1, alpha=0.8, 
+                        hatch=hatches[i % len(hatches)],
+                        label=component.capitalize())
+                bottom += values
+            
+            # Add total energy as points
+            if 'total' in self.scoring_breakdown[0]:
+                totals = [energy.get('total', 0.0) for energy in self.scoring_breakdown[:top_poses]]
+                plt.plot(r, totals, 'ko-', linewidth=2, markersize=10, label='Total Energy')
+                
+                # Add total value annotations
+                for i, total in enumerate(totals):
+                    plt.annotate(f'{total:.1f}', 
+                                xy=(r[i], total),
+                                xytext=(0, 10 if total > 0 else -20), 
+                                textcoords='offset points',
+                                ha='center', fontweight='bold', fontsize=9,
+                                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8))
+            
+            plt.xlabel('Pose Rank', fontweight='bold', fontsize=14)
+            plt.ylabel('Energy Contribution (kcal/mol)', fontweight='bold', fontsize=14)
+            plt.title('Stacked Energy Components for Top Poses', fontweight='bold', fontsize=16)
+            plt.xticks(r, [f'{i+1}' for i in range(top_poses)], fontsize=12)
+            plt.axhline(y=0, color='black', linestyle='-', linewidth=1.0, alpha=0.5)
+            plt.legend(frameon=True, fancybox=True, framealpha=0.9, fontsize=12, 
+                    loc='best', title="Energy Components")
+            plt.grid(axis='y', linestyle='--', alpha=0.7)
+            
+            plt.tight_layout()
+            plt.savefig(stacked_plot_path, dpi=300)
+            #plt.savefig(str(stacked_plot_path).replace('.png', '.pdf'))
+            plt.savefig(str(stacked_plot_path).replace('.png', '.svg'))
+            plt.close()
+            plot_paths.append(stacked_plot_path)
+            print(f"Stacked energy plot saved to {stacked_plot_path}")
 
-        
         # 4. RMSD plot if validation results are available
         if self.validation_results and isinstance(self.validation_results, list):
             rmsd_plot_path = save_dir / "rmsd_plot.png"
@@ -796,20 +1095,147 @@ class DockingReporter:
             # Extract RMSD values
             rmsd_values = [result.get('rmsd', 0.0) for result in self.validation_results]
             
-            plt.bar(range(1, len(rmsd_values) + 1), rmsd_values, color='lightgreen', edgecolor='darkgreen')
-            plt.axhline(y=2.0, color='red', linestyle='--', label='Success Threshold (2.0 Å)')
+            # Create color mapping based on threshold
+            threshold = 2.0  # Standard threshold for success
+            bar_colors = ['#2ca02c' if rmsd <= threshold else '#d62728' for rmsd in rmsd_values]
             
-            plt.xlabel('Pose Rank')
-            plt.ylabel('RMSD (Å)')
-            plt.title('RMSD Comparison with Reference Structure')
-            plt.legend()
-            plt.grid(axis='y', alpha=0.3)
+            # Create bar chart with better styling
+            bars = plt.bar(range(1, len(rmsd_values) + 1), rmsd_values, 
+                        color=bar_colors, edgecolor='black', linewidth=1.5, alpha=0.8)
             
-            plt.tight_layout()
-            plt.savefig(rmsd_plot_path)
+            # Add threshold line with enhanced styling
+            plt.axhline(y=threshold, color='black', linestyle='--', linewidth=2, 
+                    label=f'Success Threshold ({threshold:.1f} Å)')
+            
+            # Add text labels above/below bars
+            for i, bar in enumerate(bars):
+                height = bar.get_height()
+                text_color = 'black'
+                
+                if height <= threshold:
+                    text = "✓"  # Check mark for successful poses
+                    va = 'bottom'
+                    offset = 0.1
+                else:
+                    text = "✗"  # X mark for unsuccessful poses
+                    va = 'top'
+                    offset = -0.15
+                    if height > threshold * 1.5:  # Much higher than threshold
+                        text_color = 'white'
+                        va = 'center'
+                        offset = -height / 2
+                
+                plt.text(bar.get_x() + bar.get_width()/2, height + offset, 
+                        text, ha='center', va=va, fontweight='bold', fontsize=12, color=text_color)
+                
+                # Add RMSD value
+                plt.text(bar.get_x() + bar.get_width()/2, height/2, 
+                        f"{height:.2f}", ha='center', va='center', 
+                        fontweight='bold', fontsize=9, color='black' if height <= threshold * 1.5 else 'white')
+            
+            # Add best RMSD annotation
+            best_rmsd = min(rmsd_values)
+            best_idx = rmsd_values.index(best_rmsd)
+            plt.annotate(f'Best RMSD: {best_rmsd:.2f} Å', 
+                        xy=(best_idx + 1, best_rmsd),
+                        xytext=(20, -30 if best_rmsd < threshold else 30), 
+                        textcoords='offset points',
+                        arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=.2", color='black'),
+                        bbox=dict(boxstyle="round,pad=0.3", fc="#ffffcc", ec="black", alpha=0.9),
+                        fontweight='bold')
+            
+            # Improve labels and title
+            plt.xlabel('Pose Rank', fontweight='bold', fontsize=14)
+            plt.ylabel('RMSD (Å)', fontweight='bold', fontsize=14)
+            plt.title('RMSD Comparison with Reference Structure', fontweight='bold', fontsize=16)
+            
+            # Add success rate information
+            success_rate = sum(1 for rmsd in rmsd_values if rmsd <= threshold) / len(rmsd_values) * 100
+            success_text = f"Success Rate: {success_rate:.1f}% ({sum(1 for rmsd in rmsd_values if rmsd <= threshold)}/{len(rmsd_values)})"
+            plt.figtext(0.5, 0.01, success_text, ha='center', fontsize=12, fontweight='bold',
+                    bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8))
+            
+            # Improve legend and grid
+            plt.legend(frameon=True, fancybox=True, framealpha=0.9, fontsize=12)
+            plt.grid(axis='y', linestyle='--', alpha=0.7)
+            
+            # Set y-axis to start from 0
+            plt.ylim(bottom=0)
+            
+            # Add statistical information
+            stats_text = (f"Mean RMSD: {np.mean(rmsd_values):.2f} Å\n"
+                        f"Median RMSD: {np.median(rmsd_values):.2f} Å\n"
+                        f"Min RMSD: {min(rmsd_values):.2f} Å\n"
+                        f"Max RMSD: {max(rmsd_values):.2f} Å")
+            
+            plt.figtext(0.02, 0.02, stats_text, fontsize=10,
+                    bbox=dict(boxstyle="round,pad=0.5", fc="white", ec="gray", alpha=0.8))
+            
+            plt.tight_layout(rect=[0, 0.05, 1, 1])  # Adjust layout to make room for success rate text
+            plt.savefig(rmsd_plot_path, dpi=300)
+            #plt.savefig(str(rmsd_plot_path).replace('.png', '.pdf'))
+            plt.savefig(str(rmsd_plot_path).replace('.png', '.svg'))
             plt.close()
             plot_paths.append(rmsd_plot_path)
-        
+            print(f"RMSD plot saved to {rmsd_plot_path}")
+            
+            # Add RMSD distribution plot
+            rmsd_dist_path = save_dir / "rmsd_distribution.png"
+            plt.figure(figsize=(10, 6))
+            
+            # Create histogram with KDE
+            try:
+                from scipy import stats
+                
+                # Create histogram
+                n_bins = min(10, max(5, int(len(rmsd_values) / 2)))
+                plt.hist(rmsd_values, bins=n_bins, color='#1f77b4', edgecolor='black', 
+                        alpha=0.7, density=True, label='RMSD Distribution')
+                
+                # Add KDE curve if we have scipy
+                x = np.linspace(0, max(rmsd_values) * 1.1, 100)
+                kde = stats.gaussian_kde(rmsd_values)
+                plt.plot(x, kde(x), 'r-', linewidth=2, label='Density Estimate')
+                
+                # Add threshold line
+                plt.axvline(x=threshold, color='black', linestyle='--', linewidth=2,
+                        label=f'Success Threshold ({threshold:.1f} Å)')
+                
+                # Add statistics lines
+                plt.axvline(x=np.mean(rmsd_values), color='green', linestyle='-', linewidth=2,
+                        label=f'Mean ({np.mean(rmsd_values):.2f} Å)')
+                plt.axvline(x=np.median(rmsd_values), color='orange', linestyle='-.', linewidth=2,
+                        label=f'Median ({np.median(rmsd_values):.2f} Å)')
+            except ImportError:
+                # Fall back to simple histogram if scipy is not available
+                n_bins = min(10, max(5, int(len(rmsd_values) / 2)))
+                plt.hist(rmsd_values, bins=n_bins, color='#1f77b4', edgecolor='black', 
+                        alpha=0.7, label='RMSD Distribution')
+                
+                # Add threshold line
+                plt.axvline(x=threshold, color='black', linestyle='--', linewidth=2,
+                        label=f'Success Threshold ({threshold:.1f} Å)')
+                
+                # Add statistics lines
+                plt.axvline(x=np.mean(rmsd_values), color='green', linestyle='-', linewidth=2,
+                        label=f'Mean ({np.mean(rmsd_values):.2f} Å)')
+                plt.axvline(x=np.median(rmsd_values), color='orange', linestyle='-.', linewidth=2,
+                        label=f'Median ({np.median(rmsd_values):.2f} Å)')
+            
+            plt.xlabel('RMSD (Å)', fontweight='bold', fontsize=14)
+            plt.ylabel('Frequency / Density', fontweight='bold', fontsize=14)
+            plt.title('Distribution of RMSD Values', fontweight='bold', fontsize=16)
+            plt.legend(frameon=True, fancybox=True, framealpha=0.9, fontsize=12)
+            plt.grid(True, linestyle='--', alpha=0.7)
+            
+            plt.tight_layout()
+            plt.savefig(rmsd_dist_path, dpi=300)
+            #plt.savefig(str(rmsd_dist_path).replace('.png', '.pdf'))
+            plt.savefig(str(rmsd_dist_path).replace('.png', '.svg'))
+            plt.close()
+            plot_paths.append(rmsd_dist_path)
+            print(f"RMSD distribution plot saved to {rmsd_dist_path}")
+
         print(f"Generated {len(plot_paths)} plots in {save_dir}")
         return plot_paths
     
@@ -1266,65 +1692,216 @@ class DockingReporter:
     
 
     
-    def plot_binding_affinities(self, save_dir=None):
+    def plot_binding_affinities(self, save_dir=None, dpi=300):
         """
-        Generate plots for Kd and IC50 vs pose rank.
+        Generate publication-quality plots for Kd and IC50 vs pose rank.
+        
+        Parameters:
+        -----------
+        save_dir : Path or str, optional
+            Directory to save the plots (defaults to self.output_dir)
+        dpi : int
+            Resolution of saved figures
+            
+        Returns:
+        --------
+        list
+            Paths to the generated plot files
         """
         import matplotlib.pyplot as plt
         import numpy as np
+        from matplotlib import rcParams
+        import matplotlib.ticker as ticker
         from pathlib import Path
-
+        
+        # Set publication-quality parameters
+        rcParams['font.family'] = 'sans-serif'
+        rcParams['font.sans-serif'] = ['Arial', 'Helvetica', 'DejaVu Sans']
+        rcParams['font.size'] = 12
+        rcParams['axes.linewidth'] = 1.5
+        rcParams['axes.labelsize'] = 14
+        rcParams['axes.titlesize'] = 16
+        rcParams['xtick.major.width'] = 1.5
+        rcParams['ytick.major.width'] = 1.5
+        rcParams['xtick.labelsize'] = 12
+        rcParams['ytick.labelsize'] = 12
+        rcParams['legend.fontsize'] = 12
+        rcParams['figure.dpi'] = 100
+        rcParams['savefig.dpi'] = dpi
+        rcParams['savefig.bbox'] = 'tight'
+        rcParams['savefig.pad_inches'] = 0.1
+        
+        # Setup save directory
         if save_dir is None:
             save_dir = self.output_dir
         else:
             save_dir = Path(save_dir)
             save_dir.mkdir(parents=True, exist_ok=True)
-
+        
+        # Check if we have results
         if not self.results or len(self.results) == 0:
             print("No results available for binding affinity plots.")
             return []
-
+        
+        # Sort results and prepare data
         sorted_results = sorted(self.results, key=lambda x: x[1])
         ranks = np.arange(1, len(sorted_results)+1)
-
         deltaGs = []
         Kds = []
         IC50s = []
-
+        
         for pose, score in sorted_results:
             affinities = self.calculate_binding_affinity(score)
             deltaGs.append(affinities['DeltaG (kcal/mol)'])
             Kds.append(affinities['Kd (M)'])
             IC50s.append(affinities['IC50 (M)'])
-
+        
+        # Set up colors and styles
+        primary_color = '#1f77b4'    # Blue
+        secondary_color = '#2ca02c'  # Green
+        marker_style = 'o'
+        marker_size = 8
+        line_width = 2
+        
+        # Function for scientific notation
+        def scientific_notation(x, pos):
+            return '${:.0e}$'.format(x)
+        
         plot_paths = []
-
-        # Kd Plot
+        
+        # 1. Kd vs Rank Plot
         kd_plot_path = save_dir / "kd_vs_rank.png"
-        plt.figure(figsize=(10, 6))
-        plt.semilogy(ranks, Kds, marker='o', linestyle='-')
-        plt.xlabel('Pose Rank')
-        plt.ylabel('Kd (M)')
-        plt.title('Kd vs Pose Rank')
-        plt.grid(alpha=0.3)
+        plt.figure(figsize=(8, 6))
+        plt.semilogy(ranks, Kds, marker=marker_style, linestyle='-', 
+                    color=primary_color, linewidth=line_width, markersize=marker_size)
+        
+        plt.xlabel('Pose Rank', fontweight='bold')
+        plt.ylabel('K$_d$ (M)', fontweight='bold')
+        plt.title('Dissociation Constant vs Pose Rank', fontweight='bold')
+        
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.gca().yaxis.set_major_formatter(ticker.FuncFormatter(scientific_notation))
+        plt.xticks(ranks if len(ranks) < 10 else np.linspace(min(ranks), max(ranks), 10, dtype=int))
+        
         plt.tight_layout()
         plt.savefig(kd_plot_path)
+        #plt.savefig(str(kd_plot_path).replace('.png', '.pdf'))
+        plt.savefig(str(kd_plot_path).replace('.png', '.svg'))
         plt.close()
         plot_paths.append(kd_plot_path)
         print(f"Kd vs Pose Rank plot saved to {kd_plot_path}")
-
-        # IC50 Plot
+        
+        # 2. IC50 vs Rank Plot
         ic50_plot_path = save_dir / "ic50_vs_rank.png"
-        plt.figure(figsize=(10, 6))
-        plt.semilogy(ranks, IC50s, marker='o', linestyle='-', color='green')
-        plt.xlabel('Pose Rank')
-        plt.ylabel('IC50 (M)')
-        plt.title('IC50 vs Pose Rank')
-        plt.grid(alpha=0.3)
+        plt.figure(figsize=(8, 6))
+        plt.semilogy(ranks, IC50s, marker=marker_style, linestyle='-', 
+                    color=secondary_color, linewidth=line_width, markersize=marker_size)
+        
+        plt.xlabel('Pose Rank', fontweight='bold')
+        plt.ylabel('IC$_{50}$ (M)', fontweight='bold')
+        plt.title('IC$_{50}$ vs Pose Rank', fontweight='bold')
+        
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.gca().yaxis.set_major_formatter(ticker.FuncFormatter(scientific_notation))
+        plt.xticks(ranks if len(ranks) < 10 else np.linspace(min(ranks), max(ranks), 10, dtype=int))
+        
         plt.tight_layout()
         plt.savefig(ic50_plot_path)
+        #plt.savefig(str(ic50_plot_path).replace('.png', '.pdf'))
+        plt.savefig(str(ic50_plot_path).replace('.png', '.svg'))
         plt.close()
         plot_paths.append(ic50_plot_path)
         print(f"IC50 vs Pose Rank plot saved to {ic50_plot_path}")
-
+        
+        # 3. Kd vs ΔG Plot
+        kd_dg_plot_path = save_dir / "kd_vs_deltag.png"
+        plt.figure(figsize=(8, 6))
+        
+        # Sort by deltaG for better visualization
+        sorted_indices = np.argsort(deltaGs)
+        sorted_deltaGs = np.array(deltaGs)[sorted_indices]
+        sorted_Kds = np.array(Kds)[sorted_indices]
+        
+        plt.semilogy(sorted_deltaGs, sorted_Kds, marker=marker_style, linestyle='-', 
+                    color=primary_color, linewidth=line_width, markersize=marker_size)
+        
+        plt.xlabel('Binding Free Energy (ΔG, kcal/mol)', fontweight='bold')
+        plt.ylabel('K$_d$ (M)', fontweight='bold')
+        plt.title('Dissociation Constant vs Binding Affinity', fontweight='bold')
+        
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.gca().yaxis.set_major_formatter(ticker.FuncFormatter(scientific_notation))
+        
+        plt.tight_layout()
+        plt.savefig(kd_dg_plot_path)
+        plt.savefig(str(kd_dg_plot_path).replace('.png', '.pdf'))
+        plt.savefig(str(kd_dg_plot_path).replace('.png', '.svg'))
+        plt.close()
+        plot_paths.append(kd_dg_plot_path)
+        print(f"Kd vs ΔG plot saved to {kd_dg_plot_path}")
+        
+        # 4. IC50 vs ΔG Plot
+        ic50_dg_plot_path = save_dir / "ic50_vs_deltag.png"
+        plt.figure(figsize=(8, 6))
+        
+        # Use the same sorting for consistency
+        sorted_IC50s = np.array(IC50s)[sorted_indices]
+        
+        plt.semilogy(sorted_deltaGs, sorted_IC50s, marker=marker_style, linestyle='-', 
+                    color=secondary_color, linewidth=line_width, markersize=marker_size)
+        
+        plt.xlabel('Binding Free Energy (ΔG, kcal/mol)', fontweight='bold')
+        plt.ylabel('IC$_{50}$ (M)', fontweight='bold')
+        plt.title('IC$_{50}$ vs Binding Affinity', fontweight='bold')
+        
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.gca().yaxis.set_major_formatter(ticker.FuncFormatter(scientific_notation))
+        
+        plt.tight_layout()
+        plt.savefig(ic50_dg_plot_path)
+        #plt.savefig(str(ic50_dg_plot_path).replace('.png', '.pdf'))
+        plt.savefig(str(ic50_dg_plot_path).replace('.png', '.svg'))
+        plt.close()
+        plot_paths.append(ic50_dg_plot_path)
+        print(f"IC50 vs ΔG plot saved to {ic50_dg_plot_path}")
+        
+        # 5. Combined Kd and IC50 vs Rank (dual y-axis)
+        combined_path = save_dir / "combined_metrics_vs_rank.png"
+        fig, ax1 = plt.subplots(figsize=(8, 6))
+        
+        # Plot Kd on left axis
+        ax1.semilogy(ranks, Kds, marker=marker_style, linestyle='-', 
+                    color=primary_color, linewidth=line_width, markersize=marker_size,
+                    label='K$_d$')
+        ax1.set_xlabel('Pose Rank', fontweight='bold')
+        ax1.set_ylabel('K$_d$ (M)', fontweight='bold', color=primary_color)
+        ax1.tick_params(axis='y', labelcolor=primary_color)
+        ax1.yaxis.set_major_formatter(ticker.FuncFormatter(scientific_notation))
+        
+        # Plot IC50 on right axis
+        ax2 = ax1.twinx()
+        ax2.semilogy(ranks, IC50s, marker=marker_style, linestyle='-', 
+                    color=secondary_color, linewidth=line_width, markersize=marker_size,
+                    label='IC$_{50}$')
+        ax2.set_ylabel('IC$_{50}$ (M)', fontweight='bold', color=secondary_color)
+        ax2.tick_params(axis='y', labelcolor=secondary_color)
+        ax2.yaxis.set_major_formatter(ticker.FuncFormatter(scientific_notation))
+        
+        # Add legend
+        lines1, labels1 = ax1.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines1 + lines2, labels1 + labels2, loc='best')
+        
+        plt.title('Affinity Metrics vs Pose Rank', fontweight='bold')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.xticks(ranks if len(ranks) < 10 else np.linspace(min(ranks), max(ranks), 10, dtype=int))
+        
+        plt.tight_layout()
+        plt.savefig(combined_path)
+        #plt.savefig(str(combined_path).replace('.png', '.pdf'))
+        plt.savefig(str(combined_path).replace('.png', '.svg'))
+        plt.close()
+        plot_paths.append(combined_path)
+        print(f"Combined metrics plot saved to {combined_path}")
+        
         return plot_paths

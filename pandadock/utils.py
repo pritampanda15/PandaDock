@@ -589,7 +589,7 @@ def save_docking_results(results, output_dir='docking_results', flexible_residue
     # Save top poses
     for i, (pose, score) in enumerate(results[:10]):  # Save top 10 poses
         # Generate PDB file for the ligand pose
-        pdb_path = out_path / f"pose_{i+1}_score_{score:.1f}.pdb"
+        pdb_path = out_path / f"pose_{i+1}_score:{score:.1f}.pdb"
         with open(pdb_path, 'w') as f:
             f.write(f"REMARK   1 Docking score: {score}\n")
             
