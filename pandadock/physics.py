@@ -8,8 +8,8 @@ import seaborn as sns
 import os
 import tempfile
 import seaborn as sns
+import copy
 import matplotlib.pyplot as plt
-
 from .utils import save_docking_results
 from .ligand import Ligand
 from .protein import Protein
@@ -988,6 +988,7 @@ class MonteCarloSampling:
         self.max_rotation = max_rotation
         self.cooling_factor = cooling_factor
         self.output_dir = output_dir 
+        self.grid_points = None
         
         # Gas constant in kcal/(mol·K)
         self.gas_constant = 1.9872e-3
@@ -1181,7 +1182,111 @@ class MonteCarloSampling:
         
         return collected_poses
 
+    def initialize_grid_points(self, center, radius=10.0, spacing=2.0, n_points=500, subsample_rate=5):
+        """
+        Initialize grid points uniformly around the binding site center for Monte Carlo sampling.
+        
+        Parameters:
+        -----------
+        center : list or np.array
+            (x, y, z) coordinates of center
+        radius : float
+            Sampling radius (default: 10 Å)
+        spacing : float
+            Spacing between grid points (unused in this random mode)
+        n_points : int
+            Number of random points to generate
+        subsample_rate : int
+            Write every Nth point to file (default: 5)
+        """
+        self.grid_points = []
+        center = np.array(center)
 
+        for _ in range(n_points):
+            theta = np.random.uniform(0, 2 * np.pi)
+            phi = np.random.uniform(0, np.pi)
+            r = radius * (np.random.random() ** (1/3))  # Uniformly in sphere volume
+
+            x = center[0] + r * np.sin(phi) * np.cos(theta)
+            y = center[1] + r * np.sin(phi) * np.sin(theta)
+            z = center[2] + r * np.cos(phi)
+
+            self.grid_points.append([x, y, z])
+
+        self.grid_points = np.array(self.grid_points)
+
+        # Optional: save to sphere.pdb for visualization
+        if self.output_dir is not None:
+            sphere_path = Path(self.output_dir) / "sphere.pdb"
+            sphere_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(sphere_path, 'w') as f:
+                for idx, point in enumerate(self.grid_points):
+                    if idx % subsample_rate == 0:
+                        f.write(
+                            f"HETATM{idx+1:5d} {'S':<2s}   SPH A   1    "
+                            f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
+                        )
+            if hasattr(self, 'logger'):
+                self.logger.info(f"Sphere grid written to {sphere_path} (subsampled every {subsample_rate} points)")
+            else:
+                print(f"Sphere grid written to {sphere_path} (subsampled every {subsample_rate} points)")
+
+    
+    def _adjust_search_radius(self, initial_radius, generation, total_generations):
+        """
+        Shrink the search radius over generations (parallel version).
+        """
+        decay_rate = 0.5  # You can tune it (0.3 or 0.7)
+        factor = 1.0 - (generation / total_generations) * decay_rate
+        return max(initial_radius * factor, initial_radius * 0.5)
+
+    def _generate_orientations(self, ligand, protein):
+        orientations = []
+        
+        # Get active site center and radius
+        if protein.active_site:
+            center = protein.active_site['center']
+            radius = protein.active_site['radius']
+        else:
+            center = np.mean(protein.xyz, axis=0)
+            radius = 15.0
+
+        bad_orientations = 0
+        max_bad_orientations = self.num_orientations * 10
+
+        while len(orientations) < self.num_orientations and bad_orientations < max_bad_orientations:
+            pose = copy.deepcopy(ligand)
+            pose.random_rotate()
+
+            displacement = np.random.normal(0, 1, size=3)
+            pose.translate(center + displacement)
+
+            # Check if pose is inside the pocket
+            centroid = np.mean(pose.xyz, axis=0)
+            distance = np.linalg.norm(centroid - center)
+
+            if distance <= radius:
+                # 🧪 Add clash filter
+                is_valid = self._check_pose_validity(pose, protein)
+                if is_valid:
+                    orientations.append(pose)
+                else:
+                    bad_orientations += 1
+            else:
+                bad_orientations += 1
+
+        return orientations
+
+    def _check_pose_validity(self, pose, protein):
+        """
+        Check whether a pose has acceptable steric clashes or energy.
+        """
+        if hasattr(self.scoring_function, '_calculate_clashes'):
+            clash_score = self.scoring_function._calculate_clashes(protein, pose)
+            return clash_score < 10.0  # or make this configurable
+        else:
+            score = self.scoring_function.score(protein, pose)
+            return score < 100.0
 # -------------------------------------------
 # Physics-Based Scoring 
 # -------------------------------------------
