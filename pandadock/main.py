@@ -2,6 +2,8 @@
 Main entry script for PandaDock with GPU/CPU hardware acceleration.
 """
 import argparse
+from pandadock import hybrid_manager
+
 import os
 import time
 from datetime import datetime
@@ -62,8 +64,7 @@ try:
     from .unified_scoring import PhysicsBasedScoringFunction, PhysicsBasedScoring
     from .search import MMFFMinimization, MonteCarloSampling
     from .search import GeneralizedBornSolvation
-    from .search import PhysicsBasedScoring
-    from .search import PhysicsBasedScoringFunction, PhysicsBasedScoring
+    from .search import PhysicsBasedScoring  
     __all__ = ['__version__', 'MMFFMinimization', 'GeneralizedBornSolvation', 'MonteCarloSampling', 'PhysicsBasedScoring']
     PHYSICS_AVAILABLE = True
 except ImportError as e:
@@ -480,7 +481,6 @@ def main():
             description="🐼 PandaDock: Physics-based Molecular Docking 🚀",
             formatter_class=RichHelpFormatter,   # << add this!
         )
-        
         # Required arguments
         parser.add_argument('-p', '--protein', required=True, help='Path to protein PDB file')
         parser.add_argument('-l', '--ligand', required=True, help='Path to ligand MOL/SDF file')
@@ -603,6 +603,14 @@ def main():
         add_analysis_options(parser)
         print_pandadock_ascii()
         args = parser.parse_args()
+        
+        # Define kwargs before use
+        kwargs = {}
+        # Inject grid params
+        kwargs['grid_spacing'] = args.grid_spacing
+        kwargs['grid_radius'] = args.grid_radius  # <- Use the correct argument name
+        kwargs['grid_center'] = args.site if args.site else None
+
 
         import sys
         full_command = "pandadock " + " ".join(sys.argv[1:])

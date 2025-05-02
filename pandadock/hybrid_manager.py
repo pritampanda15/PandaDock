@@ -11,6 +11,9 @@ import warnings
 import numpy as np
 from pathlib import Path
 from .scoring_factory import create_scoring_function
+import argparse
+args = argparse.Namespace()
+
 
 try:
     import torch
@@ -557,7 +560,7 @@ class HybridDockingManager:
         
         # Run search
         print(f"Running {algorithm_type} search...")
-        results = search_algorithm.search(protein, ligand)
+        results = search_algorithm.parallel_search(protein, ligand)
         
         # Clean up GPU resources
         if self.has_gpu:
@@ -605,15 +608,19 @@ class HybridDockingManager:
                 print(f"GPU run {i+1}/{n_gpu_runs}")
                 
                 # Run single docking on GPU
-                from .gpu_scoring import GPUAcceleratedScoringFunction
+                from .unified_scoring import GPUAcceleratedScoringFunction
+                # ✅ Inject grid arguments
+                kwargs['grid_spacing'] = args.grid_spacing
+                kwargs['grid_radius'] = args.radius
+                kwargs['grid_center'] = args.grid_center
                 scoring_function = self.prepare_gpu_scoring_function(
                     GPUAcceleratedScoringFunction
                 )
                 
                 # Create search algorithm
                 if algorithm_type.lower() == 'genetic':
-                    from .search import GeneticAlgorithm
-                    search_algorithm = GeneticAlgorithm(
+                    from .parallel_search import ParallelGeneticAlgorithm
+                    search_algorithm = ParallelGeneticAlgorithm(
                         scoring_function=scoring_function,
                         **kwargs
                     )
@@ -622,9 +629,10 @@ class HybridDockingManager:
                     if no_local_optimization:
                         search_algorithm.skip_local_opt = True
                 else:
-                    from .search import RandomSearch
-                    search_algorithm = RandomSearch(
+                    from .parallel_search import ParallelRandomSearch
+                    search_algorithm = ParallelRandomSearch(
                         scoring_function=scoring_function,
+                        
                         **kwargs
                     )
                 
@@ -645,13 +653,18 @@ class HybridDockingManager:
                 print(f"CPU run {i+1}/{n_cpu_runs}")
                 
                 # Run single docking on CPU
-                from .scoring import EnhancedScoringFunction
+                from .unified_scoring import EnhancedScoringFunction
                 scoring_function = EnhancedScoringFunction()
+
+                # ✅ Inject grid arguments
+                kwargs['grid_spacing'] = args.grid_spacing
+                kwargs['grid_radius'] = args.radius
+                kwargs['grid_center'] = args.grid_center
                 
                 # Create search algorithm
                 if algorithm_type.lower() == 'genetic':
-                    from .search import GeneticAlgorithm
-                    search_algorithm = GeneticAlgorithm(
+                    from .parallel_search import ParallelGeneticAlgorithm
+                    search_algorithm = ParallelGeneticAlgorithm(
                         scoring_function=scoring_function,
                         **kwargs
                     )
@@ -660,8 +673,9 @@ class HybridDockingManager:
                     if no_local_optimization:
                         search_algorithm.skip_local_opt = True
                 else:
-                    from .search import RandomSearch
-                    search_algorithm = RandomSearch(
+                    
+                    from .parallel_search import ParallelRandomSearch
+                    search_algorithm = ParallelRandomSearch(
                         scoring_function=scoring_function,
                         **kwargs
                     )

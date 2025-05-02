@@ -77,7 +77,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
             center = np.mean(protein.xyz, axis=0)
             radius = 15.0  # Arbitrary default
 
-        self.initialize_grid_points(center)
+        self.initialize_grid_points(center, protein=protein)
 
         print(f"Using {self.n_processes} CPU cores for evaluation")
         print(f"Using {self.batch_size} poses per process for evaluation")
@@ -120,38 +120,78 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
             pose.rotate(rotation_matrix)
             pose.translate(centroid)
 
-
+            # 🟡 Add random translation
+            translation_vector = np.random.normal(0, 1, size=3)
+            pose.translate(translation_vector)
+            
+            # 🔒 Add clash filtering step
+            if not self._check_pose_validity(pose, protein):
+                continue  # Skip this pose due to clash
+            # 🟡 Add pose to population
+            # Check if the pose is within the grid
+            if is_within_grid(pose, center, radius):
+                continue  # Skip this pose if it's outside the grid
+            # If the pose is valid, add it to the population
+            # Check if the pose is within the grid
             population.append((pose, None))
 
         return population
 
     
-    def initialize_grid_points(self, center):
+    def initialize_grid_points(self, center, protein=None):
         from .utils import generate_spherical_grid
-        if self.grid_points is None:
-            self.grid_points = generate_spherical_grid(
-                center=center,
-                radius=self.grid_radius,
-                spacing=self.grid_spacing
-            )
-            self.logger.info(
-                f"Initialized spherical grid with {len(self.grid_points)} points "
-                f"(spacing: {self.grid_spacing}, radius: {self.grid_radius})"
-            )
-            # Save Light Sphere PDB
-            subsample_rate = 20  # <-- Only keep 1 out of every 5 points
+        from .utils import generate_cartesian_grid  # 👈 You will define this (see below)
+        import numpy as np
 
+        if self.grid_points is None:
+            self.grid_points = []
+
+            pocket_centers = []
+
+            if protein is not None and hasattr(protein, 'detect_pockets'):
+                pockets = protein.detect_pockets()
+                if pockets:
+                    self.logger.info(f"[BLIND] Detected {len(pockets)} binding pockets")
+                    pocket_centers = [p['center'] for p in pockets]
+
+            if pocket_centers:
+                for idx, c in enumerate(pocket_centers):
+                    local_grid = generate_spherical_grid(
+                        center=c,
+                        radius=self.grid_radius,
+                        spacing=self.grid_spacing
+                    )
+                    self.grid_points.extend(local_grid)
+                    self.logger.info(f"  -> Grid {idx+1}: {len(local_grid)} points at {c}")
+            else:
+                # 🔁 Fallback to full-protein blind grid
+                self.logger.warning("[BLIND] No pockets detected, generating full-protein grid")
+
+                coords = np.array([atom['coords'] for atom in protein.atoms])
+                min_corner = np.min(coords, axis=0) - 2.0  # small padding
+                max_corner = np.max(coords, axis=0) + 2.0
+
+                self.grid_points = generate_cartesian_grid(min_corner, max_corner, spacing=self.grid_spacing)
+                self.logger.info(f"[BLIND] Generated {len(self.grid_points)} grid points covering entire protein")
+
+            self.logger.info(f"Initialized total grid with {len(self.grid_points)} points "
+                            f"(spacing: {self.grid_spacing}, radius: {self.grid_radius})")
+
+            # Save Light Sphere PDB (subsample)
+            subsample_rate = 20
             if self.output_dir is not None:
                 sphere_path = Path(self.output_dir) / "sphere.pdb"
                 sphere_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(sphere_path, 'w') as f:
                     for idx, point in enumerate(self.grid_points):
-                        if idx % subsample_rate == 0:  # <-- Only write every Nth point
+                        if idx % subsample_rate == 0:
                             f.write(
                                 f"HETATM{idx+1:5d} {'S':<2s}   SPH A   1    "
                                 f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
                             )
                 self.logger.info(f"Sphere grid written to {sphere_path} (subsampled every {subsample_rate} points)")
+
+
     
     def _adjust_search_radius(self, initial_radius, generation, total_generations):
         """
@@ -204,7 +244,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         """
         if hasattr(self.scoring_function, '_calculate_clashes'):
             clash_score = self.scoring_function._calculate_clashes(protein, pose)
-            return clash_score < 10.0  # or make this configurable
+            return clash_score < 15.0  # or make this configurable
         else:
             score = self.scoring_function.score(protein, pose)
             return score < 100.0
@@ -219,7 +259,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         else:
             center = np.mean(protein.xyz, axis=0)
             radius = 10.0
-        self.initialize_grid_points(center)
+        self.initialize_grid_points(center, protein=protein)
 
         
         # ✨ Insert here
@@ -238,7 +278,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         print(f"Searching around center {center} with radius {radius}")
         
         # ✅ Save sphere.pdb
-        self.initialize_grid_points(center)
+        self.initialize_grid_points(center, protein=protein)
     
     # Then continue normal pose generation...
 
@@ -686,7 +726,7 @@ class ParallelRandomSearch(RandomSearch):
     """
     
     def __init__(self, scoring_function, max_iterations=100, n_processes=None, 
-                 batch_size=None, process_pool=None, output_dir=None):
+                 batch_size=None, process_pool=None, output_dir=None, grid_spacing=0.375, grid_radius=10.0, grid_center=None):
         super().__init__(scoring_function, max_iterations)
         self.output_dir = output_dir
 
@@ -705,7 +745,53 @@ class ParallelRandomSearch(RandomSearch):
 
         self.eval_time = 0.0
         self.total_time = 0.0
+        self.best_score = float('inf')
+
+        self.grid_points = None
+        self.grid_radius = grid_radius
+        self.grid_spacing = grid_spacing
+        self.grid_center = grid_center
+        
     
+    def initialize_grid_points(self, center, protein=None):
+        from .utils import generate_spherical_grid
+
+        if self.grid_points is None:
+            self.grid_points = []
+
+            pocket_centers = []
+
+            if protein is not None and hasattr(protein, 'detect_pockets'):
+                pockets = protein.detect_pockets()
+                if pockets:
+                    print(f"[BLIND] Detected {len(pockets)} binding pockets")
+                    pocket_centers = [p['center'] for p in pockets]
+
+            if not pocket_centers:
+                pocket_centers = [center]
+
+            for idx, c in enumerate(pocket_centers):
+                local_grid = generate_spherical_grid(
+                    center=c,
+                    radius=self.grid_radius,
+                    spacing=self.grid_spacing
+                )
+                self.grid_points.extend(local_grid)
+                print(f"  -> Grid {idx+1}: {len(local_grid)} points at {c}")
+
+            print(f"Initialized total grid with {len(self.grid_points)} points "
+                  f"(spacing: {self.grid_spacing}, radius: {self.grid_radius})")
+
+            # Optional: Save PDB for grid points
+            if self.output_dir:
+                sphere_path = Path(self.output_dir) / "sphere.pdb"
+                with open(sphere_path, 'w') as f:
+                    for i, pt in enumerate(self.grid_points[::20]):  # subsample
+                        f.write(
+                            f"HETATM{i+1:5d} {'S':<2s}   SPH A   1    "
+                            f"{pt[0]:8.3f}{pt[1]:8.3f}{pt[2]:8.3f}  1.00  0.00          S\n"
+                        )
+
     def _adjust_search_radius(self, initial_radius, iteration, total_iterations):
         """Shrink search radius over iterations."""
         decay_rate = 0.5
@@ -721,7 +807,7 @@ class ParallelRandomSearch(RandomSearch):
         else:
             center = np.mean(protein.xyz, axis=0)
             radius = 10.0
-        self.initialize_grid_points(center)
+        self.initialize_grid_points(center, protein=protein)
         
         # ✨ Insert here
         if not hasattr(protein, 'active_site') or protein.active_site is None:
@@ -740,7 +826,7 @@ class ParallelRandomSearch(RandomSearch):
         print(f"Using {self.n_processes} CPU cores for evaluation")
 
         # Save sphere grid
-        self.initialize_grid_points(center)
+        self.initialize_grid_points(center, protein=protein)
 
         results = []
         # New variables to track clash failures
@@ -771,10 +857,17 @@ class ParallelRandomSearch(RandomSearch):
                     fail_counter = 0
                     print(f"⚡ Auto-expanding search radius to {radius:.2f} Å due to repeated clashes!")
                 continue  # Skip pose, try again
-            else:
-                fail_counter = 0  # Reset fail counter on success
-
-            # Score the good pose
+             # Reset fail counter on success
+                # 🛑 Physics-based validity check (e.g., from scoring function)
+            if not self._check_pose_validity(pose, protein):
+                fail_counter += 1
+                if fail_counter >= max_failures:
+                    radius += radius_increment
+                    fail_counter = 0
+                    print(f"⚡ Auto-expanding search radius to {radius:.2f} Å due to repeated clashes!")
+                continue
+            # ✅ Score valid pose and add to results
+            fail_counter = 0
             score = self.scoring_function.score(protein, pose)
             results.append((pose, score))
             # Check if the score is valid
@@ -785,13 +878,14 @@ class ParallelRandomSearch(RandomSearch):
                     fail_counter = 0
                     print(f"⚡ Auto-expanding search radius to {radius:.2f} Å due to repeated clashes!")
                 continue  # Skip pose, try again
+            
+            # 🧪 Optional: Refine top N poses with local optimization
+            for i, (pose, score) in enumerate(results[:5]):  # Top 5 poses
+                optimized_pose, optimized_score = self._local_optimization(pose, protein)
+                results[i] = (optimized_pose, optimized_score)
 
-            # Evaluate the pose
-            # Score
-            score = self.scoring_function.score(protein, pose)
+        # Re-sort results after refinement
 
-            results.append((pose, score))
-        
         results.sort(key=lambda x: x[1])
 
         self.total_time = time.time() - start_time
@@ -807,6 +901,11 @@ class ParallelRandomSearch(RandomSearch):
 
         return results
 
+    def _local_optimization(self, pose, protein):
+        from .utils import local_optimize_pose
+        return local_optimize_pose(pose, protein, self.scoring_function)
+
+    
     def _generate_orientations(self, ligand, protein):
         orientations = []
         
@@ -859,7 +958,7 @@ class ParallelRandomSearch(RandomSearch):
 
     def _generate_random_pose(self, ligand, center, radius):
         # More uniform sampling within sphere volume
-        r = radius * random.betavariate(2, 5) ** (1/3)
+        r = radius * (0.8 + 0.2 * random.random())  # Bias toward outer region
         theta = random.uniform(0, 2 * np.pi)
         phi = random.uniform(0, np.pi)
 

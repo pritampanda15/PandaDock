@@ -153,6 +153,42 @@ def detect_steric_clash(protein_atoms, ligand_atoms, threshold=1.6):
                 return True
     return False
 
+def generate_cartesian_grid(min_corner, max_corner, spacing=1.0):
+    """
+    Generate Cartesian grid points within a bounding box.
+    """
+    x_range = np.arange(min_corner[0], max_corner[0], spacing)
+    y_range = np.arange(min_corner[1], max_corner[1], spacing)
+    z_range = np.arange(min_corner[2], max_corner[2], spacing)
+
+    grid = []
+    for x in x_range:
+        for y in y_range:
+            for z in z_range:
+                grid.append(np.array([x, y, z]))
+
+    return grid
+
+def local_optimize_pose(pose, protein, scoring_function, max_steps=20, step_size=0.5):
+    """
+    Perform basic greedy local optimization by perturbing pose.
+    """
+    import copy
+    import numpy as np
+
+    best_pose = copy.deepcopy(pose)
+    best_score = scoring_function.score(protein, best_pose)
+
+    for _ in range(max_steps):
+        trial_pose = copy.deepcopy(best_pose)
+        trial_pose.translate(np.random.normal(0, step_size, 3))
+        trial_score = scoring_function.score(protein, trial_pose)
+
+        if trial_score < best_score:
+            best_pose, best_score = trial_pose, trial_score
+
+    return best_pose, best_score
+
 def create_initial_files(output_dir, args, status="running"):
     """
     Create premium aesthetic initial files documenting PandaDock run.
