@@ -778,7 +778,12 @@ class ParallelRandomSearch(RandomSearch):
             score = self.scoring_function.score(protein, pose)
             results.append((pose, score))
             # Check if the score is valid
-            if not self._check_pose_validity(pose, center, current_radius):
+            if not self._check_pose_validity(pose, protein):
+                fail_counter += 1
+                if fail_counter >= max_failures:
+                    radius += radius_increment
+                    fail_counter = 0
+                    print(f"⚡ Auto-expanding search radius to {radius:.2f} Å due to repeated clashes!")
                 continue  # Skip pose, try again
 
             # Evaluate the pose
@@ -845,10 +850,11 @@ class ParallelRandomSearch(RandomSearch):
         """
         if hasattr(self.scoring_function, '_calculate_clashes'):
             clash_score = self.scoring_function._calculate_clashes(protein, pose)
-            return clash_score < 10.0  # or make this configurable
+            return clash_score < 10.0
         else:
             score = self.scoring_function.score(protein, pose)
             return score < 100.0
+
 
 
     def _generate_random_pose(self, ligand, center, radius):
