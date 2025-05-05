@@ -11,10 +11,43 @@ import time
 import multiprocessing as mp
 from pathlib import Path
 from scipy.spatial.transform import Rotation, Slerp
-
+import numpy as np
+import os
+import copy
+import time
+import random
+from scipy.optimize import minimize
+from .search import DockingSearch
+from .utils import calculate_rmsd
 from .search import GeneticAlgorithm, RandomSearch
 from .utils import is_within_grid, detect_steric_clash
 
+
+# --- Geometry utilities ---
+def random_point_in_sphere(center, radius):
+    """
+    Generate a random point uniformly inside a sphere.
+    """
+    phi = np.random.uniform(0, 2 * np.pi)
+    costheta = np.random.uniform(-1, 1)
+    u = np.random.uniform(0, 1)
+
+    theta = np.arccos(costheta)
+    r = radius * (u ** (1/3))
+
+    x = r * np.sin(theta) * np.cos(phi)
+    y = r * np.sin(theta) * np.sin(phi)
+    z = r * np.cos(theta)
+
+    return center + np.array([x, y, z])
+
+def is_inside_sphere(pose, center, radius):
+    """
+    Check if the ligand pose's centroid is within the active site sphere.
+    """
+    centroid = np.mean(pose.xyz, axis=0)
+    distance = np.linalg.norm(centroid - center)
+    return distance <= radius
 class ParallelGeneticAlgorithm(GeneticAlgorithm):
     def __init__(self, scoring_function, max_iterations=100, population_size=50, 
                  mutation_rate=0.2, crossover_rate=0.8, tournament_size=3, 
@@ -201,9 +234,46 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         factor = 1.0 - (generation / total_generations) * decay_rate
         return max(initial_radius * factor, initial_radius * 0.5)
 
+    # def _generate_orientations(self, ligand, protein):
+    #     orientations = []
+        
+    #     # Get active site center and radius
+    #     if protein.active_site:
+    #         center = protein.active_site['center']
+    #         radius = protein.active_site['radius']
+    #     else:
+    #         center = np.mean(protein.xyz, axis=0)
+    #         radius = 15.0
+
+    #     bad_orientations = 0
+    #     max_bad_orientations = self.num_orientations * 10
+
+    #     while len(orientations) < self.num_orientations and bad_orientations < max_bad_orientations:
+    #         pose = copy.deepcopy(ligand)
+    #         pose.random_rotate()
+
+    #         displacement = np.random.normal(0, 1, size=3)
+    #         pose.translate(center + displacement)
+
+    #         # Check if pose is inside the pocket
+    #         centroid = np.mean(pose.xyz, axis=0)
+    #         distance = np.linalg.norm(centroid - center)
+
+    #         if distance <= radius:
+    #             # 🧪 Add clash filter
+    #             is_valid = self._check_pose_validity(pose, protein)
+    #             if is_valid:
+    #                 orientations.append(pose)
+    #             else:
+    #                 bad_orientations += 1
+    #         else:
+    #             bad_orientations += 1
+
+    #     return orientations
+
     def _generate_orientations(self, ligand, protein):
         orientations = []
-        
+
         # Get active site center and radius
         if protein.active_site:
             center = protein.active_site['center']
@@ -219,17 +289,11 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
             pose = copy.deepcopy(ligand)
             pose.random_rotate()
 
-            displacement = np.random.normal(0, 1, size=3)
-            pose.translate(center + displacement)
+            sampled_point = random_point_in_sphere(center, radius)
+            pose.translate(sampled_point)
 
-            # Check if pose is inside the pocket
-            centroid = np.mean(pose.xyz, axis=0)
-            distance = np.linalg.norm(centroid - center)
-
-            if distance <= radius:
-                # 🧪 Add clash filter
-                is_valid = self._check_pose_validity(pose, protein)
-                if is_valid:
+            if is_inside_sphere(pose, center, radius):
+                if self._check_pose_validity(pose, protein):
                     orientations.append(pose)
                 else:
                     bad_orientations += 1
@@ -238,16 +302,33 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
 
         return orientations
 
-    def _check_pose_validity(self, pose, protein):
+
+    def _check_pose_validity(self, ligand, protein, clash_threshold=1.5):
         """
-        Check whether a pose has acceptable steric clashes or energy.
+        Check if ligand pose clashes with protein atoms.
+        
+        Parameters:
+            ligand: Ligand object with .atoms
+            protein: Protein object with .atoms or active_site['atoms']
+            clash_threshold: Ångström cutoff for hard clash
+            
+        Returns:
+            bool: True if pose is valid (no severe clash), False otherwise
         """
-        if hasattr(self.scoring_function, '_calculate_clashes'):
-            clash_score = self.scoring_function._calculate_clashes(protein, pose)
-            return clash_score < 15.0  # or make this configurable
+        ligand_coords = np.array([atom['coords'] for atom in ligand.atoms])
+        
+        # Use active site atoms if defined
+        if hasattr(protein, 'active_site') and protein.active_site and 'atoms' in protein.active_site:
+            protein_coords = np.array([atom['coords'] for atom in protein.active_site['atoms']])
         else:
-            score = self.scoring_function.score(protein, pose)
-            return score < 100.0
+            protein_coords = np.array([atom['coords'] for atom in protein.atoms])
+        
+        for lig_coord in ligand_coords:
+            distances = np.linalg.norm(protein_coords - lig_coord, axis=1)
+            if np.any(distances < clash_threshold):
+                return False  # Clash detected
+        
+        return True
 
 
     def search(self, protein, ligand):
@@ -906,9 +987,46 @@ class ParallelRandomSearch(RandomSearch):
         return local_optimize_pose(pose, protein, self.scoring_function)
 
     
+    # def _generate_orientations(self, ligand, protein):
+    #     orientations = []
+        
+    #     # Get active site center and radius
+    #     if protein.active_site:
+    #         center = protein.active_site['center']
+    #         radius = protein.active_site['radius']
+    #     else:
+    #         center = np.mean(protein.xyz, axis=0)
+    #         radius = 15.0
+
+    #     bad_orientations = 0
+    #     max_bad_orientations = self.num_orientations * 10
+
+    #     while len(orientations) < self.num_orientations and bad_orientations < max_bad_orientations:
+    #         pose = copy.deepcopy(ligand)
+    #         pose.random_rotate()
+
+    #         displacement = np.random.normal(0, 1, size=3)
+    #         pose.translate(center + displacement)
+
+    #         # Check if pose is inside the pocket
+    #         centroid = np.mean(pose.xyz, axis=0)
+    #         distance = np.linalg.norm(centroid - center)
+
+    #         if distance <= radius:
+    #             # 🧪 Add clash filter
+    #             is_valid = self._check_pose_validity(pose, protein)
+    #             if is_valid:
+    #                 orientations.append(pose)
+    #             else:
+    #                 bad_orientations += 1
+    #         else:
+    #             bad_orientations += 1
+
+    #     return orientations
+
     def _generate_orientations(self, ligand, protein):
         orientations = []
-        
+
         # Get active site center and radius
         if protein.active_site:
             center = protein.active_site['center']
@@ -924,17 +1042,11 @@ class ParallelRandomSearch(RandomSearch):
             pose = copy.deepcopy(ligand)
             pose.random_rotate()
 
-            displacement = np.random.normal(0, 1, size=3)
-            pose.translate(center + displacement)
+            sampled_point = random_point_in_sphere(center, radius)
+            pose.translate(sampled_point)
 
-            # Check if pose is inside the pocket
-            centroid = np.mean(pose.xyz, axis=0)
-            distance = np.linalg.norm(centroid - center)
-
-            if distance <= radius:
-                # 🧪 Add clash filter
-                is_valid = self._check_pose_validity(pose, protein)
-                if is_valid:
+            if is_inside_sphere(pose, center, radius):
+                if self._check_pose_validity(pose, protein):
                     orientations.append(pose)
                 else:
                     bad_orientations += 1
@@ -943,16 +1055,33 @@ class ParallelRandomSearch(RandomSearch):
 
         return orientations
 
-    def _check_pose_validity(self, pose, protein):
+
+    def _check_pose_validity(self, ligand, protein, clash_threshold=1.5):
         """
-        Check whether a pose has acceptable steric clashes or energy.
+        Check if ligand pose clashes with protein atoms.
+        
+        Parameters:
+            ligand: Ligand object with .atoms
+            protein: Protein object with .atoms or active_site['atoms']
+            clash_threshold: Ångström cutoff for hard clash
+            
+        Returns:
+            bool: True if pose is valid (no severe clash), False otherwise
         """
-        if hasattr(self.scoring_function, '_calculate_clashes'):
-            clash_score = self.scoring_function._calculate_clashes(protein, pose)
-            return clash_score < 10.0
+        ligand_coords = np.array([atom['coords'] for atom in ligand.atoms])
+        
+        # Use active site atoms if defined
+        if hasattr(protein, 'active_site') and protein.active_site and 'atoms' in protein.active_site:
+            protein_coords = np.array([atom['coords'] for atom in protein.active_site['atoms']])
         else:
-            score = self.scoring_function.score(protein, pose)
-            return score < 100.0
+            protein_coords = np.array([atom['coords'] for atom in protein.atoms])
+        
+        for lig_coord in ligand_coords:
+            distances = np.linalg.norm(protein_coords - lig_coord, axis=1)
+            if np.any(distances < clash_threshold):
+                return False  # Clash detected
+        
+        return True
 
 
 
@@ -980,3 +1109,102 @@ class ParallelRandomSearch(RandomSearch):
         pose.translate(centroid)
 
         return pose
+
+class ParallelSearch(DockingSearch):
+    """
+    Parallel docking search algorithm with consistent behavior to single-CPU version.
+    """
+    def search(self, protein, ligand):
+        print("\n🔍 Performing docking (parallel mode enabled)...\n")
+        return self.improve_rigid_docking(protein, ligand, self.args)
+
+    def improve_rigid_docking(self, protein, ligand, args):
+        if not protein.active_site:
+            if hasattr(args, 'site') and args.site:
+                radius = args.radius if hasattr(args, 'radius') else 15.0
+                if radius < 12.0:
+                    print(f"Provided radius {radius}Å is small; increasing to 15.0Å")
+                    radius = 15.0
+                protein.define_active_site(args.site, radius)
+            elif hasattr(args, 'detect_pockets') and args.detect_pockets:
+                pockets = protein.detect_pockets()
+                if pockets:
+                    pocket_radius = max(pockets[0]['radius'], 15.0)
+                    protein.define_active_site(pockets[0]['center'], pocket_radius)
+                else:
+                    center = np.mean(protein.xyz, axis=0)
+                    protein.define_active_site(center, 15.0)
+            else:
+                center = np.mean(protein.xyz, axis=0)
+                protein.define_active_site(center, 15.0)
+
+        center = protein.active_site['center']
+        radius = protein.active_site['radius']
+
+        n_initial_random = min(self.max_iterations // 4, 1000)
+        poses = []
+
+        for i in range(n_initial_random):
+            pose = copy.deepcopy(ligand)
+            distance_factor = np.random.random() ** 0.5
+            r = radius * distance_factor
+            theta = np.random.uniform(0, 2 * np.pi)
+            phi = np.random.uniform(0, np.pi)
+
+            x = center[0] + r * np.sin(phi) * np.cos(theta)
+            y = center[1] + r * np.sin(phi) * np.sin(theta)
+            z = center[2] + r * np.cos(phi)
+
+            centroid = np.mean(pose.xyz, axis=0)
+            translation = np.array([x, y, z]) - centroid
+            pose.translate(translation)
+
+            rotation = Rotation.random()
+            centroid = np.mean(pose.xyz, axis=0)
+            pose.translate(-centroid)
+            pose.rotate(rotation.as_matrix())
+            pose.translate(centroid)
+
+            poses.append(pose)
+
+        print(f"Scoring {len(poses)} poses using {cpu_count()} CPUs...")
+
+        def score_pose(pose):
+            score = self.scoring_function.score(protein, pose)
+            return (pose, score)
+
+        with Pool(processes=cpu_count()) as pool:
+            results = pool.map(score_pose, poses)
+
+        results.sort(key=lambda x: x[1])
+
+        print(f"Best docking score: {results[0][1]:.2f}")
+
+        if hasattr(args, 'local_opt') and args.local_opt:
+            print("Applying enhanced local optimization (enabled by --local-opt)...")
+            optimized_results = []
+            seen_scores = set()
+
+            for pose, score in results:
+                rounded_score = round(score, 2)
+                if rounded_score not in seen_scores:
+                    seen_scores.add(rounded_score)
+                    optimized_pose = copy.deepcopy(pose)
+                    optimized_pose, optimized_score = self._enhanced_local_optimization(
+                        protein, optimized_pose, step_size=0.3, angle_step=0.05, max_steps=20)
+                    optimized_results.append((optimized_pose, optimized_score))
+                if len(optimized_results) >= 20:
+                    break
+
+            print("Applying gentle clash relief...")
+            relaxed_results = []
+            for pose, score in optimized_results:
+                relaxed_pose = self._gentle_clash_relief(protein, pose, max_steps=20, max_movement=0.2)
+                relaxed_score = self.scoring_function.score(protein, relaxed_pose)
+                relaxed_results.append((relaxed_pose, relaxed_score))
+
+            relaxed_results.sort(key=lambda x: x[1])
+            print(f"Post-optimization best score: {relaxed_results[0][1]:.2f}")
+            return relaxed_results
+
+        return results

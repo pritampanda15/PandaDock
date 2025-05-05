@@ -32,6 +32,8 @@ from .utils import save_docking_results, calculate_rmsd
 from .preparation import prepare_protein, prepare_ligand
 from .validation import validate_docking, calculate_ensemble_rmsd
 
+
+# --- Geometry utilities ---
 def random_point_in_sphere(center, radius):
     """
     Generate a random point uniformly inside a sphere.
@@ -163,7 +165,7 @@ class DockingSearch:
 
     def _generate_orientations(self, ligand, protein):
         orientations = []
-        
+
         # Get active site center and radius
         if protein.active_site:
             center = protein.active_site['center']
@@ -179,17 +181,11 @@ class DockingSearch:
             pose = copy.deepcopy(ligand)
             pose.random_rotate()
 
-            displacement = np.random.normal(0, 1, size=3)
-            pose.translate(center + displacement)
+            sampled_point = random_point_in_sphere(center, radius)
+            pose.translate(sampled_point)
 
-            # Check if pose is inside the pocket
-            centroid = np.mean(pose.xyz, axis=0)
-            distance = np.linalg.norm(centroid - center)
-
-            if distance <= radius:
-                # 🧪 Add clash filter
-                is_valid = self._check_pose_validity(pose, protein)
-                if is_valid:
+            if is_inside_sphere(pose, center, radius):
+                if self._check_pose_validity(pose, protein):
                     orientations.append(pose)
                 else:
                     bad_orientations += 1
@@ -1541,7 +1537,7 @@ class RandomSearch(DockingSearch):
 
     def _generate_orientations(self, ligand, protein):
         orientations = []
-        
+
         # Get active site center and radius
         if protein.active_site:
             center = protein.active_site['center']
@@ -1557,17 +1553,11 @@ class RandomSearch(DockingSearch):
             pose = copy.deepcopy(ligand)
             pose.random_rotate()
 
-            displacement = np.random.normal(0, 1, size=3)
-            pose.translate(center + displacement)
+            sampled_point = random_point_in_sphere(center, radius)
+            pose.translate(sampled_point)
 
-            # Check if pose is inside the pocket
-            centroid = np.mean(pose.xyz, axis=0)
-            distance = np.linalg.norm(centroid - center)
-
-            if distance <= radius:
-                # 🧪 Add clash filter
-                is_valid = self._check_pose_validity(pose, protein)
-                if is_valid:
+            if is_inside_sphere(pose, center, radius):
+                if self._check_pose_validity(pose, protein):
                     orientations.append(pose)
                 else:
                     bad_orientations += 1
@@ -1576,16 +1566,33 @@ class RandomSearch(DockingSearch):
 
         return orientations
 
-    def _check_pose_validity(self, pose, protein):
+    def _check_pose_validity(self, ligand, protein, clash_threshold=1.5):
         """
-        Check whether a pose has acceptable steric clashes or energy.
+        Check if ligand pose clashes with protein atoms.
+        
+        Parameters:
+            ligand: Ligand object with .atoms
+            protein: Protein object with .atoms or active_site['atoms']
+            clash_threshold: Ångström cutoff for hard clash
+            
+        Returns:
+            bool: True if pose is valid (no severe clash), False otherwise
         """
-        if hasattr(self.scoring_function, '_calculate_clashes'):
-            clash_score = self.scoring_function._calculate_clashes(protein, pose)
-            return clash_score < 10.0  # or make this configurable
+        ligand_coords = np.array([atom['coords'] for atom in ligand.atoms])
+        
+        # Use active site atoms if defined
+        if hasattr(protein, 'active_site') and protein.active_site and 'atoms' in protein.active_site:
+            protein_coords = np.array([atom['coords'] for atom in protein.active_site['atoms']])
         else:
-            score = self.scoring_function.score(protein, pose)
-            return score < 100.0
+            protein_coords = np.array([atom['coords'] for atom in protein.atoms])
+        
+        for lig_coord in ligand_coords:
+            distances = np.linalg.norm(protein_coords - lig_coord, axis=1)
+            if np.any(distances < clash_threshold):
+                return False  # Clash detected
+        
+        return True
+
 
 class GeneticAlgorithm(DockingSearch):
     """Genetic algorithm for docking search."""
@@ -1916,16 +1923,33 @@ class GeneticAlgorithm(DockingSearch):
 
         return orientations
 
-    def _check_pose_validity(self, pose, protein):
+    def _check_pose_validity(self, ligand, protein, clash_threshold=1.5):
         """
-        Check whether a pose has acceptable steric clashes or energy.
+        Check if ligand pose clashes with protein atoms.
+        
+        Parameters:
+            ligand: Ligand object with .atoms
+            protein: Protein object with .atoms or active_site['atoms']
+            clash_threshold: Ångström cutoff for hard clash
+            
+        Returns:
+            bool: True if pose is valid (no severe clash), False otherwise
         """
-        if hasattr(self.scoring_function, '_calculate_clashes'):
-            clash_score = self.scoring_function._calculate_clashes(protein, pose)
-            return clash_score < 10.0  # or make this configurable
+        ligand_coords = np.array([atom['coords'] for atom in ligand.atoms])
+        
+        # Use active site atoms if defined
+        if hasattr(protein, 'active_site') and protein.active_site and 'atoms' in protein.active_site:
+            protein_coords = np.array([atom['coords'] for atom in protein.active_site['atoms']])
         else:
-            score = self.scoring_function.score(protein, pose)
-            return score < 100.0
+            protein_coords = np.array([atom['coords'] for atom in protein.atoms])
+        
+        for lig_coord in ligand_coords:
+            distances = np.linalg.norm(protein_coords - lig_coord, axis=1)
+            if np.any(distances < clash_threshold):
+                return False  # Clash detected
+        
+        return True
+
     
     def _selection(self, population):
         """Tournament selection."""

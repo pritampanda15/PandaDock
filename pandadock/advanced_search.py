@@ -14,6 +14,7 @@ import random
 from scipy.optimize import minimize
 from scipy.spatial.transform import Rotation
 from .search import DockingSearch
+from .utils import setup_logging
 from .utils import calculate_rmsd
 
 
@@ -1784,3 +1785,224 @@ def create_advanced_search_algorithm(algorithm_type, scoring_function, **kwargs)
         return HybridSearch(scoring_function, **kwargs)
     else:
         raise ValueError(f"Unknown advanced algorithm type: {algorithm_type}")
+
+
+import numpy as np
+import os
+import copy
+import time
+import random
+from scipy.optimize import minimize
+from .search import DockingSearch
+from scipy.spatial.transform import Rotation
+
+class GradientBasedSearch(DockingSearch):
+    def __init__(self, scoring_function, max_iterations=100, gradient_step=0.1, convergence_threshold=0.01, output_dir=None):
+        super().__init__(scoring_function, max_iterations, output_dir)
+        self.gradient_step = gradient_step
+        self.convergence_threshold = convergence_threshold
+
+    def _calculate_gradient(self, protein, pose, delta=0.1):
+        base_pose = copy.deepcopy(pose)
+        base_score = self.scoring_function.score(protein, base_pose)
+        gradient = np.zeros(6)
+
+        for i in range(3):
+            test_pose = copy.deepcopy(base_pose)
+            translation = np.zeros(3)
+            translation[i] = delta
+            test_pose.translate(translation)
+            forward = self.scoring_function.score(protein, test_pose)
+
+            test_pose = copy.deepcopy(base_pose)
+            translation[i] = -delta
+            test_pose.translate(translation)
+            backward = self.scoring_function.score(protein, test_pose)
+
+            gradient[i] = (forward - backward) / (2 * delta)
+
+        for i in range(3):
+            axis = np.zeros(3)
+            axis[i] = 1.0
+
+            test_pose = copy.deepcopy(base_pose)
+            centroid = np.mean(test_pose.xyz, axis=0)
+            test_pose.translate(-centroid)
+            rotation = Rotation.from_rotvec(axis * delta)
+            test_pose.rotate(rotation.as_matrix())
+            test_pose.translate(centroid)
+            forward = self.scoring_function.score(protein, test_pose)
+
+            test_pose = copy.deepcopy(base_pose)
+            test_pose.translate(-centroid)
+            rotation = Rotation.from_rotvec(axis * -delta)
+            test_pose.rotate(rotation.as_matrix())
+            test_pose.translate(centroid)
+            backward = self.scoring_function.score(protein, test_pose)
+
+            gradient[i + 3] = (forward - backward) / (2 * delta)
+
+        return gradient
+
+    def search(self, protein, ligand):
+        print(f"\n🔍 Performing gradient-based search (L-BFGS-B)...\n")
+        start = time.time()
+
+        if protein.active_site:
+            center = protein.active_site['center']
+            radius = protein.active_site['radius']
+        else:
+            center = np.mean(protein.xyz, axis=0)
+            radius = 15.0
+
+        poses = []
+        for _ in range(10):
+            pose = copy.deepcopy(ligand)
+            r = radius * np.random.random() ** (1.0 / 3)
+            theta, phi = np.random.uniform(0, 2 * np.pi), np.random.uniform(0, np.pi)
+            x = center[0] + r * np.sin(phi) * np.cos(theta)
+            y = center[1] + r * np.sin(phi) * np.sin(theta)
+            z = center[2] + r * np.cos(phi)
+
+            centroid = np.mean(pose.xyz, axis=0)
+            pose.translate(np.array([x, y, z]) - centroid)
+
+            pose.translate(-centroid)
+            pose.rotate(Rotation.random().as_matrix())
+            pose.translate(centroid)
+
+            poses.append(pose)
+
+        results = []
+
+        for i, start_pose in enumerate(poses):
+            print(f"Optimizing pose {i+1}/10")
+            centroid = np.mean(start_pose.xyz, axis=0)
+
+            def objective(params):
+                test_pose = copy.deepcopy(start_pose)
+                translation = params[:3] - centroid
+                rot_vec = params[3:6]
+
+                test_pose.translate(translation)
+                if np.linalg.norm(rot_vec) > 1e-6:
+                    rot = Rotation.from_rotvec(rot_vec)
+                    test_pose.translate(-centroid)
+                    test_pose.rotate(rot.as_matrix())
+                    test_pose.translate(centroid)
+                return self.scoring_function.score(protein, test_pose)
+
+            def gradient(params):
+                test_pose = copy.deepcopy(start_pose)
+                translation = params[:3] - centroid
+                rot_vec = params[3:6]
+
+                test_pose.translate(translation)
+                if np.linalg.norm(rot_vec) > 1e-6:
+                    rot = Rotation.from_rotvec(rot_vec)
+                    test_pose.translate(-centroid)
+                    test_pose.rotate(rot.as_matrix())
+                    test_pose.translate(centroid)
+                return self._calculate_gradient(protein, test_pose, delta=self.gradient_step)
+
+            result = minimize(
+                objective,
+                np.concatenate([centroid, np.zeros(3)]),
+                method='L-BFGS-B',
+                jac=gradient,
+                options={'maxiter': self.max_iterations, 'ftol': self.convergence_threshold, 'disp': False}
+            )
+
+            final_pose = copy.deepcopy(start_pose)
+            translation = result.x[:3] - centroid
+            rot_vec = result.x[3:6]
+            final_pose.translate(translation)
+            if np.linalg.norm(rot_vec) > 1e-6:
+                rot = Rotation.from_rotvec(rot_vec)
+                final_pose.translate(-centroid)
+                final_pose.rotate(rot.as_matrix())
+                final_pose.translate(centroid)
+
+            score = self.scoring_function.score(protein, final_pose)
+            results.append((final_pose, score))
+
+        results.sort(key=lambda x: x[1])
+        print(f"Best gradient-based score: {results[0][1]:.2f} in {time.time()-start:.1f}s")
+        return results
+
+class ReplicaExchangeDocking(DockingSearch):
+    def __init__(self, scoring_function, n_replicas=4, temperatures=None, exchange_steps=10, steps_per_exchange=100, output_dir=None):
+        super().__init__(scoring_function, steps_per_exchange * exchange_steps, output_dir)
+        self.n_replicas = n_replicas
+        self.output_dir = output_dir
+        self.exchange_steps = exchange_steps
+        self.steps_per_exchange = steps_per_exchange
+        self.k_boltzmann = 1.9872e-3
+
+        if temperatures is None:
+            self.temperatures = np.geomspace(300.0, 1200.0, n_replicas)
+        else:
+            self.temperatures = np.array(temperatures)
+            if len(self.temperatures) != n_replicas:
+                raise ValueError("Temperature count must match replica count")
+
+    def search(self, protein, ligand):
+        print(f"\n🔁 Performing Replica Exchange Monte Carlo with {self.n_replicas} replicas\n")
+        print("Temperatures:", ", ".join(f"{t:.0f}K" for t in self.temperatures))
+        print(f"Exchange steps: {self.exchange_steps}, Steps per exchange: {self.steps_per_exchange}")
+        start_time = time.time()
+
+        if protein.active_site:
+            center = protein.active_site['center']
+            radius = protein.active_site['radius']
+        else:
+            center = np.mean(protein.xyz, axis=0)
+            radius = 15.0
+
+        replicas = []
+        for i in range(self.n_replicas):
+            pose = copy.deepcopy(ligand)
+            r = radius * np.random.random() ** (1.0 / 3.0)
+            theta = np.random.uniform(0, 2 * np.pi)
+            phi = np.random.uniform(0, np.pi)
+            x = center[0] + r * np.sin(phi) * np.cos(theta)
+            y = center[1] + r * np.sin(phi) * np.sin(theta)
+            z = center[2] + r * np.cos(phi)
+            centroid = np.mean(pose.xyz, axis=0)
+            pose.translate(np.array([x, y, z]) - centroid)
+            pose.translate(-centroid)
+            pose.rotate(Rotation.random().as_matrix())
+            pose.translate(centroid)
+            score = self.scoring_function.score(protein, pose)
+            replicas.append({'pose': pose, 'score': score, 'temperature': self.temperatures[i]})
+
+        best_pose, best_score = None, float('inf')
+        for step in range(self.exchange_steps):
+            for rep in replicas:
+                for _ in range(self.steps_per_exchange):
+                    new_pose = copy.deepcopy(rep['pose'])
+                    max_t = 2.0 * (rep['temperature'] / self.temperatures[-1])
+                    max_r = 0.3 * (rep['temperature'] / self.temperatures[-1])
+                    new_pose.translate(np.random.uniform(-max_t, max_t, 3))
+                    axis = np.random.randn(3); axis /= np.linalg.norm(axis)
+                    angle = np.random.uniform(-max_r, max_r)
+                    rot = Rotation.from_rotvec(axis * angle)
+                    centroid = np.mean(new_pose.xyz, axis=0)
+                    new_pose.translate(-centroid)
+                    new_pose.rotate(rot.as_matrix())
+                    new_pose.translate(centroid)
+                    new_score = self.scoring_function.score(protein, new_pose)
+                    delta = new_score - rep['score']
+                    if delta <= 0 or np.random.rand() < np.exp(-delta / (self.k_boltzmann * rep['temperature'])):
+                        rep['pose'], rep['score'] = new_pose, new_score
+                        if new_score < best_score:
+                            best_pose, best_score = copy.deepcopy(new_pose), new_score
+            for i in range(self.n_replicas - 1):
+                rep1, rep2 = replicas[i], replicas[i + 1]
+                delta = (1.0 / (self.k_boltzmann * rep1['temperature']) - 1.0 / (self.k_boltzmann * rep2['temperature'])) * (rep2['score'] - rep1['score'])
+                if delta <= 0 or np.random.rand() < np.exp(-delta):
+                    rep1['pose'], rep2['pose'] = rep2['pose'], rep1['pose']
+                    rep1['score'], rep2['score'] = rep2['score'], rep1['score']
+
+        print(f"Best REMC score: {best_score:.2f} in {time.time()-start_time:.1f}s")
+        return [(best_pose, best_score)]

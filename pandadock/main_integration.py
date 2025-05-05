@@ -9,7 +9,8 @@ import os
 
 # Factory and algorithms
 from .scoring_factory import create_scoring_function
-from .search import RandomSearch, GeneticAlgorithm
+from .search import GeneticAlgorithm, RandomSearch
+from .parallel_search import ParallelGeneticAlgorithm, ParallelRandomSearch
 from .pandadock import PANDADOCKAlgorithm
 
 # Physics-based models
