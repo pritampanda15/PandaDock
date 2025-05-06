@@ -104,7 +104,10 @@ class DockingSearch:
         # Save grid visualization if output directory exists
         if self.output_dir is not None:
             subsample_rate = 20  # Only save a subset for visualization
-            sphere_path = self.output_dir / "sphere.pdb"
+            from pathlib import Path  # Ensure this import exists at the top if not already
+
+            sphere_path = Path(self.output_dir) / "sphere.pdb"
+
             sphere_path.parent.mkdir(parents=True, exist_ok=True)
             
             with open(sphere_path, 'w') as f:

@@ -164,84 +164,83 @@ def create_optimized_search_algorithm(manager, algorithm_type, scoring_function,
     grid_spacing = kwargs.pop('grid_spacing', 0.375)
     grid_radius = kwargs.pop('grid_radius', 10.0)
     grid_center = kwargs.pop('grid_center', None)
+    output_dir = kwargs.pop('output_dir', None)
 
-    # Standard algorithm types
+    # AUTO-SELECT PARALLEL IMPLEMENTATIONS
+    cpu_workers = kwargs.get('cpu_workers', None)
+    use_gpu = kwargs.get('use_gpu', False)
+    use_parallel = (cpu_workers is not None and cpu_workers > 1) or use_gpu
+    if cpu_workers is None:
+        cpu_workers = manager.n_cpu_workers
+    if cpu_workers is None:
+        cpu_workers = os.cpu_count() or 1
+    if cpu_workers > 1:
+        use_parallel = True
+    else:
+        use_parallel = False
+    # Check if GPU is available
+    if use_gpu:
+        print(f"[INFO] Using GPU acceleration for '{algorithm_type}'")
+    else:
+        print(f"[INFO] Using CPU acceleration for '{algorithm_type}'")
+    # Check if parallel implementation is available
+    if use_parallel:
+        print(f"[INFO] Using parallel implementation for '{algorithm_type}' with {cpu_workers} CPU workers")
+    else:
+        print(f"[INFO] Using serial implementation for '{algorithm_type}'")
+
+    # ----------------------------------------------------
     if algorithm_type == 'genetic':
-        try:
+        if use_parallel:
             from .parallel_search import ParallelGeneticAlgorithm
-             # Remove unsupported kwargs for this algorithm
-            kwargs.pop('grid_radius', None)
-            kwargs.pop('grid_spacing', None)
-            kwargs.pop('grid_center', None)
-           
-            # Remove unsupported 'n_steps' argument if present
-            kwargs.pop('n_steps', None)
-            kwargs.pop('temperature', None)
-            kwargs.pop('cooling_factor', None)
-            kwargs.pop('high_temp', None)
-            kwargs.pop('target_temp', None)
-            kwargs.pop('num_conformers', None)
-            kwargs.pop('num_orientations', None)
-            kwargs.pop('md_steps', None)
-            kwargs.pop('minimize_steps', None)
-            kwargs.pop('use_grid', None)
-            kwargs.pop('grid_center', None)
-            kwargs.pop('grid_radius', None)
-            kwargs.pop('grid_spacing', None)
-            kwargs.pop('use_monte_carlo', None)
-            kwargs.pop('use_monte_carlo', None)
-            kwargs.pop('grid_spacing', None)
-            kwargs.pop('n_steps', None)
-            kwargs.pop('temperature', None)
-            kwargs.pop('cooling_factor', None)
-            kwargs.pop('high_temp', None)
-            kwargs.pop('target_temp', None)
-            kwargs.pop('num_conformers', None)
-            kwargs.pop('num_orientations', None)
-            kwargs.pop('md_steps', None)
-            kwargs.pop('minimize_steps', None)
-            kwargs.pop('use_grid', None)
-            kwargs.pop('output_dir', None)
-
-                
+            # Remove irrelevant kwargs
+            for key in ['n_steps', 'temperature', 'cooling_factor', 'high_temp', 'target_temp',
+                        'num_conformers', 'num_orientations', 'md_steps', 'minimize_steps',
+                        'use_grid', 'use_monte_carlo']:
+                kwargs.pop(key, None)
             return ParallelGeneticAlgorithm(
                 scoring_function=scoring_function,
-                grid_spacing=grid_spacing,  # Pass grid_spacing explicitly    # 💥 PASS properly
-                grid_radius=grid_radius,      # 💥 PASS properly
+                grid_spacing=grid_spacing,
+                grid_radius=grid_radius,
                 grid_center=grid_center,
-                output_dir=kwargs.pop('output_dir', None),
+                output_dir=output_dir,
                 **kwargs
             )
-        except ImportError:
+        else:
             from .search import GeneticAlgorithm
             return GeneticAlgorithm(
                 scoring_function=scoring_function,
+                grid_spacing=grid_spacing,
+                grid_radius=grid_radius,
+                grid_center=grid_center,
+                output_dir=output_dir,
                 **kwargs
             )
-            
+
     elif algorithm_type == 'random':
-        try:
+        if use_parallel:
             from .parallel_search import ParallelRandomSearch
-             # Remove unsupported kwargs for this algorithm
-            kwargs.pop('grid_radius', None)
-            kwargs.pop('grid_spacing', None)
-            kwargs.pop('grid_center', None)
-            kwargs.pop('output_dir', None)
             return ParallelRandomSearch(
                 scoring_function=scoring_function,
+                grid_spacing=grid_spacing,
+                grid_radius=grid_radius,
+                grid_center=grid_center,
+                output_dir=output_dir,
                 **kwargs
             )
-        except ImportError:
+        else:
             from .search import RandomSearch
             return RandomSearch(
                 scoring_function=scoring_function,
-                grid_spacing=grid_spacing,  # Pass grid_spacing explicitly
-                grid_radius=grid_radius,    # 💥 PASS properl
-                grid_center=grid_center,     # 💥 PASS proper
-                output_dir=kwargs.pop('output_dir', None),
+                grid_spacing=grid_spacing,
+                grid_radius=grid_radius,
+                grid_center=grid_center,
+                output_dir=output_dir,
                 **kwargs
             )
-            
+    # ----------------------------------------------------
+    # Add support for Monte Carlo sampling
+    # ----------------------------------------------------
     elif algorithm_type == 'monte-carlo':
         try:
             from .unified_scoring import MonteCarloSampling
