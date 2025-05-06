@@ -49,7 +49,7 @@ It is designed for high-accuracy drug discovery, computational chemistry, and ne
 ## ✨ Key Features
 
 - 🔬 **Flexible Input Parsing**: Supports PDB, MOL, SDF files
-- 🎯 **Binding Site Definition**: Manual or automatic pocket detection
+- 🎯 **Binding Site Definition**: Manual or automatic CASTp like pocket detection
 - 📊 **Multiple Scoring Functions**:
   - Basic (VDW + H-bond)
   - Enhanced (VDW + H-bond + electrostatics + desolvation + hydrophobic)
@@ -72,6 +72,7 @@ It is designed for high-accuracy drug discovery, computational chemistry, and ne
   - Binding Affinity calculations 
   - All score plots
 - 🛠️ **Extensible Python API** for custom workflows and integrations
+- **Virtual Screening Option**
 
 ---
 ## Installation
@@ -147,6 +148,9 @@ pandadock -p protein.pdb -l ligand.sdf --use-gpu --physics-based -s -15.7 -17.7 
 
 # Automatic algorithm selection
 pandadock -p protein.pdb -l ligand.sdf --auto-algorithm -s -15.7 -17.7 8.1 --grid-radius 10.0 --grid-spacing 0.375 
+
+# Virtual Screening
+pandadock --virtual-screening --ligand-library ligands/ --parallel-screening -p receptor.pdb -s -15.7 -17.7 8.1 --use-gpu -a random --num-modes 9 --vs-exhaustiveness 1 --screening-processes 36 --top-hits 10 --grid-spacing 0.3
 ```
 #### Running Modes
 
@@ -162,6 +166,7 @@ PandaDock offers flexible running modes to balance between speed and accuracy:
   - `--flex-residues` - Use flexible residues
 - **Physics Mode**: More advanced algorithm
 - **Pandadock**: Pandadock algorithm with conformer generation
+- **VirtualScreening**: Run virtual screening with your choice of algorithm
 
 ---
 
