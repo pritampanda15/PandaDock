@@ -48,6 +48,7 @@ def is_inside_sphere(pose, center, radius):
     centroid = np.mean(pose.xyz, axis=0)
     distance = np.linalg.norm(centroid - center)
     return distance <= radius
+
 class ParallelGeneticAlgorithm(GeneticAlgorithm):
     def __init__(self, scoring_function, max_iterations=100, population_size=50, 
                  mutation_rate=0.2, crossover_rate=0.8, tournament_size=3, 

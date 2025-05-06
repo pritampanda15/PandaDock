@@ -1,68 +1,41 @@
+# -*- coding: utf-8 -*-
 # search.py
+"""
+Search algorithm implementations for PandaDock molecular docking.
+
+This module provides base and concrete implementations of search algorithms
+for exploring the conformational space of ligands during molecular docking.
+It includes:
+1. Base DockingSearch class defining the common interface
+2. RandomSearch for simple stochastic sampling
+3. GeneticAlgorithm for evolutionary optimization
+
+For multi-core parallel implementations, see parallel_search.py.
+"""
+
 import numpy as np
-from scipy.spatial.transform import Rotation
 from scipy.spatial.transform import Rotation
 import pathlib as Path
 import random
 import copy
-from .utils import setup_logging
-from .unified_scoring import TetheredScoringFunction
-from .protein import Protein
-from .ligand import Ligand
-from .unified_scoring import (
-    ScoringFunction, 
-    CompositeScoringFunction,
-    EnhancedScoringFunction,
-    GPUScoringFunction,
-    EnhancedGPUScoringFunction,
-    PhysicsBasedScoringFunction,
-    PhysicsBasedScoring,
-    TetheredScoringFunction
-)
+import time
+import os
 
-# Physics-based components (defined in physics.py)
-from .physics import (
-    MMFFMinimization,
-    MonteCarloSampling,
-    PhysicsBasedScoring,
-    GeneralizedBornSolvation
-)
-
-from .utils import save_docking_results, calculate_rmsd
-from .preparation import prepare_protein, prepare_ligand
-from .validation import validate_docking, calculate_ensemble_rmsd
-
-
-# --- Geometry utilities ---
-def random_point_in_sphere(center, radius):
-    """
-    Generate a random point uniformly inside a sphere.
-    """
-    phi = np.random.uniform(0, 2 * np.pi)
-    costheta = np.random.uniform(-1, 1)
-    u = np.random.uniform(0, 1)
-
-    theta = np.arccos(costheta)
-    r = radius * (u ** (1/3))
-
-    x = r * np.sin(theta) * np.cos(phi)
-    y = r * np.sin(theta) * np.sin(phi)
-    z = r * np.cos(theta)
-
-    return center + np.array([x, y, z])
-
-def is_inside_sphere(pose, center, radius):
-    """
-    Check if the ligand pose's centroid is within the active site sphere.
-    """
-    centroid = np.mean(pose.xyz, axis=0)
-    distance = np.linalg.norm(centroid - center)
-    return distance <= radius
+# Import necessary utility functions
+from .utils import setup_logging, generate_spherical_grid, is_inside_sphere, random_point_in_sphere
+from .utils import save_intermediate_result, update_status, detect_steric_clash
 
 class DockingSearch:
-    """Base class for docking search algorithms."""
+    """
+    Base class for all docking search algorithms.
     
-    def __init__(self, scoring_function, max_iterations=1000, output_dir=None, grid_spacing=0.375, grid_radius=10.0):
+    This class defines the common interface and shared functionality
+    for all molecular docking search algorithms in PandaDock.
+    Concrete search algorithms should inherit from this class and
+    implement the search() method.
+    """
+    
+    def __init__(self, scoring_function, max_iterations=100, output_dir=None, grid_spacing=0.375, grid_radius=10.0, grid_center=None):
         """
         Initialize search algorithm.
         
@@ -77,69 +50,77 @@ class DockingSearch:
         grid_radius : float
             Radius of the search sphere
         """
-        from .utils import setup_logging
+      
     
         self.scoring_function = scoring_function
         self.max_iterations = max_iterations
-        self.output_dir = output_dir
+        self.output_dir = Path(output_dir) if output_dir else None
+        
+        # Grid parameters
         self.grid_spacing = grid_spacing
         self.grid_radius = grid_radius
-    
-        self.logger = setup_logging(output_dir)
+        self.grid_center = grid_center
         self.grid_points = None
-        self.grid_radius = self.grid_radius
-        self.grid_spacing = self.grid_spacing
-        self.output_dir = output_dir
-        self.max_iterations = max_iterations
+
+        # Set up logging if output_dir is provided
+        self.logger = setup_logging(self.output_dir) if self.output_dir else None 
     
-    def save_sphere_to_pdb(self, grid_points, output_path):
-        """
-        Save spherical grid points as PDB file for visualization.
-        """
-        with open(output_path, 'w') as f:
-            for i, point in enumerate(grid_points):
-                f.write(
-                    f"HETATM{i+1:5d}  C   SPH A   1    "
-                    f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00           C\n"
-                )
-            f.write("END\n")
-        self.logger.info(f"Saved spherical grid to {output_path}")
-        self.logger.info("Spherical grid points saved for visualization.")
-        self.logger.info(f"Grid points saved to {output_path}")
+
     # Define a method to set up the grid
-    def initialize_grid_points(self, center):
-        from .utils import generate_spherical_grid
-        from pathlib import Path
-        if self.grid_points is None:
-            self.grid_points = generate_spherical_grid(
-                center=center,
-                radius=self.grid_radius,
-                spacing=self.grid_spacing
-            )
+    def initialize_grid_points(self, center, protein=None):
+        """
+        Generate a grid of points within a sphere for search space sampling.
+        
+        Parameters:
+        -----------
+        center : array-like
+            Center coordinates of the search sphere
+        protein : Protein, optional
+            Protein object for context-aware grid generation
+            
+        Notes:
+        ------
+        This method populates self.grid_points with coordinates within
+        a sphere centered at 'center' with radius self.grid_radius
+        and spacing self.grid_spacing.
+        """
+        # Return if grid already initialized
+        if self.grid_points is not None:
+            return
+            
+        # Generate spherical grid
+        self.grid_points = generate_spherical_grid(
+            center=center,
+            radius=self.grid_radius,
+            spacing=self.grid_spacing
+        )
+        
+        if self.logger:
             self.logger.info(
                 f"Initialized spherical grid with {len(self.grid_points)} points "
                 f"(spacing: {self.grid_spacing}, radius: {self.grid_radius})"
             )
-
-            # Save Sphere PDB
-            # Save Sphere PDB ONLY if output_dir is not None
-            # Save Light Sphere PDB
-            subsample_rate = 20  # <-- Only keep 1 out of every 5 points
-
-            if self.output_dir is not None:
-                sphere_path = Path(self.output_dir) / "sphere.pdb"
-                sphere_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(sphere_path, 'w') as f:
-                    for idx, point in enumerate(self.grid_points):
-                        if idx % subsample_rate == 0:  # <-- Only write every Nth point
-                            f.write(
-                                f"HETATM{idx+1:5d} {'S':<2s}   SPH A   1    "
-                                f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
-                            )
-                self.logger.info(f"Sphere grid written to {sphere_path} (subsampled every {subsample_rate} points)")    
+            
+        # Save grid visualization if output directory exists
+        if self.output_dir is not None:
+            subsample_rate = 20  # Only save a subset for visualization
+            sphere_path = self.output_dir / "sphere.pdb"
+            sphere_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(sphere_path, 'w') as f:
+                for idx, point in enumerate(self.grid_points):
+                    if idx % subsample_rate == 0:
+                        f.write(
+                            f"HETATM{idx+1:5d} {'S':<2s}   SPH A   1    "
+                            f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
+                        )
+            
+            if self.logger:
+                self.logger.info(f"Sphere grid written to {sphere_path} (subsampled every {subsample_rate} points)")   
+    
     def search(self, protein, ligand):
         """
-        Perform docking search.
+        Perform docking search to identify optimal ligand poses.
         
         Parameters:
         -----------
@@ -151,18 +132,141 @@ class DockingSearch:
         Returns:
         --------
         list
-            List of (pose, score) tuples, sorted by score
+            List of (pose, score) tuples, sorted by score (best first)
+            
+        Notes:
+        ------
+        This is an abstract method that must be implemented by subclasses.
         """
         raise NotImplementedError("Subclasses must implement this method")
     
     def _adjust_search_radius(self, initial_radius, generation, total_generations):
         """
-        Shrink the search radius over generations.
+        Adaptively shrink the search radius as the search progresses.
+        
+        Parameters:
+        -----------
+        initial_radius : float
+            Starting radius for the search
+        iteration : int
+            Current iteration number
+        total_iterations : int
+            Total number of iterations
+            
+        Returns:
+        --------
+        float
+            Adjusted radius for the current iteration
+            
+        Notes:
+        ------
+        This implements a linear decay strategy to focus the search
+        on promising regions of the conformational space.
         """
         decay_rate = 0.5  # How much radius should shrink overall (50% smaller at end)
         factor = 1.0 - (generation / total_generations) * decay_rate
         return max(initial_radius * factor, initial_radius * 0.5)  # Do not shrink below 50%
 
+    def _check_pose_validity(self, ligand, protein, clash_threshold=1.5):
+        """
+        Check if ligand pose clashes with protein atoms.
+        
+        Parameters:
+            ligand: Ligand object with .atoms
+            protein: Protein object with .atoms or active_site['atoms']
+            clash_threshold: Ångström cutoff for hard clash
+            
+        Returns:
+            bool: True if pose is valid (no severe clash), False otherwise
+        """
+        ligand_coords = np.array([atom['coords'] for atom in ligand.atoms])
+        
+        # Use active site atoms if defined
+        if hasattr(protein, 'active_site') and protein.active_site and 'atoms' in protein.active_site:
+            protein_coords = np.array([atom['coords'] for atom in protein.active_site['atoms']])
+        else:
+            protein_coords = np.array([atom['coords'] for atom in protein.atoms])
+        
+        for lig_coord in ligand_coords:
+            distances = np.linalg.norm(protein_coords - lig_coord, axis=1)
+            if np.any(distances < clash_threshold):
+                return False  # Clash detected
+        
+        return True
+    def _check_pose_clash(self, ligand, protein, clash_threshold=1.5):
+        """
+        Check if ligand pose clashes with protein atoms.
+        
+        Parameters:
+            ligand: Ligand object with .atoms
+            protein: Protein object with .atoms or active_site['atoms']
+            clash_threshold: Ångström cutoff for hard clash
+            
+        Returns:
+            bool: True if pose is valid (no severe clash), False otherwise
+        """
+        ligand_coords = np.array([atom['coords'] for atom in ligand.atoms])
+        
+        # Use active site atoms if defined
+        if hasattr(protein, 'active_site') and protein.active_site and 'atoms' in protein.active_site:
+            protein_coords = np.array([atom['coords'] for atom in protein.active_site['atoms']])
+        else:
+            protein_coords = np.array([atom['coords'] for atom in protein.atoms])
+        
+        for lig_coord in ligand_coords:
+            distances = np.linalg.norm(protein_coords - lig_coord, axis=1)
+            if np.any(distances < clash_threshold):
+                return True  # Clash detected
+        
+        return False
+    
+    def _calculate_clash_score(self, protein, ligand):
+        """
+        Calculate a score specifically for steric clashes between protein and ligand.
+        
+        Parameters:
+        -----------
+        protein : Protein
+            Protein object
+        ligand : Ligand
+            Ligand pose
+        
+        Returns:
+        --------
+        float
+            Clash score (lower is better)
+        """
+        # Get protein atoms
+        if protein.active_site and 'atoms' in protein.active_site:
+            protein_atoms = protein.active_site['atoms']
+        else:
+            protein_atoms = protein.atoms
+        
+        clash_score = 0.0
+        
+        for p_atom in protein_atoms:
+            p_coords = p_atom['coords']
+            p_symbol = p_atom.get('element', p_atom.get('name', 'C'))[0]
+            p_radius = self.scoring_function.vdw_radii.get(p_symbol, 1.7)
+            
+            for l_atom in ligand.atoms:
+                l_coords = l_atom['coords']
+                l_symbol = l_atom.get('symbol', 'C')
+                l_radius = self.scoring_function.vdw_radii.get(l_symbol, 1.7)
+                
+                # Calculate distance
+                distance = np.linalg.norm(p_coords - l_coords)
+                
+                # Define minimum allowed distance (typically 70-80% of sum of vdW radii)
+                min_allowed = (p_radius + l_radius) * 0.7
+                
+                # Penalize severe clashes
+                if distance < min_allowed:
+                    # Calculate penalty proportional to the overlap
+                    overlap = (min_allowed - distance) / min_allowed
+                    clash_score += overlap**2  # Square to emphasize severe clashes
+        
+        return clash_score
     def _generate_orientations(self, ligand, protein):
         orientations = []
 
@@ -193,263 +297,121 @@ class DockingSearch:
                 bad_orientations += 1
 
         return orientations
-
-    def _check_pose_validity(self, pose, protein):
+    
+    def _local_optimization(self, pose, protein):
         """
-        Check whether a pose has acceptable steric clashes or energy.
-        """
-        if hasattr(self.scoring_function, '_calculate_clashes'):
-            clash_score = self.scoring_function._calculate_clashes(protein, pose)
-            return clash_score < 10.0  # or make this configurable
-        else:
-            score = self.scoring_function.score(protein, pose)
-            return score < 100.0
-        
-    def improve_rigid_docking(self, protein, ligand, args):
-        """
-        Improved rigid docking implementation with more focused search.
+        Perform local optimization of a pose using gradient descent.
         
         Parameters:
         -----------
+        pose : Ligand
+            Ligand pose to optimize
         protein : Protein
-            Protein object
-        ligand : Ligand
-            Ligand object
-        args : argparse.Namespace
-            Command-line arguments
+            Protein target
         
         Returns:
         --------
-        list
-            List of (pose, score) tuples, sorted by score (best first)
+        tuple
+            (optimized_pose, optimized_score)
+            
+        Notes:
+        ------
+        This method implements a simple gradient descent optimization
+        by trying small movements in different directions and accepting
+        improvements.
         """
-        print("\nPerforming enhanced rigid docking...")
+        # Set optimization parameters
+        step_size = 0.1  # Angstroms for translation
+        angle_step = 0.05  # Radians for rotation
+        max_steps = 50  # Maximum optimization steps
         
-        # Ensure active site is properly defined
-        if not protein.active_site:
-            if hasattr(args, 'site') and args.site:
-                protein.define_active_site(args.site, args.radius if hasattr(args, 'radius') else 10.0)
-                print(f"Using provided active site center with radius {args.radius if hasattr(args, 'radius') else 10.0}Å")
-            elif hasattr(args, 'detect_pockets') and args.detect_pockets:
-                pockets = protein.detect_pockets()
-                if pockets:
-                    print(f"Using detected binding pocket as active site")
-                    protein.define_active_site(pockets[0]['center'], pockets[0]['radius'])
-                else:
-                    print("No pockets detected, using protein center")
-                    center = np.mean(protein.xyz, axis=0)
-                    protein.define_active_site(center, 15.0)
-            else:
-                print("WARNING: No active site specified. Defining one based on protein center.")
-                center = np.mean(protein.xyz, axis=0)
-                protein.define_active_site(center, 15.0)
-       
-        # Create a more focused initial pose generation
-        active_site_center = protein.active_site['center']
-        active_site_radius = protein.active_site['radius']
-        self.initialize_grid_points(center=protein.active_site['center'])
+        # Make copies to avoid modifying originals
+        current_pose = copy.deepcopy(pose)
+        current_score = self.scoring_function.score(protein, current_pose)
+        best_pose = copy.deepcopy(current_pose)
+        best_score = current_score
         
-        # Save the sphere to a PDB file for visualization
-        # Save the grid sphere points to sphere.pdb
-        from .utils import generate_spherical_grid
-        # Create the output directory if it doesn't exist
-        if not self.output_dir.exists():
-            self.output_dir.mkdir(parents=True)
-        sphere_path = Path(self.output_dir) / "sphere.pdb"
-        with open(sphere_path, 'w') as f:
-            for idx, point in enumerate(self.grid_points):
-                f.write(
-                    f"HETATM{idx+1:5d} { 'S':<2s}   SPH A   1    "
-                    f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00          S\n"
-                )
-        print(f"Saved active site sphere points to {sphere_path}")
-        print(f"Spherical sampling grid saved to {self.output_dir / 'sphere.pdb'} for visualization.")
-        print(f"Active site center: {active_site_center}, radius: {active_site_radius}")
-        # Check if ligand is within the active site
-        if not is_inside_sphere(ligand, active_site_center, active_site_radius):
-            print("WARNING: Ligand centroid is outside the active site. Adjusting position...")
-            # Move ligand to the center of the active site
-            centroid = np.mean(ligand.xyz, axis=0)
-            translation = active_site_center - centroid
-            ligand.translate(translation)
-            print(f"Moved ligand centroid to active site center: {active_site_center}")
-        else:
-            print("Ligand centroid is within the active site. No adjustment needed.")
-        # Use the current scoring function
-        scoring_function = self.scoring_function
+        if self.logger:
+            self.logger.info(f"Starting local optimization from score: {current_score:.2f}")
         
-        # 1. Perform targeted random sampling within the active site
-        print("Performing targeted random sampling...")
-        
-        # Adjust search parameters for better exploration
-        n_initial_random = min(self.max_iterations // 4, 1000)
-        random_results = []
-        
-        # Create initial samples with a focus on the center
-        for i in range(n_initial_random):
-            pose = copy.deepcopy(ligand)
+        # Main optimization loop
+        for step in range(max_steps):
+            improved = False
             
-            # Use more samples near the center of the active site
-            # with reduced radius to ensure better placement
-            # True sphere-based random sampling
-            random_point = random_point_in_sphere(active_site_center, active_site_radius)
-
-            # Move ligand centroid to this point
-            centroid = np.mean(pose.xyz, axis=0)
-            translation = random_point - centroid
-            pose.translate(translation)
-
+            # Try translations in 6 directions (+/- x, y, z)
+            directions = [
+                np.array([step_size, 0, 0]),
+                np.array([-step_size, 0, 0]),
+                np.array([0, step_size, 0]),
+                np.array([0, -step_size, 0]),
+                np.array([0, 0, step_size]),
+                np.array([0, 0, -step_size])
+            ]
             
-            # Apply a random rotation
-            # Normal random rotation
-            rotation = Rotation.random()
-
-            # Add bias: rotate toward center of pocket
-            centroid = np.mean(pose.xyz, axis=0)
-            vector_to_center = center - centroid
-            vector_to_center /= np.linalg.norm(vector_to_center)
-
-            # Small rotation (~10 degrees) toward pocket center
-            bias_rotation = Rotation.from_rotvec(0.2 * vector_to_center)  # 0.2 rad ≈ 11 degrees
-            biased_rotation = rotation * bias_rotation
-
-            rotation_matrix = biased_rotation.as_matrix()
-
-            # Apply
-            pose.translate(-centroid)
-            pose.rotate(rotation_matrix)
-            pose.translate(centroid)
-
-            
-            # Score the pose
-            score = scoring_function.score(protein, pose)
-            random_results.append((pose, score))
-            
-            if (i + 1) % 100 == 0 and i > 0:
-                print(f"  Completed {i + 1}/{n_initial_random} random poses")
-        
-        # Sort by score
-        random_results.sort(key=lambda x: x[1])
-        all_results = random_results.copy()
-        
-        # 2. Take top 20% of random results as initial seeds for genetic algorithm
-        if hasattr(args, 'algorithm') and args.algorithm == 'genetic':
-            print("Performing genetic algorithm optimization...")
-            
-            # Take top 20% of random results as initial population
-            top_random = random_results[:min(len(random_results) // 5, 50)]
-            
-            # Create a genetic algorithm with enhanced parameters
-            from .search import GeneticAlgorithm
-            ga = GeneticAlgorithm(
-                scoring_function=scoring_function,
-                max_iterations=self.max_iterations // 5,
-                population_size=min(len(top_random) * 2, 100),
-                mutation_rate=0.3,  # Higher mutation rate for better exploration
-                # Pass the optimization flag to the GA
-                perform_local_opt=args.local_opt if hasattr(args, 'local_opt') else False
-            )
-            
-            # Run GA
-            ga_results = []
-            
-            # Create initial population from top random poses
-            population = top_random.copy()
-            
-            # Fill in population if needed
-            while len(population) < ga.population_size:
-                idx = random.randint(0, len(top_random) - 1)
-                population.append(top_random[idx])
-            
-            # Sort initial population
-            population.sort(key=lambda x: x[1])
-            best_poses = [population[0]]
-            
-            # Main GA loop
-            for generation in range(ga.max_iterations):
-                # Selection, crossover, and mutation
-                parents = ga._selection(population)
-                offspring = ga._crossover(parents)
-                ga._mutation(offspring, active_site_radius, active_site_center)
+            # Test translations
+            for direction in directions:
+                test_pose = copy.deepcopy(current_pose)
+                test_pose.translate(direction)
+                test_score = self.scoring_function.score(protein, test_pose)
                 
-                # Evaluate offspring
-                for i, (pose, _) in enumerate(offspring):
-                    # Apply local optimization ONLY IF args.local_opt is TRUE
-                    # The GA now handles this internally via self.perform_local_opt
-                    if ga.perform_local_opt and i < len(offspring) // 4:  # Optimize top 25% if enabled
-                        optimized_pose, optimized_score = self._local_optimization(pose, protein)
-                        offspring[i] = (optimized_pose, optimized_score)
-                    else: # Otherwise, just score
-                        score = scoring_function.score(protein, pose)
-                        offspring[i] = (pose, score)
-                
-                # Combine and select new population
-                combined = population + offspring
-                combined.sort(key=lambda x: x[1])
-                population = combined[:ga.population_size]
-                
-                # Update best solution
-                if population[0][1] < best_poses[-1][1]:
-                    best_poses.append(population[0])
-                
-                print(f"  Generation {generation + 1}, best score: {population[0][1]}")
+                if test_score < best_score:
+                    best_pose = copy.deepcopy(test_pose)
+                    best_score = test_score
+                    improved = True
+                    break
             
-            ga_results = population
-            all_results.extend(ga_results)
-        
-        # 3. Apply more aggressive local optimization to best poses ONLY IF args.local_opt is TRUE
-        if hasattr(args, 'local_opt') and args.local_opt:
-            print("Applying enhanced local optimization (enabled by --local-opt)...")
-            optimized_results = []
-
-            # Sort all results by score and take top unique poses
-            all_results.sort(key=lambda x: x[1])
-            unique_poses = []
-            seen_scores = set()
-
-            for pose, score in all_results:
-                rounded_score = round(score, 2)
-                if rounded_score not in seen_scores:
-                    unique_poses.append((pose, score))
-                    seen_scores.add(rounded_score)
-                    if len(unique_poses) >= 20:
+            # If no improvement with translation, try rotations
+            if not improved:
+                # Try rotations around 3 primary axes
+                axes = [
+                    np.array([1, 0, 0]),  # X axis
+                    np.array([0, 1, 0]),  # Y axis
+                    np.array([0, 0, 1])   # Z axis
+                ]
+                
+                for axis in axes:
+                    for angle in [angle_step, -angle_step]:
+                        test_pose = copy.deepcopy(current_pose)
+                        centroid = np.mean(test_pose.xyz, axis=0)
+                        
+                        # Rotate around centroid
+                        test_pose.translate(-centroid)
+                        rotation = Rotation.from_rotvec(axis * angle)
+                        test_pose.rotate(rotation.as_matrix())
+                        test_pose.translate(centroid)
+                        
+                        test_score = self.scoring_function.score(protein, test_pose)
+                        
+                        if test_score < best_score:
+                            best_pose = copy.deepcopy(test_pose)
+                            best_score = test_score
+                            improved = True
+                            break
+                    
+                    if improved:
                         break
+            
+            # Update current pose if improved
+            if improved:
+                current_pose = copy.deepcopy(best_pose)
+                current_score = best_score
+                
+                # Reduce step sizes for finer search
+                step_size *= 0.9
+                angle_step *= 0.9
+            else:
+                # No improvement found, terminate early
+                break
+        
+        if self.logger:
+            self.logger.info(f"Local optimization completed. Score improved from {self.scoring_function.score(protein, pose):.2f} to {best_score:.2f}")
+        
+        return best_pose, best_score
 
-            # Apply more aggressive local optimization to top 10 poses
-            poses_to_optimize_count = min(10, len(unique_poses))
-            for i, (pose, score) in enumerate(unique_poses[:poses_to_optimize_count]):
-                print(f"  Optimizing pose {i+1}/{poses_to_optimize_count} (initial score: {score:.2f})...")
-
-                optimized_pose = copy.deepcopy(pose)
-                optimized_score = score
-                optimized_pose, optimized_score = self._enhanced_local_optimization(
-                    protein, optimized_pose, step_size=0.5, angle_step=0.1, max_steps=20
-                )
-                optimized_pose, optimized_score = self._enhanced_local_optimization(
-                    protein, optimized_pose, step_size=0.2, angle_step=0.05, max_steps=20
-                )
-                optimized_pose, optimized_score = self._enhanced_local_optimization(
-                    protein, optimized_pose, step_size=0.1, angle_step=0.02, max_steps=20
-                )
-                optimized_results.append((optimized_pose, optimized_score))
-
-            # Add remaining poses that were not optimized
-            optimized_results.extend(unique_poses[poses_to_optimize_count:])
-
-            # Sort final results
-            optimized_results.sort(key=lambda x: x[1])
-            print(f"Enhanced rigid docking completed. Best score: {optimized_results[0][1]:.2f}")
-            return optimized_results # Return the optimized list
-        else:
-            # If local opt not enabled, just sort and return the results from random/GA
-            print("Skipping enhanced local optimization (--local-opt not specified).")
-            all_results.sort(key=lambda x: x[1])
-            print(f"Enhanced rigid docking completed without local optimization. Best score: {all_results[0][1]:.2f}")
-            return all_results
 
     def _enhanced_local_optimization(self, protein, pose, step_size=0.2, angle_step=0.05, max_steps=50):
         """
-        Enhanced local optimization with more aggressive sampling.
+        Enhanced local optimization with more sophisticated sampling.
         
         Parameters:
         -----------
@@ -468,30 +430,24 @@ class DockingSearch:
         --------
         tuple
             (optimized_pose, optimized_score)
+            
+        Notes:
+        ------
+        This method implements a more thorough local optimization
+        compared to _local_optimization with adaptive step sizes
+        and more sophisticated sampling.
         """
-        import copy
-        from scipy.spatial.transform import Rotation
-        
-        # Get active site center for constraints
-        if protein.active_site:
-            center = protein.active_site['center']
-            radius = protein.active_site['radius']
-        else:
-            center = np.mean(protein.xyz, axis=0)
-            radius = 15.0
-        self.initialize_grid_points(center)
-        
+        # Make copies to avoid modifying originals
         current_pose = copy.deepcopy(pose)
         current_score = self.scoring_function.score(protein, current_pose)
         best_pose = copy.deepcopy(current_pose)
         best_score = current_score
         
-        # Counters for monitoring progress
-        step_count = 0
-        no_improvement_count = 0
+        if self.logger:
+            self.logger.info(f"Starting enhanced local optimization from score: {current_score:.2f}")
         
-        while step_count < max_steps and no_improvement_count < 10:
-            step_count += 1
+        # Main optimization loop
+        for step in range(max_steps):
             improved = False
             
             # Try translations in 6 directions
@@ -508,12 +464,6 @@ class DockingSearch:
             for direction in directions:
                 test_pose = copy.deepcopy(current_pose)
                 test_pose.translate(direction)
-                
-                # Ensure pose stays within active site
-                pose_center = np.mean(test_pose.xyz, axis=0)
-                if np.linalg.norm(pose_center - center) > radius:
-                    continue
-                    
                 test_score = self.scoring_function.score(protein, test_pose)
                 
                 if test_score < best_score:
@@ -555,16 +505,238 @@ class DockingSearch:
             if improved:
                 current_pose = copy.deepcopy(best_pose)
                 current_score = best_score
-                no_improvement_count = 0
+                
+                # Progress reporting
+                if (step + 1) % 10 == 0:
+                    if self.logger:
+                        self.logger.info(f"  Optimization step {step + 1}, score: {best_score:.2f}")
             else:
-                no_improvement_count += 1
-            
-            # Reduce step sizes as optimization progresses
-            if step_count % 10 == 0 and step_count > 0:
+                # Reduce step sizes and continue
                 step_size *= 0.8
                 angle_step *= 0.8
+                
+                # Stop if step size gets too small
+                if step_size < 0.01:
+                    break
+        
+        if self.logger:
+            self.logger.info(f"Enhanced optimization complete: Score improved from {self.scoring_function.score(protein, pose):.2f} to {best_score:.2f}")
         
         return best_pose, best_score
+
+
+    def improve_rigid_docking(self, protein, ligand, args):
+        """
+        Improved rigid docking implementation with more focused search.
+        
+        Parameters:
+        -----------
+        protein : Protein
+            Protein object
+        ligand : Ligand
+            Ligand object
+        args : argparse.Namespace
+            Command-line arguments with docking parameters
+        
+        Returns:
+        --------
+        list
+            List of (pose, score) tuples, sorted by score (best first)
+            
+        Notes:
+        ------
+        This method implements a more sophisticated docking protocol
+        that combines random sampling with genetic algorithm optimization
+        and local refinement.
+        """
+        print("\nPerforming enhanced rigid docking...")
+        
+        # Ensure active site is properly defined
+        if not protein.active_site:
+            if hasattr(args, 'site') and args.site:
+                protein.define_active_site(args.site, args.radius if hasattr(args, 'radius') else 10.0)
+                print(f"Using provided active site center with radius {args.radius if hasattr(args, 'radius') else 10.0}Å")
+            elif hasattr(args, 'detect_pockets') and args.detect_pockets:
+                pockets = protein.detect_pockets()
+                if pockets:
+                    print(f"Using detected binding pocket as active site")
+                    protein.define_active_site(pockets[0]['center'], pockets[0]['radius'])
+                else:
+                    print("No pockets detected, using protein center")
+                    center = np.mean(protein.xyz, axis=0)
+                    protein.define_active_site(center, 15.0)
+            else:
+                print("WARNING: No active site specified. Defining one based on protein center.")
+                center = np.mean(protein.xyz, axis=0)
+                protein.define_active_site(center, 15.0)
+       
+        # Get active site parameters
+        active_site_center = protein.active_site['center']
+        active_site_radius = protein.active_site['radius']
+        
+        # Initialize grid points
+        self.initialize_grid_points(center=active_site_center)
+        
+        # Check if ligand is within the active site
+        if not is_inside_sphere(ligand, active_site_center, active_site_radius):
+            print("WARNING: Ligand centroid is outside the active site. Adjusting position...")
+            # Move ligand to the center of the active site
+            centroid = np.mean(ligand.xyz, axis=0)
+            translation = active_site_center - centroid
+            ligand.translate(translation)
+            print(f"Moved ligand centroid to active site center: {active_site_center}")
+        else:
+            print("Ligand centroid is within the active site. No adjustment needed.")
+        
+        # 1. Perform targeted random sampling within the active site
+        print("Performing targeted random sampling...")
+        
+        # Adjust search parameters for better exploration
+        n_initial_random = min(self.max_iterations // 4, 1000)
+        random_results = []
+        
+        # Create initial samples with a focus on the center
+        for i in range(n_initial_random):
+            pose = copy.deepcopy(ligand)
+            
+            # Sample points within the active site with bias toward center
+            random_point = active_site_center + np.random.normal(0, active_site_radius / 2, size=3)
+            
+            # Ensure point is within the sphere
+            dist_to_center = np.linalg.norm(random_point - active_site_center)
+            if dist_to_center > active_site_radius:
+                # Scale back to the radius
+                random_point = active_site_center + (random_point - active_site_center) * (active_site_radius / dist_to_center)
+            
+            # Move ligand centroid to this point
+            centroid = np.mean(pose.xyz, axis=0)
+            translation = random_point - centroid
+            pose.translate(translation)
+            
+            # Apply random rotation
+            rotation = Rotation.random()
+            rotation_matrix = rotation.as_matrix()
+            centroid = np.mean(pose.xyz, axis=0)
+            pose.translate(-centroid)
+            pose.rotate(rotation_matrix)
+            pose.translate(centroid)
+            
+            # Score the pose
+            score = self.scoring_function.score(protein, pose)
+            random_results.append((pose, score))
+            
+            if (i + 1) % 100 == 0 and i > 0:
+                print(f"  Completed {i + 1}/{n_initial_random} random poses")
+        
+        # Sort by score
+        random_results.sort(key=lambda x: x[1])
+        all_results = random_results.copy()
+        
+        # 2. Take top poses from random results as initial seeds for genetic algorithm
+        if hasattr(args, 'algorithm') and args.algorithm == 'genetic':
+            print("Performing genetic algorithm optimization...")
+            
+            # Take top 20% of random results as initial population
+            top_random = random_results[:min(len(random_results) // 5, 50)]
+            
+            # Create a genetic algorithm with enhanced parameters
+            if hasattr(self, '_selection') and hasattr(self, '_crossover') and hasattr(self, '_mutation'):
+                population = top_random.copy()
+                
+                # Fill in population if needed
+                population_size = min(len(top_random) * 2, 100)
+                while len(population) < population_size:
+                    idx = random.randint(0, len(top_random) - 1)
+                    population.append(top_random[idx])
+                
+                # Sort initial population
+                population.sort(key=lambda x: x[1])
+                best_poses = [population[0]]
+                
+                # Main GA loop for a subset of iterations
+                for generation in range(self.max_iterations // 5):
+                    # Selection, crossover, and mutation
+                    parents = self._selection(population)
+                    offspring = self._crossover(parents)
+                    self._mutation(offspring, active_site_radius, active_site_center)
+                    
+                    # Evaluate offspring
+                    for i, (pose, _) in enumerate(offspring):
+                        if hasattr(args, 'local_opt') and args.local_opt and i < len(offspring) // 4:
+                            # Apply local optimization to top 25% if enabled
+                            optimized_pose, optimized_score = self._local_optimization(pose, protein)
+                            offspring[i] = (optimized_pose, optimized_score)
+                        else:
+                            # Otherwise just score
+                            score = self.scoring_function.score(protein, pose)
+                            offspring[i] = (pose, score)
+                    
+                    # Combine and select new population
+                    combined = population + offspring
+                    combined.sort(key=lambda x: x[1])
+                    population = combined[:population_size]
+                    
+                    # Update best solution
+                    if population[0][1] < best_poses[-1][1]:
+                        best_poses.append(population[0])
+                    
+                    print(f"  Generation {generation + 1}, best score: {population[0][1]}")
+                
+                all_results.extend(population)
+            else:
+                print("Warning: Genetic algorithm methods not available. Skipping GA optimization.")
+        
+        # 3. Apply more aggressive local optimization to best poses
+        if hasattr(args, 'local_opt') and args.local_opt:
+            print("Applying enhanced local optimization (enabled by --local-opt)...")
+            optimized_results = []
+
+            # Sort all results by score and take top unique poses
+            all_results.sort(key=lambda x: x[1])
+            unique_poses = []
+            seen_scores = set()
+
+            for pose, score in all_results:
+                rounded_score = round(score, 2)
+                if rounded_score not in seen_scores:
+                    unique_poses.append((pose, score))
+                    seen_scores.add(rounded_score)
+                    if len(unique_poses) >= 20:
+                        break
+
+            # Apply more aggressive local optimization to top poses
+            poses_to_optimize_count = min(10, len(unique_poses))
+            for i, (pose, score) in enumerate(unique_poses[:poses_to_optimize_count]):
+                print(f"  Optimizing pose {i+1}/{poses_to_optimize_count} (initial score: {score:.2f})...")
+
+                # Apply multiple stages of optimization with decreasing step sizes
+                optimized_pose, optimized_score = self._enhanced_local_optimization(
+                    protein, pose, step_size=0.5, angle_step=0.1, max_steps=20
+                )
+                optimized_pose, optimized_score = self._enhanced_local_optimization(
+                    protein, optimized_pose, step_size=0.2, angle_step=0.05, max_steps=20
+                )
+                optimized_pose, optimized_score = self._enhanced_local_optimization(
+                    protein, optimized_pose, step_size=0.1, angle_step=0.02, max_steps=20
+                )
+                
+                optimized_results.append((optimized_pose, optimized_score))
+
+            # Add remaining poses that were not optimized
+            optimized_results.extend(unique_poses[poses_to_optimize_count:])
+
+            # Sort final results
+            optimized_results.sort(key=lambda x: x[1])
+            print(f"Enhanced rigid docking completed. Best score: {optimized_results[0][1]:.2f}")
+            return optimized_results
+        else:
+            # If local opt not enabled, just sort and return the results
+            print("Skipping enhanced local optimization (--local-opt not specified).")
+            all_results.sort(key=lambda x: x[1])
+            print(f"Enhanced rigid docking completed without local optimization. Best score: {all_results[0][1]:.2f}")
+            return all_results
+
+    # Reference-guided docking with optional local optimization
         
     def reference_guided_docking(self, protein, ligand, reference_ligand, skip_optimization=False):
             """
@@ -757,7 +929,7 @@ class DockingSearch:
         
         # 1. Try aggressive atom-by-atom adjustment
         print("Approach 1: Atom-by-atom adjustment")
-        relaxed_pose1 = self._aggressive_atom_adjustment(protein, exact_aligned_pose, max_steps=50)
+        relaxed_pose1 = self._aggressive_atom_adjustment_aggressive_atom_adjustment(protein, exact_aligned_pose, max_steps=50)
         relaxed_score1 = self.scoring_function.score(protein, relaxed_pose1)
         refined_poses.append((relaxed_pose1, relaxed_score1))
         
@@ -1424,364 +1596,30 @@ class DockingSearch:
     
     
 class RandomSearch(DockingSearch):
-    """Simple random search algorithm."""
+    """
+    Simple random search algorithm.
+    
+    This class implements a basic stochastic sampling approach for 
+    molecular docking, generating random poses within the active site
+    and evaluating them.
+    """
     
     def search(self, protein, ligand):
-        """Perform genetic algorithm search."""
-        self.protein = protein
-
-        # Determine search space
-        if protein.active_site:
-            center = protein.active_site['center']
-            radius = protein.active_site['radius']
-        else:
-            center = np.mean(protein.xyz, axis=0)
-            radius = 10.0  # Default
-        self.initialize_grid_points(center)
-        
-        # ✨ Insert here
-        if not hasattr(protein, 'active_site') or protein.active_site is None:
-            protein.active_site = {
-                'center': center,
-                'radius': radius
-            }
-        if 'atoms' not in protein.active_site or protein.active_site['atoms'] is None:
-            protein.active_site['atoms'] = [
-                atom for atom in protein.atoms
-                if np.linalg.norm(atom['coords'] - center) <= radius
-            ]
-            print(f"[INFO] Added {len(protein.active_site['atoms'])} atoms into active_site region")
-
-        print(f"Searching around center {center} with radius {radius}")
-
-        print(f"Starting genetic algorithm search with population {self.population_size}")
-        print(f"Local optimization within GA generations is {'ENABLED' if self.perform_local_opt else 'DISABLED'}.")
-
-        # Initialize population
-        population = []
-        for _ in range(self.population_size):
-            pose = copy.deepcopy(ligand)
-
-            # 🟡 Pick a random point from grid
-            random_grid_point = random.choice(self.grid_points)
-
-            # 🟡 Move ligand centroid to grid point
-            centroid = np.mean(pose.xyz, axis=0)
-            translation = random_grid_point - centroid
-            pose.translate(translation)
-
-            # 🟡 Apply random rotation
-            rotation = Rotation.random()
-            rotation_matrix = rotation.as_matrix()
-            centroid = np.mean(pose.xyz, axis=0)
-            pose.translate(-centroid)
-            pose.rotate(rotation_matrix)
-            pose.translate(centroid)
-
-            # 🟡 Score
-            score = self.scoring_function.score(protein, pose)
-            population.append((pose, score))
-
-        # Sort initial population
-        population.sort(key=lambda x: x[1])
-        best_poses = [population[0]]
-
-        # Main Genetic Algorithm Loop
-        for generation in range(self.max_iterations):
-            # Shrink search radius adaptively
-            current_radius = self._adjust_search_radius(radius, generation, self.max_iterations)
-
-            parents = self._selection(population)
-            offspring = self._crossover(parents)
-
-            self._mutation(offspring, current_radius, center)
-
-            for pose, _ in offspring:
-                if not is_inside_sphere(pose, center, radius):
-                    continue
-
-            # Evaluate offspring
-            for i, (pose, _) in enumerate(offspring):
-                if self.perform_local_opt and i < len(offspring) // 4:
-                    optimized_pose, optimized_score = self._local_optimization(pose, protein)
-                    if not is_inside_sphere(optimized_pose, center, radius):
-                        continue
-                    offspring[i] = (optimized_pose, optimized_score)
-                else:
-                    score = self.scoring_function.score(protein, pose)
-                    offspring[i] = (pose, score)
-
-            combined = population + offspring
-            combined.sort(key=lambda x: x[1])
-            population = combined[:self.population_size]
-
-            if population[0][1] < best_poses[-1][1]:
-                best_poses.append(population[0])
-
-            if self.output_dir:
-                from .utils import save_intermediate_result, update_status
-                save_intermediate_result(population[0][0], population[0][1], generation + 1, self.output_dir, self.max_iterations)
-                update_status(self.output_dir, current_iteration=generation + 1, best_score=population[0][1], generation=generation + 1)
-
-            print(f"Generation {generation + 1}, best score: {population[0][1]}")
-
-        return best_poses
-
-    def _adjust_search_radius(self, initial_radius, generation, total_generations):
         """
-        Shrink the search radius over generations.
-        """
-        decay_rate = 0.5  # How much radius should shrink overall (50% smaller at end)
-        factor = 1.0 - (generation / total_generations) * decay_rate
-        return max(initial_radius * factor, initial_radius * 0.5)  # Do not shrink below 50%
-
-    def _generate_orientations(self, ligand, protein):
-        orientations = []
-
-        # Get active site center and radius
-        if protein.active_site:
-            center = protein.active_site['center']
-            radius = protein.active_site['radius']
-        else:
-            center = np.mean(protein.xyz, axis=0)
-            radius = 15.0
-
-        bad_orientations = 0
-        max_bad_orientations = self.num_orientations * 10
-
-        while len(orientations) < self.num_orientations and bad_orientations < max_bad_orientations:
-            pose = copy.deepcopy(ligand)
-            pose.random_rotate()
-
-            sampled_point = random_point_in_sphere(center, radius)
-            pose.translate(sampled_point)
-
-            if is_inside_sphere(pose, center, radius):
-                if self._check_pose_validity(pose, protein):
-                    orientations.append(pose)
-                else:
-                    bad_orientations += 1
-            else:
-                bad_orientations += 1
-
-        return orientations
-
-    def _check_pose_validity(self, ligand, protein, clash_threshold=1.5):
-        """
-        Check if ligand pose clashes with protein atoms.
-        
-        Parameters:
-            ligand: Ligand object with .atoms
-            protein: Protein object with .atoms or active_site['atoms']
-            clash_threshold: Ångström cutoff for hard clash
-            
-        Returns:
-            bool: True if pose is valid (no severe clash), False otherwise
-        """
-        ligand_coords = np.array([atom['coords'] for atom in ligand.atoms])
-        
-        # Use active site atoms if defined
-        if hasattr(protein, 'active_site') and protein.active_site and 'atoms' in protein.active_site:
-            protein_coords = np.array([atom['coords'] for atom in protein.active_site['atoms']])
-        else:
-            protein_coords = np.array([atom['coords'] for atom in protein.atoms])
-        
-        for lig_coord in ligand_coords:
-            distances = np.linalg.norm(protein_coords - lig_coord, axis=1)
-            if np.any(distances < clash_threshold):
-                return False  # Clash detected
-        
-        return True
-
-
-class GeneticAlgorithm(DockingSearch):
-    """Genetic algorithm for docking search."""
-    
-    def __init__(self, scoring_function, max_iterations=1000, 
-                 population_size=50, mutation_rate=0.2, perform_local_opt=False):
-        """Initialize genetic algorithm."""
-        super().__init__(scoring_function, max_iterations)
-        self.population_size = population_size
-        self.mutation_rate = mutation_rate
-        self.perform_local_opt = perform_local_opt
-        
-    def _local_optimization(self, pose, protein):
-        """
-        Perform local optimization of pose using gradient descent with clash detection.
-        
-        Parameters:
-        -----------
-        pose : Ligand
-            Ligand pose to optimize
-        protein : Protein
-            Protein target
-        
-        Returns:
-        --------
-        tuple
-            (optimized_pose, optimized_score)
-        """
-        step_size = 0.1  # Angstroms for translation
-        angle_step = 0.05  # Radians for rotation
-        max_steps = 50
-        converged = False
-        clash_threshold = 1.0  # Threshold for acceptable clash score
-        
-        # Make a copy of the pose to avoid modifying the original
-        current_pose = copy.deepcopy(pose)
-        current_score = self.scoring_function.score(protein, pose) # Get score before opt
-        current_score = self.scoring_function.score(protein, current_pose)
-        best_pose = copy.deepcopy(current_pose)
-        best_score = current_score
-        
-        print(f"Starting local optimization from score: {current_score:.2f}")
-        
-        # Constrain optimization to the grid
-        if np.linalg.norm(np.mean(pose.xyz, axis=0) - self.grid_center) > self.grid_radius:
-            print("Optimized pose outside grid. Reverting...")
-            return pose, self.scoring_function.score(protein, pose)
-        
-        # Perform optimization
-        for step in range(max_steps):
-            improved = False
-            
-            # Try small translations in 6 directions (+/- x, y, z)
-            directions = [
-                np.array([step_size, 0, 0]),
-                np.array([-step_size, 0, 0]),
-                np.array([0, step_size, 0]),
-                np.array([0, -step_size, 0]),
-                np.array([0, 0, step_size]),
-                np.array([0, 0, -step_size])
-            ]
-            
-            # Test translations
-            for direction in directions:
-                test_pose = copy.deepcopy(current_pose)
-                test_pose.translate(direction)
-                test_score = self.scoring_function.score(protein, test_pose)
-                
-                # Calculate clash score specifically
-                clash_score = self._calculate_clash_score(protein, test_pose)
-                
-                # Only accept if both overall score is better AND clash score is below threshold
-                if test_score < best_score and clash_score < clash_threshold:
-                    best_pose = copy.deepcopy(test_pose)
-                    best_score = test_score
-                    improved = True
-            
-            # Try small rotations around 3 axes
-            axes = [
-                np.array([1, 0, 0]),
-                np.array([0, 1, 0]),
-                np.array([0, 0, 1])
-            ]
-            
-            # Test rotations
-            for axis in axes:
-                for angle in [angle_step, -angle_step]:
-                    test_pose = copy.deepcopy(current_pose)
-                    
-                    # Get centroid
-                    centroid = np.mean(test_pose.xyz, axis=0)
-                    
-                    # Translate to origin, rotate, translate back
-                    test_pose.translate(-centroid)
-                    
-                    # Create rotation matrix
-                    rotation = Rotation.from_rotvec(axis * angle)
-                    rotation_matrix = rotation.as_matrix()
-                    
-                    test_pose.rotate(rotation_matrix)
-                    test_pose.translate(centroid)
-                    
-                    test_score = self.scoring_function.score(protein, test_pose)
-                    
-                    # Calculate clash score specifically
-                    clash_score = self._calculate_clash_score(protein, test_pose)
-                    
-                    # Only accept if both overall score is better AND clash score is below threshold
-                    if test_score < best_score and clash_score < clash_threshold:
-                        best_pose = copy.deepcopy(test_pose)
-                        best_score = test_score
-                        improved = True
-            
-            # Update current pose if improved
-            if improved:
-                current_pose = copy.deepcopy(best_pose)
-                current_score = best_score
-                
-                # Reduce step size for finer search
-                step_size *= 0.9
-                angle_step *= 0.9
-            else:
-                # No improvement found, terminate
-                converged = True
-                break
-            
-            if (step + 1) % 10 == 0:
-                print(f"  Optimization step {step + 1}, score: {best_score:.2f}")
-        
-        if converged:
-            print(f"Local optimization converged after {step + 1} steps")
-        else:
-            print(f"Local optimization reached maximum steps ({max_steps})")
-        
-        print(f"Score improved from {self.scoring_function.score(protein, pose):.2f} to {best_score:.2f}")
-        
-        return best_pose, best_score
-
-    def _calculate_clash_score(self, protein, ligand):
-        """
-        Calculate a score specifically for steric clashes between protein and ligand.
+        Perform random search to find optimal ligand poses.
         
         Parameters:
         -----------
         protein : Protein
             Protein object
         ligand : Ligand
-            Ligand pose
+            Ligand object
         
         Returns:
         --------
-        float
-            Clash score (lower is better)
+        list
+            List of (pose, score) tuples, sorted by score
         """
-        # Get protein atoms
-        if protein.active_site and 'atoms' in protein.active_site:
-            protein_atoms = protein.active_site['atoms']
-        else:
-            protein_atoms = protein.atoms
-        
-        clash_score = 0.0
-        
-        for p_atom in protein_atoms:
-            p_coords = p_atom['coords']
-            p_symbol = p_atom.get('element', p_atom.get('name', 'C'))[0]
-            p_radius = self.scoring_function.vdw_radii.get(p_symbol, 1.7)
-            
-            for l_atom in ligand.atoms:
-                l_coords = l_atom['coords']
-                l_symbol = l_atom.get('symbol', 'C')
-                l_radius = self.scoring_function.vdw_radii.get(l_symbol, 1.7)
-                
-                # Calculate distance
-                distance = np.linalg.norm(p_coords - l_coords)
-                
-                # Define minimum allowed distance (typically 70-80% of sum of vdW radii)
-                min_allowed = (p_radius + l_radius) * 0.7
-                
-                # Penalize severe clashes
-                if distance < min_allowed:
-                    # Calculate penalty proportional to the overlap
-                    overlap = (min_allowed - distance) / min_allowed
-                    clash_score += overlap**2  # Square to emphasize severe clashes
-        
-        return clash_score
-
-    def search(self, protein, ligand):
-        """Perform genetic algorithm search."""
-        self.protein = protein
 
         # Determine search space
         if protein.active_site:
@@ -1789,10 +1627,12 @@ class GeneticAlgorithm(DockingSearch):
             radius = protein.active_site['radius']
         else:
             center = np.mean(protein.xyz, axis=0)
-            radius = 10.0  # Default
+            radius = 15.0  # Default
+        
+        # Initialize grid points
         self.initialize_grid_points(center)
         
-        # ✨ Insert here
+        # Ensure active site atoms are defined for faster scoring
         if not hasattr(protein, 'active_site') or protein.active_site is None:
             protein.active_site = {
                 'center': center,
@@ -1807,6 +1647,187 @@ class GeneticAlgorithm(DockingSearch):
 
         print(f"Searching around center {center} with radius {radius}")
 
+        print(f"Starting random search with {self.max_iterations} iterations")
+        print(f"Searching around center {center} with radius {radius} Å")
+
+        # Store results
+        results = []
+        
+        # Track progress data
+        start_time = time.time()
+        best_score = float('inf')
+        best_pose = None
+        
+        # Count failures to potentially adjust search space
+        failures = 0
+        max_failures_before_adjust = 50
+        
+        # Main search loop
+        for iteration in range(self.max_iterations):
+            # Adjust radius to focus search as we progress
+            current_radius = self._adjust_search_radius(radius, iteration, self.max_iterations)
+            
+            # Generate a random pose
+            pose = copy.deepcopy(ligand)
+            
+            # Choose a random grid point
+            random_point = random.choice(self.grid_points)
+            
+            # Move ligand centroid to this point
+            centroid = np.mean(pose.xyz, axis=0)
+            translation = random_point - centroid
+            pose.translate(translation)
+            
+            # Apply random rotation
+            rotation = Rotation.random()
+            rotation_matrix = rotation.as_matrix()
+            pose.translate(-centroid)
+            pose.rotate(rotation_matrix)
+            pose.translate(centroid)
+            
+            # Pre-filtering for obvious issues
+            if not self._check_pose_validity(pose, protein):
+                failures += 1
+                if failures >= max_failures_before_adjust:
+                    # If too many failures, temporarily increase radius
+                    print(f"[INFO] High failure rate. Temporarily increasing search radius.")
+                    current_radius *= 1.2
+                    failures = 0
+                continue
+            
+            # Reset failure counter on success
+            failures = 0
+            
+            # Score the pose
+            score = self.scoring_function.score(protein, pose)
+            
+            # Add to results
+            results.append((pose, score))
+            
+            # Update best pose
+            if score < best_score:
+                best_score = score
+                best_pose = copy.deepcopy(pose)
+                
+                # Save intermediate result if output_dir is specified
+                if self.output_dir:
+                    save_intermediate_result(
+                        best_pose, best_score, iteration + 1, 
+                        self.output_dir, self.max_iterations
+                    )
+                    
+                    # Update status file
+                    update_status(
+                        self.output_dir,
+                        current_iteration=iteration + 1,
+                        best_score=best_score,
+                        total_iterations=self.max_iterations,
+                        progress=(iteration + 1) / self.max_iterations
+                    )
+            
+            # Progress reporting
+            if (iteration + 1) % 100 == 0 or iteration == self.max_iterations - 1:
+                elapsed = time.time() - start_time
+                remaining = (elapsed / (iteration + 1)) * (self.max_iterations - iteration - 1)
+                print(f"Iteration {iteration + 1}/{self.max_iterations}, "
+                      f"Best score: {best_score:.2f}, "
+                      f"Time: {elapsed:.1f}s, ETA: {remaining:.1f}s")
+        
+        # Sort results by score
+        results.sort(key=lambda x: x[1])
+        
+        print(f"Random search completed. "
+              f"Best score: {results[0][1]:.2f}, "
+              f"Total time: {time.time() - start_time:.1f}s")
+        
+        return results
+        
+
+
+
+class GeneticAlgorithm(DockingSearch):
+    """
+    Genetic algorithm for conformational search in molecular docking.
+    
+    This class implements an evolutionary optimization approach, evolving
+    a population of ligand poses through selection, crossover, and mutation
+    operations to identify optimal binding modes.
+    """
+    
+    def __init__(self, scoring_function, max_iterations=100, 
+                 population_size=50, mutation_rate=0.2, perform_local_opt=False,
+                 output_dir=None, grid_spacing=0.375, grid_radius=10.0):
+        """
+        Initialize genetic algorithm with specific parameters.
+        
+        Parameters:
+        -----------
+        scoring_function : ScoringFunction
+            Scoring function to evaluate poses
+        max_iterations : int
+            Maximum number of generations
+        population_size : int
+            Size of the population
+        mutation_rate : float
+            Probability of mutation (0.0 to 1.0)
+        perform_local_opt : bool
+            Whether to perform local optimization on selected individuals
+        output_dir : str or Path
+            Directory for saving output files
+        grid_spacing : float
+            Spacing between grid points in Angstroms
+        grid_radius : float
+            Radius of search sphere in Angstroms
+        """
+        super().__init__(scoring_function, max_iterations, output_dir, 
+                         grid_spacing, grid_radius)
+        self.population_size = population_size
+        self.mutation_rate = mutation_rate
+        self.perform_local_opt = perform_local_opt
+        self.grid_radius = grid_radius
+        self.grid_spacing = grid_spacing
+
+    def search(self, protein, ligand):
+        """
+        Perform genetic algorithm search to find optimal ligand poses.
+        
+        Parameters:
+        -----------
+        protein : Protein
+            Protein object
+        ligand : Ligand
+            Ligand object
+        
+        Returns:
+        --------
+        list
+            List of (pose, score) tuples, sorted by score
+        """
+
+        # Determine search space
+        if protein.active_site:
+            center = protein.active_site['center']
+            radius = protein.active_site['radius']
+        else:
+            center = np.mean(protein.xyz, axis=0)
+            radius = 10.0  # Default
+        # Initialize grid points
+        self.initialize_grid_points(center)
+        
+        # Ensure active site atoms are defined for faster scoring
+        if not hasattr(protein, 'active_site') or protein.active_site is None:
+            protein.active_site = {
+                'center': center,
+                'radius': radius
+            }
+        if 'atoms' not in protein.active_site or protein.active_site['atoms'] is None:
+            protein.active_site['atoms'] = [
+                atom for atom in protein.atoms
+                if np.linalg.norm(atom['coords'] - center) <= radius
+            ]
+            print(f"[INFO] Added {len(protein.active_site['atoms'])} atoms into active_site region")
+
+        print(f"Searching around center {center} with radius {radius}")
         print(f"Starting genetic algorithm search with population {self.population_size}")
         print(f"Local optimization within GA generations is {'ENABLED' if self.perform_local_opt else 'DISABLED'}.")
 
@@ -1815,15 +1836,15 @@ class GeneticAlgorithm(DockingSearch):
         for _ in range(self.population_size):
             pose = copy.deepcopy(ligand)
 
-            # 🟡 Pick a random point from grid
+            #  Pick a random point from grid
             random_grid_point = random.choice(self.grid_points)
 
-            # 🟡 Move ligand centroid to grid point
+            #  Move ligand centroid to grid point
             centroid = np.mean(pose.xyz, axis=0)
             translation = random_grid_point - centroid
             pose.translate(translation)
 
-            # 🟡 Apply random rotation
+            #  Apply random rotation
             rotation = Rotation.random()
             rotation_matrix = rotation.as_matrix()
             centroid = np.mean(pose.xyz, axis=0)
@@ -1831,128 +1852,161 @@ class GeneticAlgorithm(DockingSearch):
             pose.rotate(rotation_matrix)
             pose.translate(centroid)
 
-            # 🟡 Score
+            #  Evaluate Score
             score = self.scoring_function.score(protein, pose)
             population.append((pose, score))
 
         # Sort initial population
         population.sort(key=lambda x: x[1])
         best_poses = [population[0]]
+        best_score = population[0][1]
 
-        # Main Genetic Algorithm Loop
+        # Track progress timing
+        start_time = time.time()
+
+        # Main evolutionary loop
         for generation in range(self.max_iterations):
+            # Adjust search radius to focus on promising regions
             current_radius = self._adjust_search_radius(radius, generation, self.max_iterations)
+
+            # Selection: tournament selection
             parents = self._selection(population)
+
+            # Crossover: create offspring
             offspring = self._crossover(parents)
 
+            # Mutation: apply random modifications
             self._mutation(offspring, current_radius, center)
 
-            for pose, _ in offspring:
+            # Enforce boundary constraints
+            for i, (pose, _) in enumerate(offspring):
+                # Check if the pose is within the sphere
                 if not is_inside_sphere(pose, center, current_radius):
-                    continue
-
+                    # If outside, regenerate this individual
+                    new_pose = copy.deepcopy(ligand)
+                    
+                    # Sample within the current radius
+                    r = current_radius * np.random.random() ** (1/3)
+                    theta = np.random.uniform(0, 2 * np.pi)
+                    phi = np.random.uniform(0, np.pi)
+                    
+                    x = center[0] + r * np.sin(phi) * np.cos(theta)
+                    y = center[1] + r * np.sin(phi) * np.sin(theta)
+                    z = center[2] + r * np.sin(phi) * np.cos(phi)
+                    
+                    new_centroid = np.mean(new_pose.xyz, axis=0)
+                    new_pose.translate(np.array([x, y, z]) - new_centroid)
+                    
+                    # Random rotation
+                    rotation = Rotation.random()
+                    new_centroid = np.mean(new_pose.xyz, axis=0)
+                    new_pose.translate(-new_centroid)
+                    new_pose.rotate(rotation.as_matrix())
+                    new_pose.translate(new_centroid)
+                    
+                    offspring[i] = (new_pose, 0)  # Will be scored later
+            
             # Evaluate offspring
             for i, (pose, _) in enumerate(offspring):
-                if self.perform_local_opt and i < len(offspring) // 4:
+                # Apply local optimization to top offspring if enabled
+                if self.perform_local_opt and i < len(offspring) // 4:  # Optimize top 25%
                     optimized_pose, optimized_score = self._local_optimization(pose, protein)
-                    if not is_inside_sphere(optimized_pose, center, current_radius):
-                        continue
                     offspring[i] = (optimized_pose, optimized_score)
                 else:
+                    # Just score
                     score = self.scoring_function.score(protein, pose)
                     offspring[i] = (pose, score)
-
+            
+            # Combine parents and offspring, then select new population (elitism)
             combined = population + offspring
             combined.sort(key=lambda x: x[1])
             population = combined[:self.population_size]
-
-            if population[0][1] < best_poses[-1][1]:
+            
+            # Update best solution
+            if population[0][1] < best_score:
+                best_score = population[0][1]
                 best_poses.append(population[0])
-
-            if self.output_dir:
-                from .utils import save_intermediate_result, update_status
-                save_intermediate_result(population[0][0], population[0][1], generation + 1, self.output_dir, self.max_iterations)
-                update_status(self.output_dir, current_iteration=generation + 1, best_score=population[0][1], generation=generation + 1)
-
-            print(f"Generation {generation + 1}, best score: {population[0][1]}")
-
-        return best_poses
-
-    def _adjust_search_radius(self, initial_radius, generation, total_generations):
-        """
-        Shrink the search radius over generations.
-        """
-        decay_rate = 0.5  # How much radius should shrink overall (50% smaller at end)
-        factor = 1.0 - (generation / total_generations) * decay_rate
-        return max(initial_radius * factor, initial_radius * 0.5)  # Do not shrink below 50%
-
-    def _generate_orientations(self, ligand, protein):
-        orientations = []
+                
+                # Save intermediate result if output_dir is specified
+                if self.output_dir:
+                    save_intermediate_result(
+                        population[0][0], population[0][1], generation + 1, 
+                        self.output_dir, self.max_iterations
+                    )
+                    
+                    # Update status file
+                    update_status(
+                        self.output_dir,
+                        current_generation=generation + 1,
+                        best_score=best_score,
+                        total_generations=self.max_iterations,
+                        progress=(generation + 1) / self.max_iterations
+                    )
+            
+            # Progress reporting
+            elapsed = time.time() - start_time
+            remaining = (elapsed / (generation + 1)) * (self.max_iterations - generation - 1)
+            print(f"Generation {generation + 1}/{self.max_iterations}, "
+                  f"Best score: {best_score:.2f}, "
+                  f"Time: {elapsed:.1f}s, ETA: {remaining:.1f}s")
         
-        # Get active site center and radius
-        if protein.active_site:
-            center = protein.active_site['center']
-            radius = protein.active_site['radius']
+        # Final local optimization of top poses if enabled
+        if self.perform_local_opt:
+            print("Performing final local optimization on top poses...")
+            optimized_results = []
+            
+            # Take top 10 unique poses
+            population.sort(key=lambda x: x[1])
+            unique_poses = []
+            seen_scores = set()
+            
+            for pose, score in population:
+                rounded_score = round(score, 2)
+                if rounded_score not in seen_scores:
+                    unique_poses.append((pose, score))
+                    seen_scores.add(rounded_score)
+                    if len(unique_poses) >= 10:
+                        break
+            
+            # Optimize each pose
+            for i, (pose, score) in enumerate(unique_poses):
+                print(f"  Optimizing pose {i+1}/10 (initial score: {score:.2f})...")
+                optimized_pose, optimized_score = self._enhanced_local_optimization(
+                    protein, pose, step_size=0.2, angle_step=0.05, max_steps=50
+                )
+                optimized_results.append((optimized_pose, optimized_score))
+            
+            # Combine with other good poses
+            optimized_results.extend(population[len(optimized_results):20])
+            optimized_results.sort(key=lambda x: x[1])
+            
+            print(f"Genetic algorithm completed with optimization. "
+                  f"Best score: {optimized_results[0][1]:.2f}")
+            
+            return optimized_results
         else:
-            center = np.mean(protein.xyz, axis=0)
-            radius = 15.0
+            # Return best unique poses if no final optimization
+            population.sort(key=lambda x: x[1])
+            
+            print(f"Genetic algorithm completed. "
+                  f"Best score: {population[0][1]:.2f}")
+            
+            return population
 
-        bad_orientations = 0
-        max_bad_orientations = self.num_orientations * 10
-
-        while len(orientations) < self.num_orientations and bad_orientations < max_bad_orientations:
-            pose = copy.deepcopy(ligand)
-            pose.random_rotate()
-
-            displacement = np.random.normal(0, 1, size=3)
-            pose.translate(center + displacement)
-
-            # Check if pose is inside the pocket
-            centroid = np.mean(pose.xyz, axis=0)
-            distance = np.linalg.norm(centroid - center)
-
-            if distance <= radius:
-                # 🧪 Add clash filter
-                is_valid = self._check_pose_validity(pose, protein)
-                if is_valid:
-                    orientations.append(pose)
-                else:
-                    bad_orientations += 1
-            else:
-                bad_orientations += 1
-
-        return orientations
-
-    def _check_pose_validity(self, ligand, protein, clash_threshold=1.5):
+    def _selection(self, population):
         """
-        Check if ligand pose clashes with protein atoms.
+        Tournament selection to choose parents for reproduction.
         
         Parameters:
-            ligand: Ligand object with .atoms
-            protein: Protein object with .atoms or active_site['atoms']
-            clash_threshold: Ångström cutoff for hard clash
-            
+        -----------
+        population : list
+            List of (pose, score) tuples
+        
         Returns:
-            bool: True if pose is valid (no severe clash), False otherwise
+        --------
+        list
+            Selected parents as (pose, score) tuples
         """
-        ligand_coords = np.array([atom['coords'] for atom in ligand.atoms])
-        
-        # Use active site atoms if defined
-        if hasattr(protein, 'active_site') and protein.active_site and 'atoms' in protein.active_site:
-            protein_coords = np.array([atom['coords'] for atom in protein.active_site['atoms']])
-        else:
-            protein_coords = np.array([atom['coords'] for atom in protein.atoms])
-        
-        for lig_coord in ligand_coords:
-            distances = np.linalg.norm(protein_coords - lig_coord, axis=1)
-            if np.any(distances < clash_threshold):
-                return False  # Clash detected
-        
-        return True
-
-    
-    def _selection(self, population):
-        """Tournament selection."""
         parents = []
         for _ in range(self.population_size):
             # Select random individuals for tournament
@@ -1966,7 +2020,19 @@ class GeneticAlgorithm(DockingSearch):
         return parents
     
     def _crossover(self, parents):
-        """Crossover operation."""
+        """
+        Crossover operation to create offspring from parents.
+        
+        Parameters:
+        -----------
+        parents : list
+            List of (pose, score) tuples
+        
+        Returns:
+        --------
+        list
+            Offspring as (pose, score) tuples with scores set to 0
+        """
         offspring = []
         random.shuffle(parents)
         
@@ -1998,7 +2064,18 @@ class GeneticAlgorithm(DockingSearch):
         return offspring
     
     def _mutation(self, offspring, radius, center):
-        """Mutate offspring with boundary check."""
+        """
+        Mutation operation to introduce random variations.
+        
+        Parameters:
+        -----------
+        offspring : list
+            List of (pose, score) tuples to mutate
+        radius : float
+            Current search radius
+        center : array-like
+            Center coordinates of search sphere
+        """
         for i, (pose, _) in enumerate(offspring):
             original_pose = copy.deepcopy(pose)
             self._mutate(pose)  # Try mutation
@@ -2037,8 +2114,7 @@ class GeneticAlgorithm(DockingSearch):
             individual.translate(centroid)
         
         # Mutate flexible residues if available
-        # Note: We need to have protein as a class attribute or pass it as a parameter
-        # For now, we'll check if it exists as a class attribute
+        # Check if the protein has flexible residues
         if hasattr(self, 'protein') and hasattr(self.protein, 'flexible_residues') and self.protein.flexible_residues:
             # Probability of mutating a flexible residue
             if random.random() < self.mutation_rate:

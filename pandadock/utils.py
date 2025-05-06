@@ -14,7 +14,6 @@ import platform
 import pkg_resources
 import platform
 import subprocess
-import pkg_resources
 import importlib.util
 import random
 import json
@@ -844,3 +843,42 @@ def generate_valid_random_pose(protein, ligand, center, radius, max_attempts=20)
         return pose  # ✅ Valid pose found
 
     return None  # ❌ Failed after retries
+def random_point_in_sphere(center, radius):
+    """
+    Generate a random point uniformly inside a sphere.
+    """
+    phi = np.random.uniform(0, 2 * np.pi)
+    costheta = np.random.uniform(-1, 1)
+    u = np.random.uniform(0, 1)
+
+    theta = np.arccos(costheta)
+    r = radius * (u ** (1/3))
+
+    x = r * np.sin(theta) * np.cos(phi)
+    y = r * np.sin(theta) * np.sin(phi)
+    z = r * np.cos(theta)
+
+    return center + np.array([x, y, z])
+
+def is_inside_sphere(pose, center, radius):
+    """
+    Check if the ligand pose's centroid is within the active site sphere.
+    """
+    centroid = np.mean(pose.xyz, axis=0)
+    distance = np.linalg.norm(centroid - center)
+    return distance <= radius
+
+def save_sphere_to_pdb(self, grid_points, output_path):
+        """
+        Save spherical grid points as PDB file for visualization.
+        """
+        with open(output_path, 'w') as f:
+            for i, point in enumerate(grid_points):
+                f.write(
+                    f"HETATM{i+1:5d}  C   SPH A   1    "
+                    f"{point[0]:8.3f}{point[1]:8.3f}{point[2]:8.3f}  1.00  0.00           C\n"
+                )
+            f.write("END\n")
+        self.logger.info(f"Saved spherical grid to {output_path}")
+        self.logger.info("Spherical grid points saved for visualization.")
+        self.logger.info(f"Grid points saved to {output_path}")
