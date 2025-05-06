@@ -13,6 +13,7 @@ from pathlib import Path
 from scipy.spatial.transform import Rotation, Slerp
 import os
 from scipy.optimize import minimize
+import logging
 
 from .search import DockingSearch
 from .search import GeneticAlgorithm, RandomSearch
@@ -179,7 +180,7 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
                  mutation_rate=0.2, crossover_rate=0.8, tournament_size=3, 
                  n_processes=None, batch_size=None, process_pool=None, 
                  output_dir=None, perform_local_opt=False, grid_spacing=0.375, 
-                 grid_radius=10.0, grid_center=None):
+                 grid_radius=10.0, grid_center=None, logger=None):
         """
         Initialize parallel genetic algorithm.
         
@@ -222,7 +223,8 @@ class ParallelGeneticAlgorithm(GeneticAlgorithm):
         self.perform_local_opt = perform_local_opt
         self.grid_spacing = grid_spacing  
         self.grid_radius = grid_radius  
-        self.grid_center = np.array(grid_center) if grid_center is not None else np.array([0.0, 0.0, 0.0])  
+        self.grid_center = np.array(grid_center) if grid_center is not None else np.array([0.0, 0.0, 0.0]) 
+        self.logger = logger or logging.getLogger(__name__) 
 
         # Setup parallel processing
         if n_processes is None:
