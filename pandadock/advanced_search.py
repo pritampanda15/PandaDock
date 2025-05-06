@@ -159,7 +159,12 @@ class GradientBasedSearch(DockingSearch):
         
         # Determine search space
         if protein.active_site:
-            center = protein.active_site['center']
+            center = (
+            protein.active_site['center']
+            if protein.active_site and protein.active_site.get('center') is not None
+            else np.mean(protein.xyz, axis=0)
+        )
+
             radius = protein.active_site['radius']
         else:
             # Use protein center of mass

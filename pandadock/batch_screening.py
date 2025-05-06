@@ -12,13 +12,19 @@ import multiprocessing as mp
 from datetime import datetime
 from pathlib import Path
 import glob
+import copy
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm  # Progress bars (you may need to install this: pip install tqdm)
+from .virtual_screening import VirtualScreeningManager
 
 from .protein import Protein
 from .ligand import Ligand
 from .utils import save_docking_results
+from .utils import detect_steric_clash
+from .utils import setup_logging
+from .utils import calculate_rmsd
+from scipy.spatial.transform import Rotation
 from .preparation import prepare_protein, prepare_ligand
 from .main_integration import (
     configure_hardware,
@@ -423,10 +429,13 @@ def _prepare_docking_params(screening_params):
         'algorithm': screening_params.get('algorithm', 'genetic'),
         'iterations': screening_params.get('iterations', 1000),
         'population_size': screening_params.get('population_size', 100),
+        'mutation_rate': screening_params.get('mutation_rate', 0.2),
         'exhaustiveness': screening_params.get('exhaustiveness', 1),
         'scoring_function': screening_params.get('scoring_function', 'enhanced'),
         'local_opt': screening_params.get('local_opt', False),
         'prepare_molecules': screening_params.get('prepare_molecules', True),
+        'grid_spacing': screening_params.get('grid_spacing', 0.375),
+        'grid_radius': screening_params.get('grid_radius', 10.0),
     }
     return docking_params
 
@@ -448,15 +457,19 @@ def _dock_single_ligand(protein, ligand_file, output_dir, hybrid_manager, dockin
     
     # Set up scoring function
     scoring_type = docking_params.get('scoring_function', 'enhanced')
-    scoring_function = create_optimized_scoring_function(hybrid_manager, scoring_type)
+    scoring_function = create_optimized_scoring_function(scoring_type)
     
     # Set up search algorithm
     algorithm_type = docking_params.get('algorithm', 'genetic')
     
     # Parse algorithm-specific parameters
+    # Parse algorithm-specific parameters
     algorithm_kwargs = {
         'max_iterations': docking_params.get('iterations', 1000),
+        'grid_spacing': docking_params.get('grid_spacing', 0.375),  # 
+        'grid_radius': docking_params.get('grid_radius', 10.0),     # 
     }
+
     
     if algorithm_type == 'genetic':
         algorithm_kwargs['population_size'] = docking_params.get('population_size', 100)
@@ -591,3 +604,389 @@ def batch_screening(config):
         Just calls run() internally for backward compatibility.
         """
         return run(config)
+
+class RapidPandaDock:
+    """
+    Fast docking algorithm for virtual screening, inspired by Vina.
+    Optimized for speed while maintaining reasonable accuracy.
+    """
+    
+    def __init__(self, scoring_function, exhaustiveness=8, num_modes=9, 
+                 max_evals=10000, rmsd_thresh=2.0, grid_spacing=0.375, grid_radius=10.0):
+        """
+        Initialize RapidPandaDock.
+        
+        Parameters:
+        -----------
+        scoring_function : ScoringFunction
+            Scoring function to evaluate poses
+        exhaustiveness : int
+            Exhaustiveness of the search (higher values = more thorough)
+        num_modes : int
+            Number of binding modes to generate
+        max_evals : int
+            Maximum number of pose evaluations
+        rmsd_thresh : float
+            RMSD threshold for clustering poses (Å)
+        grid_spacing : float
+            Spacing between grid points
+        grid_radius : float
+            Radius of the search sphere
+        """
+        self.scoring_function = scoring_function
+        self.exhaustiveness = exhaustiveness
+        self.num_modes = num_modes
+        self.max_evals = max_evals
+        self.rmsd_thresh = rmsd_thresh
+        self.grid_spacing = grid_spacing
+        self.grid_radius = grid_radius
+    
+    def search(self, protein, ligand):
+        """
+        Perform rapid docking search with pose clustering and scoring.
+        
+        Parameters:
+        -----------
+        protein : Protein
+            Protein object
+        ligand : Ligand
+            Ligand object
+        
+        Returns:
+        --------
+        list
+            List of (pose, score) tuples, sorted by score
+        """
+        poses = []
+        
+        # Get center and radius from protein active site
+        if protein.active_site and protein.active_site.get('center') is not None:
+            center = protein.active_site['center']
+        else:
+            print("Warning: Active site center is None. Falling back to protein centroid.")
+            center = np.mean(protein.xyz, axis=0)
+        
+        if protein.active_site and protein.active_site.get('radius') is not None:
+            radius = protein.active_site['radius']
+        else:
+            center = np.mean(protein.xyz, axis=0)
+            radius = 10.0
+        
+        # Calculate number of attempts based on exhaustiveness
+        total_attempts = self.exhaustiveness * 1000
+        max_attempts = min(total_attempts, self.max_evals)
+        
+        # Track number of failed poses (clashes)
+        n_failed = 0
+        max_fail_ratio = 0.8  # If 80% of poses fail, adjust parameters
+        
+        # Main search loop
+        for attempt in range(max_attempts):
+            # Create a copy of the ligand
+            pose = copy.deepcopy(ligand)
+            
+            # Get ligand centroid
+            centroid = np.mean(pose.xyz, axis=0)
+            
+            # Generate random position in a sphere (uniform distribution)
+            r = radius * np.random.random() ** (1.0 / 3.0)  # Cube root for uniformity
+            theta = np.random.uniform(0, 2 * np.pi)
+            phi = np.random.uniform(0, np.pi)
+            
+            # Calculate random point coordinates
+            x = center[0] + r * np.sin(phi) * np.cos(theta)
+            y = center[1] + r * np.sin(phi) * np.sin(theta)
+            z = center[2] + r * np.cos(phi)
+            
+            # Translate ligand to new position
+            translation = np.array([x, y, z]) - centroid
+            pose.translate(translation)
+            
+            # Apply random rotation
+            rotation = Rotation.random()
+            rotation_matrix = rotation.as_matrix()
+            
+            centroid = np.mean(pose.xyz, axis=0)
+            pose.translate(-centroid)
+            pose.rotate(rotation_matrix)
+            pose.translate(centroid)
+            
+            # Check for steric clashes first (fast pre-filter)
+            if detect_steric_clash(protein.atoms, pose.atoms):
+                n_failed += 1
+                # If too many failures, try expanding search space
+                if n_failed / (attempt + 1) > max_fail_ratio:
+                    radius *= 1.2  # Expand radius by 20%
+                    n_failed = 0  # Reset counter
+                    print(f"Expanding search radius to {radius:.2f}Å due to high clash rate")
+                continue
+            
+            # Score the pose
+            score = self.scoring_function.score(protein, pose)
+            
+            # Add to results
+            poses.append((pose, score))
+            
+            # Progress reporting
+            if (attempt + 1) % 100 == 0:
+                n_unique = self._count_unique_clusters(poses)
+                print(f"Evaluated {attempt + 1}/{max_attempts} poses, found {n_unique} unique clusters")
+                
+                # Early termination if we have enough unique poses
+                if n_unique >= self.num_modes * 2:
+                    break
+        
+        # Sort by score
+        poses.sort(key=lambda x: x[1])
+        
+        # Perform clustering to select diverse poses
+        clustered_poses = self._cluster_poses(poses)
+        
+        # Return top N poses after clustering
+        return clustered_poses[:self.num_modes]
+    
+    def _count_unique_clusters(self, poses, quick=True):
+        """
+        Count the number of unique conformational clusters in a set of poses.
+        Optimized version for progress tracking.
+        
+        Parameters:
+        -----------
+        poses : list
+            List of (pose, score) tuples
+        quick : bool
+            If True, use a faster approximation
+            
+        Returns:
+        --------
+        int
+            Estimated number of unique clusters
+        """
+        if quick and len(poses) > 100:
+            # Sample 10% of poses for quick estimation
+            sample_size = max(20, len(poses) // 10)
+            sample_poses = poses[:sample_size]
+        else:
+            sample_poses = poses
+            
+        # Sort by score
+        sample_poses.sort(key=lambda x: x[1])
+        
+        # Extract poses only
+        sorted_poses = [p for p, _ in sample_poses]
+        
+        # Simple greedy clustering
+        clusters = []
+        for pose in sorted_poses:
+            # Check if pose belongs to existing cluster
+            is_new_cluster = True
+            for rep in clusters:
+                try:
+                    rmsd = calculate_rmsd(pose.xyz, rep.xyz)
+                    if rmsd < self.rmsd_thresh:
+                        is_new_cluster = False
+                        break
+                except:
+                    continue
+            
+            if is_new_cluster:
+                clusters.append(pose)
+                
+        return len(clusters)
+    
+    def _cluster_poses(self, poses):
+        """
+        Cluster poses by RMSD to obtain structurally diverse results.
+        
+        Parameters:
+        -----------
+        poses : list
+            List of (pose, score) tuples
+        
+        Returns:
+        --------
+        list
+            List of (pose, score) tuples after clustering
+        """
+        if not poses:
+            return []
+        
+        # Sort by score
+        poses.sort(key=lambda x: x[1])
+        
+        # List to store cluster representatives
+        clustered_poses = []
+        
+        # Add the best-scoring pose as the first cluster
+        clustered_poses.append(poses[0])
+        
+        # Iterate through remaining poses
+        for pose, score in poses[1:]:
+            # Check if pose is similar to any existing cluster
+            is_unique = True
+            for cluster_pose, _ in clustered_poses:
+                try:
+                    rmsd = calculate_rmsd(pose.xyz, cluster_pose.xyz)
+                    if rmsd < self.rmsd_thresh:
+                        is_unique = False
+                        break
+                except Exception as e:
+                    # If RMSD calculation fails, assume unique
+                    print(f"RMSD calculation error: {e}")
+                    continue
+            
+            # If pose is unique, add to clusters
+            if is_unique:
+                clustered_poses.append((pose, score))
+                
+                # Stop if we have enough clusters
+                if len(clustered_poses) >= self.num_modes:
+                    break
+        
+        return clustered_poses
+
+
+def run_virtual_screening(protein_file, ligand_dir, output_dir, **kwargs):
+    """
+    Run virtual screening on a protein against multiple ligands.
+    
+    Parameters:
+    -----------
+    protein_file : str
+        Path to protein PDB file
+    ligand_dir : str
+        Directory containing ligand files
+    output_dir : str
+        Output directory
+    **kwargs : dict
+        Additional arguments for virtual screening
+    
+    Returns:
+    --------
+    dict
+        Results of virtual screening
+    """
+    from .protein import Protein
+    from .ligand import Ligand
+    from .scoring_factory import create_scoring_function
+    import glob
+    
+    # Set up output directory
+    output_dir = Path(output_dir)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Initialize logger
+    logger = setup_logging(output_dir)
+    logger.info(f"Starting virtual screening pipeline")
+    logger.info(f"Protein: {protein_file}")
+    logger.info(f"Ligand directory: {ligand_dir}")
+    
+    # Load protein
+    logger.info(f"Loading protein...")
+    protein = Protein(protein_file)
+    
+    # Get scoring function
+    use_gpu = kwargs.pop('use_gpu', False)
+    grid_spacing = kwargs.pop('grid_spacing', 0.375)
+    grid_radius = kwargs.pop('grid_radius', 10.0)
+    exhaustiveness = kwargs.pop('exhaustiveness', 8)
+    num_modes = kwargs.pop('num_modes', 9)
+    max_evals = kwargs.pop('max_evals', 10000)
+    rmsd_thresh = kwargs.pop('rmsd_thresh', 2.0)
+    n_cpu_workers = kwargs.pop('cpu_workers', None)
+    logger.info(f"Grid spacing: {grid_spacing}Å, Grid radius: {grid_radius}Å")
+    logger.info(f"Exhaustiveness: {exhaustiveness}, Number of modes: {num_modes}")
+    logger.info(f"Max evaluations: {max_evals}, RMSD threshold: {rmsd_thresh}Å")
+    if n_cpu_workers is None:
+        n_cpu_workers = os.cpu_count() - 1
+    logger.info(f"Number of CPU workers: {n_cpu_workers}")
+    physics_based = kwargs.pop('physics_based', False)
+    enhanced = kwargs.pop('enhanced_scoring', True)
+    logger.info(f"Using GPU: {use_gpu}, Physics-based: {physics_based}, Enhanced scoring: {enhanced}")
+    if use_gpu:
+        logger.info("Using GPU acceleration")
+    else:
+        logger.info("Using CPU for calculations")
+    if physics_based:
+        logger.info("Using physics-based scoring function")
+    else:
+        logger.info("Using empirical scoring function")
+    if enhanced:
+        logger.info("Using enhanced scoring function")
+    else:
+        logger.info("Using standard scoring function")
+    scoring_function = create_scoring_function(
+        use_gpu=use_gpu, physics_based=physics_based, enhanced=enhanced
+    )
+    
+    # Define active site if coordinates provided
+    if 'site' in kwargs:
+        site = kwargs.pop('site')
+        radius = kwargs.pop('radius', 10.0)
+        logger.info(f"Using active site at {site} with radius {radius}Å")
+        protein.define_active_site(site, radius)
+    else:
+        # Try to detect binding pockets
+        logger.info("No explicit active site provided. Attempting to detect binding pockets...")
+        pockets = protein.detect_pockets()
+        if pockets:
+            logger.info(f"Found {len(pockets)} potential binding pockets")
+            logger.info(f"Using largest pocket as active site")
+            protein.define_active_site(pockets[0]['center'], pockets[0]['radius'])
+        else:
+            logger.info("No pockets detected, using protein center")
+            center = np.mean(protein.xyz, axis=0)
+            radius = 15.0
+            protein.define_active_site(center, radius)
+    
+    # Find ligand files
+    ligand_pattern = os.path.join(ligand_dir, "*.*")
+    ligand_files = []
+    
+    # Support multiple formats
+    for ext in ['.mol', '.mol2', '.sdf', '.pdb']:
+        ligand_files.extend(glob.glob(os.path.join(ligand_dir, f"*{ext}")))
+    
+    if not ligand_files:
+        logger.error(f"No ligand files found in {ligand_dir}")
+        return None
+    
+    logger.info(f"Found {len(ligand_files)} ligand files")
+    
+    # Load ligands
+    ligands = []
+    ligand_names = []
+    
+    for ligand_file in ligand_files:
+        try:
+            ligand = Ligand(ligand_file)
+            ligand_name = Path(ligand_file).stem
+            ligands.append(ligand)
+            ligand_names.append(ligand_name)
+        except Exception as e:
+            logger.error(f"Error loading ligand {ligand_file}: {e}")
+    
+    logger.info(f"Successfully loaded {len(ligands)} ligands")
+    
+    # Set up virtual screening manager
+    vs_manager = VirtualScreeningManager(
+        scoring_function=scoring_function,
+        output_dir=output_dir,
+        exhaustiveness=kwargs.pop('exhaustiveness', 8),
+        num_modes=kwargs.pop('num_modes', 9),
+        max_evals=kwargs.pop('max_evals', 10000),
+        rmsd_thresh=kwargs.pop('rmsd_thresh', 2.0),
+        n_cpu_workers=kwargs.pop('cpu_workers', None),
+        grid_spacing=kwargs.pop('grid_spacing', 0.375),
+        grid_radius=kwargs.pop('grid_radius', 10.0)
+    )
+    
+    # Run virtual screening
+    results = vs_manager.run_screening(protein, ligands, ligand_names)
+    
+    logger.info("Virtual screening completed successfully")
+    
+
+    save_docking_results(results, output_dir)
+    
+    return results

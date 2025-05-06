@@ -1,6 +1,7 @@
 # ligand.py
 import numpy as np
 from pathlib import Path
+from rdkit import Chem
 
 class Ligand:
     """Class representing a small molecule ligand."""
@@ -19,9 +20,12 @@ class Ligand:
         self.xyz = None
         self.rotatable_bonds = []
         self.conformers = []
+        self.mol = None
+        self.rdmol = None
         
         if mol_file:
             self.load_molecule(mol_file)
+        
     
     def load_molecule(self, mol_file):
         """
@@ -39,10 +43,29 @@ class Ligand:
         try:
             # Use RDKit for robust molecule parsing if available
             from rdkit import Chem
+            mol_supplier = Chem.SDMolSupplier(str(mol_file), removeHs=False)
+            mols = [mol for mol in mol_supplier if mol is not None]
+            if not mols:
+                raise ValueError(f"No valid molecules found in {mol_file}")
+            self.mol = mols[0]
+            self.rdmol = self.mol
+            self.xyz = self.mol.GetConformer().GetPositions()
             mol = Chem.MolFromMolFile(str(mol_path))
             if mol is None:
                 raise ValueError(f"Failed to parse molecule file: {mol_file}")
-            
+            ext = Path(mol_file).suffix.lower()
+            if ext == ".sdf":
+                suppl = Chem.SDMolSupplier(mol_file, removeHs=False)
+                mol = suppl[0] if suppl and len(suppl) > 0 else None
+            elif ext == ".mol":
+                mol = Chem.MolFromMolFile(mol_file, removeHs=False)
+            else:
+                raise ValueError(f"Unsupported format for ligand: {mol_file}")
+
+            if mol is None:
+                raise ValueError(f"Failed to read ligand file: {mol_file}")
+
+            self.rdmol = mol
             # Get atom coordinates
             conformer = mol.GetConformer()
             self.xyz = np.array([conformer.GetAtomPosition(i) for i in range(mol.GetNumAtoms())])
@@ -77,6 +100,16 @@ class Ligand:
             print("Warning: RDKit not available, using simplified MOL parser")
             self._parse_mol_file(mol_path)
     
+    @property
+    def rdmol(self):
+        return self._rdmol
+
+    @rdmol.setter
+    def rdmol(self, value):
+        self._rdmol = value
+
+    
+
     def _parse_mol_file(self, mol_path):
         """Simple parser for MOL files without RDKit."""
         with open(mol_path, 'r') as f:

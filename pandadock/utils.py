@@ -882,3 +882,38 @@ def save_sphere_to_pdb(self, grid_points, output_path):
         self.logger.info(f"Saved spherical grid to {output_path}")
         self.logger.info("Spherical grid points saved for visualization.")
         self.logger.info(f"Grid points saved to {output_path}")
+
+#for virtaul screening
+from pathlib import Path
+import os
+import json
+import platform
+import subprocess
+import random
+import pkg_resources
+from datetime import datetime
+import logging
+import importlib
+def get_ligand_files(directory, extensions=(".sdf", ".mol", ".mol2")):
+    return [str(p) for p in Path(directory).glob("*") if p.suffix.lower() in extensions]
+def get_protein_files(directory, extensions=(".pdb", ".pdbqt")):
+    return [str(p) for p in Path(directory).glob("*") if p.suffix.lower() in extensions]
+
+from rdkit import Chem
+from rdkit.Chem import AllChem
+
+def write_pose_as_pdb(mol, output_file):
+    if mol is None:
+        raise ValueError("Pose molecule is None")
+    Chem.MolToPDBFile(mol, output_file)
+    print(f"Pose saved to {output_file}")
+def write_pose_as_sdf(mol, output_file):
+    if mol is None:
+        raise ValueError("Pose molecule is None")
+    Chem.MolToSDF(mol, output_file)
+    print(f"Pose saved to {output_file}")
+def write_pose_as_mol2(mol, output_file):
+    if mol is None:
+        raise ValueError("Pose molecule is None")
+    AllChem.MolToMol2File(mol, output_file)
+    print(f"Pose saved to {output_file}")

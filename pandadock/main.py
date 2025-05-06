@@ -37,7 +37,8 @@ from .physics import (
     GeneralizedBornSolvation
 )
 
-
+from .virtual_screening import VirtualScreeningManager
+from pandadock.batch_screening import run_virtual_screening
 from .preparation import prepare_protein, prepare_ligand
 from .reporting import DockingReporter
 from .validation import validate_against_reference
@@ -62,9 +63,6 @@ __all__ = ['__version__', 'add_hardware_options', 'configure_hardware',
 try:
     from .physics import (MMFFMinimization, MonteCarloSampling, PhysicsBasedScoring, GeneralizedBornSolvation)
     from .unified_scoring import PhysicsBasedScoringFunction, PhysicsBasedScoring
-    from .search import MMFFMinimization, MonteCarloSampling
-    from .search import GeneralizedBornSolvation
-    from .search import PhysicsBasedScoring  
     __all__ = ['__version__', 'MMFFMinimization', 'GeneralizedBornSolvation', 'MonteCarloSampling', 'PhysicsBasedScoring']
     PHYSICS_AVAILABLE = True
 except ImportError as e:
@@ -434,6 +432,29 @@ def add_analysis_options(parser):
                         default=['summary', 'clusters', 'interactions', 'energetics'],
                         help='Sections to include in the analysis report')
     
+def add_virtual_screening_options(parser):
+    """Add command-line options for virtual screening."""
+    vs_group = parser.add_argument_group('Virtual Screening')
+    vs_group.add_argument('--virtual-screening', action='store_true',
+                         help='Run virtual screening of multiple ligands')
+    vs_group.add_argument('--ligand-library', type=str,
+                         help='Path to directory containing ligand files for screening')
+    vs_group.add_argument('--screening-output', type=str, default='screening_results',
+                        help='Output directory for screening results')
+    vs_group.add_argument('--num-modes', type=int, default=9,
+                        help='Number of binding modes to generate per ligand')
+    vs_group.add_argument('--vs-exhaustiveness', type=int, default=8,
+                        help='Exhaustiveness of search for virtual screening (1-64)')
+    vs_group.add_argument('--parallel-screening', action='store_true',
+                        help='Use parallel processing for screening')
+    vs_group.add_argument('--screening-processes', type=int, default=None,
+                        help='Number of parallel processes for screening (default: all cores)')
+    vs_group.add_argument('--prepare-vs-ligands', action='store_true',
+                        help='Prepare ligands before screening')
+    vs_group.add_argument('--top-hits', type=int, default=10,
+                        help='Number of top compounds to save detailed results for')
+
+
 def print_pandadock_ascii():
         # Color codes
         CYAN = "\033[96m"
@@ -460,6 +481,7 @@ def print_pandadock_ascii():
 def main():
     # Initialize return value
     return_code = 0
+    args = None
 
     # Record start time immediately
     start_time = time.time()
@@ -482,13 +504,17 @@ def main():
             formatter_class=RichHelpFormatter,   # << add this!
         )
         # Required arguments
+        parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
         parser.add_argument('-p', '--protein', required=True, help='Path to protein PDB file')
-        parser.add_argument('-l', '--ligand', required=True, help='Path to ligand MOL/SDF file')
-        
+        parser.add_argument('-l', '--ligand', required=False, help='Path to ligand MOL/SDF file')
+    
         # Optional arguments
-        pandadock_group = parser.add_argument_group('Optional but RecommendedOptions')
+        pandadock_group = parser.add_argument_group('Optional but Recommended Options')
         parser.add_argument('-o', '--output', default='docking_results', 
                             help='Output directory for docking results')
+        parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
+        parser.add_argument('--log-file', type=str, default='pandadock.log', help='Log file for verbose output')
+        parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility')
         parser.add_argument('-a', '--algorithm', choices=['random', 'genetic', 'pandadock'], default='genetic',
                             help='Docking algorithm to use (default: genetic)')
         parser.add_argument('-i', '--iterations', type=int, default=100,
@@ -512,6 +538,7 @@ def main():
                             help='Run with minimal enhancements for quick results')
         parser.add_argument('--enhanced', action='store_true',
                             help='Use enhanced algorithms for more accurate (but slower) results')
+
         
         # Enhanced docking options
         pandadock_group = parser.add_argument_group('Enhanced Options')
@@ -602,31 +629,53 @@ def main():
         add_advanced_search_options(parser)
         add_analysis_options(parser)
         print_pandadock_ascii()
+        add_virtual_screening_options(parser)
         args = parser.parse_args()
+        
+        
         
         # Define kwargs before use
         kwargs = {}
         # Inject grid params
-        kwargs['grid_spacing'] = args.grid_spacing
-        kwargs['grid_radius'] = args.grid_radius  # <- Use the correct argument name
-        kwargs['grid_center'] = args.site if args.site else None
 
+        kwargs['detect_pockets'] = args.detect_pockets if hasattr(args, 'detect_pockets') else False
+        kwargs['ph'] = args.ph if hasattr(args, 'ph') else 7.4
+        kwargs['ligand'] = args.ligand
+        kwargs['ligand_library'] = args.ligand_library if hasattr(args, 'ligand_library') else None
+        kwargs['prepare_molecules'] = args.prepare_molecules if hasattr(args, 'prepare_molecules') else False
+        kwargs['num_modes'] = args.num_modes if hasattr(args, 'num_modes') else 9
+        kwargs['exhaustiveness'] = args.exhaustiveness if hasattr(args, 'exhaustiveness') else 8
+        kwargs['max_evals'] = args.max_evals if hasattr(args, 'max_evals') else 10000
+        kwargs['rmsd_thresh'] = args.rmsd_thresh if hasattr(args, 'rmsd_thresh') else 2.0
+        kwargs['seed'] = args.seed if hasattr(args, 'seed') else None
+        kwargs['grid_spacing'] = args.grid_spacing if hasattr(args, 'grid_spacing') else 0.375
+        kwargs['grid_radius'] = args.grid_radius if hasattr(args, 'grid_radius') else 10.0
+        kwargs['grid_center'] = args.site if args.site else None
 
         import sys
         full_command = "pandadock " + " ".join(sys.argv[1:])
         args.full_command = full_command
     
-        # Check for required arguments
-        if not args.protein or not args.ligand:
-            parser.error("Both --protein and --ligand arguments are required")
+        # Set random seed for reproducibility
+        np.random.seed(args.seed)
+        # Check for physics-based scoring availability
+        
+        # # Check for required arguments
+        # if not args.protein or not args.ligand:
+        #     parser.error("Both --protein and --ligand arguments are required")
 
 
-        if not args.output:
-            parser.error("--output argument is required")
+        # if not args.output:
+        #     parser.error("--output argument is required")
+
+        # Option 1: Pass individual arguments from namespace
+        
+        if args.physics_based and not args.enhanced_scoring:
+            parser.error("Physics-based scoring requires --enhanced-scoring")
 
         # Create descriptive output directory name
         protein_base = Path(args.protein).stem
-        ligand_base = Path(args.ligand).stem
+        ligand_base = Path(args.ligand).stem if args.ligand else "ligand"
         algo_name = args.algorithm
         readable_date = datetime.now().strftime("%Y-%m-%d_%H-%M")
         output_name = f"{protein_base}_{ligand_base}_{algo_name}_{readable_date}"
@@ -695,6 +744,55 @@ def main():
             args.local_opt = True
             if args.population_size < 100:
                 args.population_size = 100
+        
+        if args.virtual_screening:
+            # Validate required arguments
+            if not args.protein or not args.ligand_library:
+                parser.error("Both --protein and --ligand-library arguments are required for virtual screening")
+            
+            logger.info(f"Running virtual screening on {args.protein} with ligands from {args.ligand_library}")
+            
+            # Configure hardware if needed
+            hw_config = configure_hardware(args)
+            
+            # Create output directory
+            screening_output = Path(args.screening_output)
+            screening_output.mkdir(parents=True, exist_ok=True)
+            
+            # Define all parameters with safe attribute access
+            kwargs = {
+                'use_gpu': getattr(args, 'use_gpu', False),
+                'physics_based': getattr(args, 'physics_based', False),
+                'enhanced_scoring': getattr(args, 'enhanced_scoring', True),
+                'exhaustiveness': getattr(args, 'vs_exhaustiveness', 8),  # Note: using vs_exhaustiveness
+                'num_modes': getattr(args, 'num_modes', 9),
+                'max_evals': getattr(args, 'max_evals', 10000),
+                'rmsd_thresh': getattr(args, 'rmsd_thresh', 2.0),
+                'grid_spacing': getattr(args, 'grid_spacing', 0.375),
+                'grid_radius': getattr(args, 'grid_radius', 10.0),
+                'cpu_workers': getattr(args, 'screening_processes', None),  # Using the right arg name
+                'site': getattr(args, 'site', None),
+                'radius': getattr(args, 'radius', 10.0),
+                'prepare_molecules': getattr(args, 'prepare_vs_ligands', True),  # Use prepare_vs_ligands
+                'parallel': getattr(args, 'parallel_screening', False),
+                'hardware_config': hw_config
+            }
+            
+            try:
+                run_virtual_screening(
+                    protein_file=args.protein,
+                    ligand_dir=args.ligand_library,
+                    output_dir=args.screening_output,
+                    **kwargs
+                )
+                print(f"Virtual screening completed successfully!")
+                print(f"Results saved to: {screening_output}")
+                return 0
+            except Exception as e:
+                print(f"Error during virtual screening: {e}")
+                traceback.print_exc()
+                return 1
+
         
         # Update status to reflect parameter choices
         update_status(
@@ -1435,7 +1533,7 @@ def main():
         # ❌ Docking failed
         # Now differentiate: Did the user mistype or did docking fail internally?
 
-        if hasattr(args, 'protein') and hasattr(args, 'ligand'):
+        if args is not None and hasattr(args, 'protein') and hasattr(args, 'ligand'):
             # Docking failed AFTER valid command (e.g., structure error, scoring failed)
             error_ascii = r"""
                                             \ / _
