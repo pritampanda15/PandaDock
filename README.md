@@ -1,4 +1,4 @@
-# 🐼 PandaDock: Version: 2.0.0
+# 🐼 PandaDock: Version: 2.0.1
 
 **Python-based Molecular Docking Platform for Drug Discovery, Bioinformatics, and Computational Chemistry**.
 
