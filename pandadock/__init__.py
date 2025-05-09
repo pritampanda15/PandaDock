@@ -49,7 +49,7 @@ from .validation import (
 from .batch_screening import batch_screening
 
 # Package version
-__version__ = '2.0.0'
+__version__ = '2.1.0'
 
 # Logging
 import logging
