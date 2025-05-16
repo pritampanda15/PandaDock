@@ -910,7 +910,7 @@ class GPUScoringFunction(ScoringFunction):
         
         # Calculate energy components
         vdw = self.calculate_vdw(protein_atoms, ligand_atoms)
-        hbond = self.calculate_hbond(protein_atoms, ligand_atoms, protein, ligand)
+        hbond = self.calculate_hbond(protein_atoms, ligand_atoms)
         elec = self.calculate_electrostatics(protein_atoms, ligand_atoms)
         desolv = self.calculate_desolvation(protein_atoms, ligand_atoms)
         hydrophobic = self.calculate_hydrophobic(protein_atoms, ligand_atoms)
