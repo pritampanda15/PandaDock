@@ -236,12 +236,12 @@ class ScoringFunction:
     
     def _get_protein_atoms(self, protein):
         """Get active site atoms if defined, otherwise all protein atoms."""
-        if protein.active_site and 'atoms' in protein.active_site:
+        if isinstance(protein, list):
+            raise TypeError("Expected a Protein object, but got a list.")
+        if hasattr(protein, 'active_site') and protein.active_site and 'atoms' in protein.active_site:
             return protein.active_site['atoms']
-        #if hasattr(protein, 'active_site') and protein.active_site:
-            #return protein.active_site['atoms']
         else:
-            return protein.atoms
+            return getattr(protein, 'atoms', [])
         
     def _get_ligand_atoms(self, ligand):
         """Get ligand atoms."""
