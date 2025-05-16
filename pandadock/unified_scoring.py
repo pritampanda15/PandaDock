@@ -1329,6 +1329,7 @@ class GPUScoringFunction(ScoringFunction):
         GPU-accelerated hydrophobic interaction calculation.
         """
         protein_atoms = self._get_protein_atoms(protein)
+        ligand_atoms = ligand if isinstance(ligand, list) else ligand.atoms
         
         # Identify hydrophobic atoms in protein
         p_hydrophobic = [atom for atom in protein_atoms 
