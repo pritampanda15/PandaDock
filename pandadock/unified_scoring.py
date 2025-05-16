@@ -1104,7 +1104,8 @@ class GPUScoringFunction(ScoringFunction):
         else:
             # Fall back to CPU implementation
             cpu_scorer = CPUScoringFunction()
-            return cpu_scorer.calculate_electrostatics(protein_atoms, ligand.atoms)
+            ligand_atoms = ligand if isinstance(ligand, list) else ligand.atoms
+            return cpu_scorer.calculate_electrostatics(protein_atoms, ligand_atoms)
     
     def _calculate_electrostatics_torch(self, protein_atoms, ligand_atoms):
         """
@@ -1224,7 +1225,8 @@ class GPUScoringFunction(ScoringFunction):
         else:
             # Fall back to CPU implementation
             cpu_scorer = CPUScoringFunction()
-            return cpu_scorer.calculate_desolvation(protein_atoms, ligand.atoms)
+            ligand_atoms = ligand if isinstance(ligand, list) else ligand.atoms
+            return cpu_scorer.calculate_desolvation(protein_atoms, ligand_atoms)
     
     def _calculate_desolvation_torch(self, protein_atoms, ligand_atoms):
         """
@@ -1346,7 +1348,8 @@ class GPUScoringFunction(ScoringFunction):
         else:
             # Fall back to CPU implementation
             cpu_scorer = CPUScoringFunction()
-            return cpu_scorer.calculate_hydrophobic(protein_atoms, ligand.atoms)
+            ligand_atoms = ligand if isinstance(ligand, list) else ligand.atoms
+            return cpu_scorer.calculate_hydrophobic(protein_atoms, ligand_atoms)
     
     def _calculate_hydrophobic_torch(self, p_hydrophobic, l_hydrophobic):
         """
@@ -1444,7 +1447,8 @@ class GPUScoringFunction(ScoringFunction):
         else:
             # Fall back to CPU implementation
             cpu_scorer = CPUScoringFunction()
-            return cpu_scorer.calculate_clashes(protein_atoms, ligand.atoms)
+            ligand_atoms = ligand if isinstance(ligand, list) else ligand.atoms
+            return cpu_scorer.calculate_clashes(protein_atoms, ligand_atoms)
     
     def _calculate_clashes_torch(self, protein_atoms, ligand_atoms):
         """
