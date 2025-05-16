@@ -634,7 +634,7 @@ class CPUScoringFunction(ScoringFunction):
     
     def calculate_entropy(self, ligand, protein=None):
         n_rotatable = len(getattr(ligand, 'rotatable_bonds', []))
-        n_atoms = len(ligand.atoms)  # ✅ Fix here
+        n_atoms = len(ligand.atoms)  
         flexibility = self._estimate_pose_restriction(ligand, protein)
         entropy_penalty = 0.5 * n_rotatable * flexibility * (1.0 + 0.05 * n_atoms)
         return entropy_penalty
@@ -644,39 +644,137 @@ class CompositeScoringFunction(CPUScoringFunction):
     """Composite scoring function combining all energy terms."""
     
     def score(self, protein, ligand):
-        """Calculate composite score."""
+        """
+        Calculate composite score with enhanced backbone clash detection.
+        """
         protein_atoms = self._get_protein_atoms(protein)
         ligand_atoms = self._get_ligand_atoms(ligand)
         
+        # Calculate energy components
         vdw = self.calculate_vdw(protein_atoms, ligand_atoms)
         hbond = self.calculate_hbond(protein_atoms, ligand_atoms, protein, ligand)
         elec = self.calculate_electrostatics(protein_atoms, ligand_atoms)
         desolv = self.calculate_desolvation(protein_atoms, ligand_atoms)
         hydrophobic = self.calculate_hydrophobic(protein_atoms, ligand_atoms)
+        
+        # Regular clash detection
         clash = self.calculate_clashes(protein_atoms, ligand_atoms)
+        
+        # Enhanced backbone-aware clash detection
+        backbone_clash = self.calculate_enhanced_clashes(protein_atoms, ligand_atoms, backbone_factor=3.0)
+        
+        # Entropy calculation
         entropy = self.calculate_entropy(ligand, protein)
         
-        # Combine scores
+        # Combine scores with special handling for backbone clashes
         total = (
             self.weights['vdw'] * vdw +
             self.weights['hbond'] * hbond +
             self.weights['elec'] * elec +
             self.weights['desolv'] * desolv +
-            self.weights['hydrophobic'] * hydrophobic 
-            - self.weights['clash'] * clash 
-            - self.weights['entropy'] * entropy
+            self.weights['hydrophobic'] * hydrophobic -
+            self.weights['clash'] * (clash + backbone_clash) -  # Note the addition of backbone_clash
+            self.weights['entropy'] * entropy
         )
+        
+        # Apply severe penalty for significant backbone clashes
+        if backbone_clash > 2.0:  # Threshold for severe backbone clash
+            backbone_penalty = backbone_clash * 10.0  # Severe multiplicative penalty
+            total -= backbone_penalty
         
         # Print breakdown if verbose
         if self.verbose:
             print(f"VDW: {vdw:.2f}, H-bond: {hbond:.2f}, Elec: {elec:.2f}, "
-                 f"Desolv: {desolv:.2f}, Hydrophobic: {hydrophobic:.2f}, "
-                 f"Clash: {clash:.2f}, Entropy: {entropy:.2f}")
+                f"Desolv: {desolv:.2f}, Hydrophobic: {hydrophobic:.2f}, "
+                f"Clash: {clash:.2f}, Backbone Clash: {backbone_clash:.2f}, "
+                f"Entropy: {entropy:.2f}")
             print(f"Total: {total:.2f}")
         
         return total * -1.0 * 0.03
 
-
+    def calculate_enhanced_clashes(self, protein_atoms, ligand_atoms, backbone_factor=2.0):
+        """
+        Calculate clash score with enhanced sensitivity to backbone atoms.
+        
+        Parameters:
+        -----------
+        protein_atoms : list
+            List of protein atoms
+        ligand_atoms : list
+            List of ligand atoms
+        backbone_factor : float
+            Multiplier for backbone atom clash penalties (higher = stricter)
+            
+        Returns:
+        --------
+        float
+            Enhanced clash score (higher = worse clashes)
+        """
+        clash_score = 0.0
+        vdw_radii = {
+            'H': 1.2, 'C': 1.7, 'N': 1.55, 'O': 1.52, 'S': 1.8,
+            'P': 1.8, 'F': 1.47, 'Cl': 1.75, 'Br': 1.85, 'I': 1.98
+        }
+        clash_distance_factor = 0.7  # Clashes occur at 70% of sum of vdW radii
+        backbone_atoms = {'CA', 'C', 'N', 'O'}  # Protein backbone atoms
+        
+        for p_atom in protein_atoms:
+            p_coords = p_atom['coords']
+            p_element = p_atom.get('element', p_atom.get('name', 'C'))[0]
+            p_radius = vdw_radii.get(p_element, 1.7)
+            
+            # Check if this is a backbone atom
+            is_backbone = False
+            if 'name' in p_atom:
+                atom_name = p_atom['name'].strip()
+                is_backbone = atom_name in backbone_atoms
+            
+            for l_atom in ligand_atoms:
+                l_coords = l_atom['coords']
+                l_element = l_atom.get('symbol', 'C')
+                l_radius = vdw_radii.get(l_element, 1.7)
+                
+                # Calculate distance
+                distance = np.linalg.norm(p_coords - l_coords)
+                
+                # Define minimum allowed distance based on vdW radii
+                min_allowed = (p_radius + l_radius) * clash_distance_factor
+                
+                # Check for clash
+                if distance < min_allowed:
+                    # Calculate clash severity (1.0 = touching at min_allowed, >1.0 = overlapping)
+                    clash_severity = min_allowed / max(distance, 0.1)  # Avoid division by zero
+                    
+                    # Apply higher penalty for backbone clashes
+                    if is_backbone:
+                        clash_score += (clash_severity ** 2) * backbone_factor
+                    else:
+                        clash_score += clash_severity ** 2
+        
+        return clash_score
+    
+    def score_for_pose_generation(self, protein, ligand):
+        """
+        Special scoring function with extremely strict clash penalties
+        for use during initial pose generation and early optimization.
+        """
+        # Regular scoring
+        base_score = self.score(protein, ligand)
+        
+        # Get atoms
+        protein_atoms = self._get_protein_atoms(protein)
+        ligand_atoms = self._get_ligand_atoms(ligand)
+        
+        # Check for any backbone clashes with very strict parameters
+        backbone_clash = self.calculate_enhanced_clashes(
+            protein_atoms, ligand_atoms, backbone_factor=10.0
+        )
+        
+        # Apply extreme penalty for any backbone clash during pose generation
+        if backbone_clash > 0.5:  # Lower threshold during generation
+            return 999.0  # Very bad score to reject pose
+        
+        return base_score
 class EnhancedScoringFunction(CompositeScoringFunction):
     """
     EnhancedScoringFunction is a subclass of CompositeScoringFunction.
@@ -798,48 +896,50 @@ class GPUScoringFunction(ScoringFunction):
     
     def score(self, protein, ligand):
         """
-        Calculate binding score using GPU acceleration when available.
-        
-        Parameters:
-        -----------
-        protein : Protein
-            Protein object
-        ligand : Ligand
-            Ligand object
-        
-        Returns:
-        --------
-        float
-            Binding score (lower is better)
+        Calculate composite score with enhanced backbone clash detection.
         """
-        start_time = time.time()
+        protein_atoms = self._get_protein_atoms(protein)
+        ligand_atoms = self._get_ligand_atoms(ligand)
         
-        # Calculate base terms
-        vdw = self.calculate_vdw(protein, ligand)
-        hbond = self.calculate_hbond(protein, ligand)
-        clash = self.calculate_clashes(protein, ligand)
-        elec = self.calculate_electrostatics(protein, ligand)
-        desolv = self.calculate_desolvation(protein, ligand)
-        hydrophobic = self.calculate_hydrophobic(protein, ligand)
-        entropy = self.calculate_entropy(ligand)
+        # Calculate energy components
+        vdw = self.calculate_vdw(protein_atoms, ligand_atoms)
+        hbond = self.calculate_hbond(protein_atoms, ligand_atoms, protein, ligand)
+        elec = self.calculate_electrostatics(protein_atoms, ligand_atoms)
+        desolv = self.calculate_desolvation(protein_atoms, ligand_atoms)
+        hydrophobic = self.calculate_hydrophobic(protein_atoms, ligand_atoms)
         
-        # Combine scores
+        # Regular clash detection
+        clash = self.calculate_clashes(protein_atoms, ligand_atoms)
+        
+        # Enhanced backbone-aware clash detection
+        backbone_clash = self.calculate_enhanced_clashes(protein_atoms, ligand_atoms, backbone_factor=3.0)
+        
+        # Entropy calculation
+        entropy = self.calculate_entropy(ligand, protein)
+        
+        # Combine scores with special handling for backbone clashes
         total = (
             self.weights['vdw'] * vdw +
             self.weights['hbond'] * hbond +
             self.weights['elec'] * elec +
             self.weights['desolv'] * desolv +
             self.weights['hydrophobic'] * hydrophobic -
-            self.weights['clash'] * clash -
+            self.weights['clash'] * (clash + backbone_clash) -  # Note the addition of backbone_clash
             self.weights['entropy'] * entropy
         )
         
-        end_time = time.time()
+        # Apply severe penalty for significant backbone clashes
+        if backbone_clash > 2.0:  # Threshold for severe backbone clash
+            backbone_penalty = backbone_clash * 10.0  # Severe multiplicative penalty
+            total -= backbone_penalty
+        
+        # Print breakdown if verbose
         if self.verbose:
-            print(f"Scoring completed in {end_time - start_time:.4f} seconds")
             print(f"VDW: {vdw:.2f}, H-bond: {hbond:.2f}, Elec: {elec:.2f}, "
-                 f"Desolv: {desolv:.2f}, Hydrophobic: {hydrophobic:.2f}, "
-                 f"Clash: {clash:.2f}, Entropy: {entropy:.2f}")
+                f"Desolv: {desolv:.2f}, Hydrophobic: {hydrophobic:.2f}, "
+                f"Clash: {clash:.2f}, Backbone Clash: {backbone_clash:.2f}, "
+                f"Entropy: {entropy:.2f}")
+            print(f"Total: {total:.2f}")
         
         return total * -1.0 * 0.03
     

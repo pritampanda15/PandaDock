@@ -170,7 +170,7 @@ class DockingSearch:
         factor = 1.0 - (generation / total_generations) * decay_rate
         return max(initial_radius * factor, initial_radius * 0.5)  # Do not shrink below 50%
 
-    def _check_pose_validity(self, ligand, protein, clash_threshold=1.5):
+    def _check_pose_validity(self, ligand, protein, clash_threshold=1.2):
         """
         Check if ligand pose clashes with protein atoms.
         

@@ -517,8 +517,8 @@ def main():
         parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility')
         parser.add_argument('-a', '--algorithm', choices=['random', 'genetic', 'pandadock'], default='genetic',
                             help='Docking algorithm to use (default: genetic)')
-        parser.add_argument('-i', '--iterations', type=int, default=100,
-                            help='Number of iterations/generations (default: 100)')
+        parser.add_argument('-i', '--iterations', type=int, default=10,
+                            help='Number of iterations/generations (default: 10)')
         
         pandadock_group = parser.add_argument_group('Active Site Options')                    
         parser.add_argument('-s', '--site', nargs=3, type=float, metavar=('X', 'Y', 'Z'),
@@ -546,8 +546,8 @@ def main():
                             help='Use enhanced scoring function with electrostatics')
         parser.add_argument('--prepare-molecules', action='store_true',
                             help='Prepare protein and ligand before docking (recommended)')
-        parser.add_argument('--population-size', type=int, default=100,
-                            help='Population size for genetic algorithm (default: 100)')
+        parser.add_argument('--population-size', type=int, default=150,
+                            help='Population size for genetic algorithm (default: 150)')
         parser.add_argument('--exhaustiveness', type=int, default=1,
                             help='Number of independent docking runs (default: 1)')
         parser.add_argument('--local-opt', action='store_true', # Default is False
