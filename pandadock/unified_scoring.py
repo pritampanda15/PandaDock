@@ -1336,7 +1336,7 @@ class GPUScoringFunction(ScoringFunction):
                         if atom.get('element', atom.get('name', ''))[0] in self.hydrophobic_types]
         
         # Identify hydrophobic atoms in ligand
-        l_hydrophobic = [atom for atom in ligand.atoms 
+        l_hydrophobic = [atom for atom in ligand_atoms 
                         if atom.get('symbol', '') in self.hydrophobic_types]
         
         if not p_hydrophobic or not l_hydrophobic:
