@@ -1348,8 +1348,7 @@ class GPUScoringFunction(ScoringFunction):
         else:
             # Fall back to CPU implementation
             cpu_scorer = CPUScoringFunction()
-            ligand_atoms = ligand if isinstance(ligand, list) else ligand.atoms
-            return cpu_scorer.calculate_hydrophobic(protein_atoms, ligand_atoms)
+            return cpu_scorer.calculate_hydrophobic(p_hydrophobic, l_hydrophobic)
     
     def _calculate_hydrophobic_torch(self, p_hydrophobic, l_hydrophobic):
         """
