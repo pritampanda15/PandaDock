@@ -1450,6 +1450,13 @@ class GPUScoringFunction(ScoringFunction):
             ligand_atoms = ligand if isinstance(ligand, list) else ligand.atoms
             return cpu_scorer.calculate_clashes(protein_atoms, ligand_atoms)
     
+    def calculate_enhanced_clashes(self, protein_atoms, ligand_atoms, backbone_factor=3.0):
+        """
+        Enhanced backbone-aware clash detection using CPU fallback.
+        """
+        cpu_scorer = CPUScoringFunction()
+        return cpu_scorer.calculate_enhanced_clashes(protein_atoms, ligand_atoms, backbone_factor=backbone_factor)
+
     def _calculate_clashes_torch(self, protein_atoms, ligand_atoms):
         """
         Calculate steric clashes using PyTorch.
