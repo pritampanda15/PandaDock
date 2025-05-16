@@ -1428,7 +1428,8 @@ class GPUScoringFunction(ScoringFunction):
         # Fall back to CPU implementation
         cpu_scorer = CPUScoringFunction()
         protein_atoms = self._get_protein_atoms(protein)
-        return cpu_scorer.calculate_hbond(protein_atoms, ligand.atoms)
+        ligand_atoms = ligand if isinstance(ligand, list) else ligand.atoms
+        return cpu_scorer.calculate_hbond(protein_atoms, ligand_atoms)
     
     def calculate_clashes(self, protein, ligand):
         """
