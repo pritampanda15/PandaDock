@@ -1,4 +1,9 @@
-# 🐼 PandaDock: Version: 2.1.0
+# 🐼 PandaDock
+
+<h1><span style="color: red;">🚧 Work in Progress for v.3.0. Stay Tuned 🚧</span></h1>
+<p align="center"><strong><span style="color: red;">🚧 Under Maintenance 🚧</span></strong></p>
+
+![Under Maintenance](https://img.shields.io/badge/status-under--maintenance-red?style=for-the-badge&logo=github)
 
 **Python-based Molecular Docking Platform for Drug Discovery, Bioinformatics, and Computational Chemistry**.
 
