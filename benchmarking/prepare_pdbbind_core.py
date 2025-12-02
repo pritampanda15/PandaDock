@@ -10,6 +10,7 @@ import os
 import sys
 from pathlib import Path
 from typing import List, Tuple
+import numpy as np
 import pandas as pd
 from Bio.PDB import PDBParser, PDBIO, Select
 from rdkit import Chem
