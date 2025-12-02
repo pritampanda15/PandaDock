@@ -1,7 +1,5 @@
 # PandaDock: Next-Generation Molecular Docking Suite
 
-<div align="center">
-
 ![PandaDock Logo](pandadock_logo_new.png)
 
 **High-Accuracy Molecular Docking with GPU Acceleration**
@@ -9,13 +7,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![GPU Accelerated](https://img.shields.io/badge/GPU-Accelerated-green.svg)](https://developer.nvidia.com/cuda-toolkit)
-
-[Installation](getting-started.md){ .md-button .md-button--primary }
-[Quick Start](tutorials/quickstart.md){ .md-button }
-[Algorithms](algorithms/index.md){ .md-button }
-[GitHub](https://github.com/pritampanda15/PandaDock){ .md-button }
-
-</div>
 
 ---
 
@@ -26,13 +17,13 @@
 ### Key Features
 
 !!! success "Core Capabilities"
-    - **10 Advanced Docking Algorithms** (5 CPU + 5 GPU variants)
-    - **6 Specialized Docking Modes** (Standard, Flexible, Metal, ML-powered, Tethered, Crystal-guided)
-    - **Multiple Scoring Functions** (Physics-based, Empirical, Hybrid, GPU-accelerated)
-    - **Sub-angstrom Accuracy** (Mean RMSD: 0.08 ± 0.00 Å)
-    - **GPU Acceleration** with CUDA support for 100x speedup
-    - **Comprehensive Analysis Tools** including PandaMap visualization
-    - **Production-Ready** with enterprise-grade code quality
+    * **10 Advanced Docking Algorithms** (5 CPU + 5 GPU variants)
+    * **6 Specialized Docking Modes** (Standard, Flexible, Metal, ML-powered, Tethered, Crystal-guided)
+    * **Multiple Scoring Functions** (Physics-based, Empirical, Hybrid, GPU-accelerated)
+    * **Sub-angstrom Accuracy** (Mean RMSD: 0.08 ± 0.00 Å)
+    * **GPU Acceleration** with CUDA support for 100x speedup
+    * **Comprehensive Analysis Tools** including PandaMap visualization
+    * **Production-Ready** with enterprise-grade code quality
 
 ---
 
@@ -56,34 +47,34 @@ Tested on diverse protein-ligand complexes from PDBBind and custom benchmark set
 
 ### Installation
 
-=== "Basic (CPU Only)"
+**Basic Installation (CPU Only):**
 
-    ```bash
-    git clone https://github.com/pritampanda15/PandaDock.git
-    cd PandaDock
-    pip install -e .
-    ```
+```bash
+git clone https://github.com/pritampanda15/PandaDock.git
+cd PandaDock
+pip install -e .
+```
 
-=== "GPU-Accelerated"
+**GPU-Accelerated Installation:**
 
-    ```bash
-    git clone https://github.com/pritampanda15/PandaDock.git
-    cd PandaDock
-    pip install -e .
+```bash
+git clone https://github.com/pritampanda15/PandaDock.git
+cd PandaDock
+pip install -e .
 
-    # Install CUDA support
-    pip install cupy-cuda11x  # For CUDA 11
-    # OR
-    pip install cupy-cuda12x  # For CUDA 12
-    ```
+# Install CUDA support
+pip install cupy-cuda11x  # For CUDA 11
+# OR
+pip install cupy-cuda12x  # For CUDA 12
+```
 
-=== "With ML Features"
+**With ML Features:**
 
-    ```bash
-    git clone https://github.com/pritampanda15/PandaDock.git
-    cd PandaDock
-    pip install -e ".[ml]"
-    ```
+```bash
+git clone https://github.com/pritampanda15/PandaDock.git
+cd PandaDock
+pip install -e ".[ml]"
+```
 
 See the complete [Installation Guide](getting-started.md) for detailed instructions.
 
@@ -143,10 +134,10 @@ pandadock dock -r protein.pdb -l ligand.sdf \
 ### Specialized Modes
 
 !!! example "Advanced Docking Modes"
-    - **Flexible Docking** (`pandadock-flex`): Induced-fit with receptor flexibility
-    - **Metal Docking** (`pandadock-metal`): Specialized for metalloproteins (Zn, Fe, Mg, Ca, etc.)
-    - **ML Docking** (`pandadock-ml`): Machine learning-enhanced scoring
-    - **Tethered Docking** (`pandadock-tethered`): Constrained near reference positions
+    * **Flexible Docking** (`pandadock-flex`): Induced-fit with receptor flexibility
+    * **Metal Docking** (`pandadock-metal`): Specialized for metalloproteins (Zn, Fe, Mg, Ca, etc.)
+    * **ML Docking** (`pandadock-ml`): Machine learning-enhanced scoring
+    * **Tethered Docking** (`pandadock-tethered`): Constrained near reference positions
 
 See [Algorithms Documentation](algorithms/index.md) for complete details.
 
@@ -189,59 +180,23 @@ pandadock-report        # Generate publication-ready reports
 
 ---
 
-## Documentation Structure
+## Documentation
 
-<div class="grid cards" markdown>
+### Getting Started
+* [Installation Guide](getting-started.md) - Installation, setup, and first steps
+* [Quick Start Tutorial](tutorials/basic-docking.md) - Your first docking run
 
--   :material-rocket-launch:{ .lg .middle } **Getting Started**
+### Core Documentation
+* [Algorithms](algorithms/index.md) - Detailed documentation of all 10+ docking algorithms
+* [Scoring Functions](scoring/index.md) - Comprehensive guide to all scoring approaches
+* [Command Line Interface](cli/index.md) - Complete CLI reference for all tools
+* [Tutorials](tutorials/index.md) - Step-by-step examples and workflows
 
-    ---
-
-    Installation, setup, and first steps
-
-    [:octicons-arrow-right-24: Installation Guide](getting-started.md)
-
--   :material-algorithm:{ .lg .middle } **Algorithms**
-
-    ---
-
-    Detailed documentation of all 10+ docking algorithms
-
-    [:octicons-arrow-right-24: Algorithm Docs](algorithms/index.md)
-
--   :material-calculator-variant:{ .lg .middle } **Scoring Functions**
-
-    ---
-
-    Comprehensive guide to all scoring approaches
-
-    [:octicons-arrow-right-24: Scoring Guide](scoring/index.md)
-
--   :material-console:{ .lg .middle } **Command Line**
-
-    ---
-
-    Complete CLI reference for all tools
-
-    [:octicons-arrow-right-24: CLI Reference](cli/index.md)
-
--   :material-school:{ .lg .middle } **Tutorials**
-
-    ---
-
-    Step-by-step examples and workflows
-
-    [:octicons-arrow-right-24: Tutorials](tutorials/index.md)
-
--   :material-api:{ .lg .middle } **API Reference**
-
-    ---
-
-    Python API documentation
-
-    [:octicons-arrow-right-24: API Docs](api/index.md)
-
-</div>
+### Advanced Topics
+* [API Reference](api/index.md) - Python API documentation
+* [Performance Guide](guide/performance.md) - Optimization tips and benchmarks
+* [Best Practices](guide/best-practices.md) - Recommended workflows
+* [FAQ](guide/faq.md) - Frequently asked questions
 
 ---
 
@@ -299,37 +254,31 @@ If you use PandaDock in your research, please cite:
 
 ## Community & Support
 
-- **Documentation**: [https://pandadock.readthedocs.io/](https://pandadock.readthedocs.io/)
-- **GitHub**: [https://github.com/pritampanda15/PandaDock](https://github.com/pritampanda15/PandaDock)
-- **Issues**: [Report bugs or request features](https://github.com/pritampanda15/PandaDock/issues)
-- **Email**: pritampanda@stanford.edu
+* **Documentation**: [https://pandadock.readthedocs.io/](https://pandadock.readthedocs.io/)
+* **GitHub**: [https://github.com/pritampanda15/PandaDock](https://github.com/pritampanda15/PandaDock)
+* **Issues**: [Report bugs or request features](https://github.com/pritampanda15/PandaDock/issues)
+* **Email**: pritampanda@stanford.edu
 
 ---
 
 ## License
 
-PandaDock is released under the MIT License. See [License](license.md) for details.
+PandaDock is released under the MIT License. See [LICENSE](https://github.com/pritampanda15/PandaDock/blob/latest-v3.0/LICENSE) for details.
 
 ---
 
 ## Acknowledgments
 
 PandaDock builds upon and is inspired by several excellent open-source projects:
-- AutoDock Vina
-- RDKit
-- OpenMM
-- Biopython
-- CuPy/PyCUDA
+
+* AutoDock Vina
+* RDKit
+* OpenMM
+* Biopython
+* CuPy/PyCUDA
 
 Special thanks to the computational chemistry and drug discovery communities for their invaluable contributions.
 
 ---
 
-<div align="center">
-
-**Star ⭐ the repository if you find it useful!**
-
-[Get Started](getting-started.md){ .md-button .md-button--primary }
-[View on GitHub](https://github.com/pritampanda15/PandaDock){ .md-button }
-
-</div>
+**⭐ Star the repository on [GitHub](https://github.com/pritampanda15/PandaDock) if you find it useful!**

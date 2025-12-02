@@ -346,16 +346,3 @@ If you encounter issues:
 4. **Check Build Logs**: Always check the build logs for specific errors
 
 ---
-
-## Summary
-
-You now have a complete ReadTheDocs setup that will:
-
-✅ Automatically build documentation from the `latest-v3.0` branch
-✅ Use the modern Material theme
-✅ Document all 10+ new algorithms
-✅ Include GPU, flexible, metal, ML, and tethered docking modes
-✅ Show all 6 scoring functions
-✅ Provide comprehensive installation and usage guides
-
-**The documentation is ready to go live as soon as you push and configure ReadTheDocs!**
