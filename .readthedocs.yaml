@@ -1,0 +1,31 @@
+# Read the Docs configuration file
+# See https://docs.readthedocs.io/en/stable/config-file/v2.html for details
+
+version: 2
+
+# Set the OS, Python version and other tools
+build:
+  os: ubuntu-22.04
+  tools:
+    python: "3.9"
+  jobs:
+    post_create_environment:
+      # Install poetry if using it
+      - pip install --upgrade pip setuptools wheel
+    post_install:
+      # Install any other dependencies
+      - pip install -r docs/requirements.txt
+
+# Build documentation with MkDocs
+mkdocs:
+  configuration: mkdocs.yml
+  fail_on_warning: false
+
+# Python requirements for building docs
+python:
+  install:
+    - requirements: docs/requirements.txt
+    - method: pip
+      path: .
+      extra_requirements:
+        - docs
