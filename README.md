@@ -1,11 +1,45 @@
 # PandaDock - Next-Generation Molecular Docking Suite
 
-<div align="center">
+---
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![GPU Accelerated](https://img.shields.io/badge/GPU-Accelerated-green.svg)](https://developer.nvidia.com/cuda-toolkit)
-[![DOI](https://img.shields.io/badge/DOI-pending-orange.svg)](https://github.com/pritampanda15/PandaDock)
+<p align="center">
+  <a href="https://github.com/pritampanda15/PandaDock">
+    <img src="https://github.com/pritampanda15/PandaDock/blob/c4e5c9e91c4c8262faf1c7736850ca647d65adc1/PandaDock.png" width="500" alt="PandaDock Logo"/> 
+  </a>
+</p>
+<p align="center">
+  <a href="https://pypi.org/project/pandadock/">
+    <img src="https://img.shields.io/pypi/v/pandadock.svg" alt="PyPI Version">
+  </a>
+  <a href="https://github.com/pritampanda15/PandaDock/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/pritampanda15/PandaDock" alt="License">
+  </a>
+  <a href="https://github.com/pritampanda15/PandaDock/stargazers">
+    <img src="https://img.shields.io/github/stars/pritampanda15/PandaDock?style=social" alt="GitHub Stars">
+  </a>
+  <a href="https://github.com/pritampanda15/PandaDock/issues">
+    <img src="https://img.shields.io/github/issues/pritampanda15/PandaDock" alt="GitHub Issues">
+  </a>
+  <a href="https://github.com/pritampanda15/PandaDock/network/members">
+    <img src="https://img.shields.io/github/forks/pritampanda15/PandaDock?style=social" alt="GitHub Forks">
+  </a>
+  <a href="https://pepy.tech/project/pandadock">
+    <img src="https://static.pepy.tech/badge/pandadock" alt="Downloads">
+  </a>
+</p>
+<p align="center">
+  <a href="https://www.python.org/downloads/">
+    <img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python 3.8+">
+  </a>
+  <a href="https://opensource.org/licenses/MIT">
+    <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
+  </a>
+  <a href="https://pandadock.readthedocs.io/">
+    <img src="https://readthedocs.org/projects/pandadock/badge/?version=latest" alt="Documentation Status">
+  </a>
+</p>
+
+---
 
 **High-Accuracy Molecular Docking with GPU Acceleration**
 
