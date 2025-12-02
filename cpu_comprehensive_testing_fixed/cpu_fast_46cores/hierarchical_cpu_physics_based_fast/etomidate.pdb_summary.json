@@ -1,0 +1,28 @@
+{
+  "ligand_name": "etomidate.pdb",
+  "receptor_file": "preprocessing/intermediate/receptor_processed.pdb",
+  "grid_center": [
+    129.249,
+    120.21,
+    145.249
+  ],
+  "grid_dimensions": [
+    10.0,
+    10.051300000000012,
+    10.131399999999985
+  ],
+  "algorithm_used": "hierarchical_cpu",
+  "scoring_function": "physics_based",
+  "ensemble_binding_energy": -3.659920003470349,
+  "ensemble_confidence": 0.7430918794851081,
+  "num_poses": 2,
+  "runtime_seconds": 7.999476194381714,
+  "parameters": {
+    "num_conformers": 3,
+    "coarse_samples": 50,
+    "medium_samples": 20,
+    "fine_samples": 10,
+    "keep_top_poses": 10
+  },
+  "best_pose_energy": -10.225583968757267
+}

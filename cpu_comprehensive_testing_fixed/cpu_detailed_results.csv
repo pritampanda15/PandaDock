@@ -1,0 +1,88 @@
+Mode,Algorithm,Scoring,BestEnergy,NumPoses,EnsembleΔG,Runtime,Contacts,WallTime,Status
+CPU-fast,monte_carlo_cpu,physics_based,-2.184 kcal/mol,10,-1.424,7.57
+7.57,102,11,SUCCESS
+CPU-fast,monte_carlo_cpu,empirical,5.300 kcal/mol,10,0.681,8.65
+8.65,102,12,SUCCESS
+CPU-fast,monte_carlo_cpu,precision_score,1.862 kcal/mol,10,-0.145,11.42
+11.42,102,15,SUCCESS
+CPU-fast,monte_carlo_cpu,hybrid,1.231 kcal/mol,10,-0.281,10.70
+10.70,101,14,SUCCESS
+CPU-fast,genetic_algorithm_cpu,physics_based,-4.535 kcal/mol,10,-2.211,6.08
+6.08,102,10,SUCCESS
+CPU-fast,genetic_algorithm_cpu,empirical,-1.902 kcal/mol,10,-1.461,5.59
+5.59,102,9,SUCCESS
+CPU-fast,genetic_algorithm_cpu,precision_score,2.245 kcal/mol,10,-0.182,5.47
+5.47,102,9,SUCCESS
+CPU-fast,genetic_algorithm_cpu,hybrid,-6.300 kcal/mol,10,-2.708,5.88
+5.88,102,9,SUCCESS
+CPU-fast,hierarchical_cpu,physics_based,-10.226 kcal/mol,2,-3.660,8.00
+8.00,102,10,SUCCESS
+CPU-fast,hierarchical_cpu,empirical,-2.042 kcal/mol,8,-1.348,8.33
+8.33,100,12,SUCCESS
+CPU-fast,hierarchical_cpu,precision_score,-5.163 kcal/mol,8,-2.308,11.90
+11.90,101,15,SUCCESS
+CPU-fast,hierarchical_cpu,hybrid,-5.141 kcal/mol,10,-2.395,20.57
+20.57,102,24,SUCCESS
+CPU-fast,enhanced_hierarchical_cpu,physics_based,-3.208 kcal/mol,20,-1.734,0.57
+0.57,101,4,SUCCESS
+CPU-fast,enhanced_hierarchical_cpu,empirical,5.300 kcal/mol,20,0.558,0.88
+0.88,102,4,SUCCESS
+CPU-fast,enhanced_hierarchical_cpu,precision_score,1.808 kcal/mol,20,-0.112,2.35
+2.35,102,6,SUCCESS
+CPU-fast,enhanced_hierarchical_cpu,hybrid,2.175 kcal/mol,20,-0.211,3.80
+3.80,102,7,SUCCESS
+CPU-fast,crystal_guided_cpu,physics_based,-18.174 kcal/mol,10,-8.635,4.99
+4.99,100,9,SUCCESS
+CPU-fast,crystal_guided_cpu,empirical,-2.485 kcal/mol,10,-1.245,5.24
+5.24,100,8,SUCCESS
+CPU-fast,crystal_guided_cpu,precision_score,-4.032 kcal/mol,10,-1.833,4.78
+4.78,101,9,SUCCESS
+CPU-fast,crystal_guided_cpu,hybrid,-7.187 kcal/mol,10,-2.705,4.39
+4.39,102,8,SUCCESS
+CPU-full,monte_carlo_cpu,physics_based,-3.880 kcal/mol,10,-1.849,105.67
+105.67,101,109,SUCCESS
+CPU-full,monte_carlo_cpu,empirical,5.300 kcal/mol,10,0.681,86.77
+86.77,102,90,SUCCESS
+CPU-full,monte_carlo_cpu,precision_score,-1.360 kcal/mol,10,-1.030,95.74
+95.74,100,100,SUCCESS
+CPU-full,monte_carlo_cpu,hybrid,0.845 kcal/mol,10,-0.493,106.12
+106.12,101,109,SUCCESS
+CPU-full,genetic_algorithm_cpu,physics_based,-10.797 kcal/mol,10,-4.109,5.31
+5.31,101,9,SUCCESS
+CPU-full,genetic_algorithm_cpu,empirical,5.300 kcal/mol,10,0.681,4.93
+4.93,100,8,SUCCESS
+CPU-full,genetic_algorithm_cpu,precision_score,-5.890 kcal/mol,10,-2.613,5.56
+5.56,102,9,SUCCESS
+CPU-full,genetic_algorithm_cpu,hybrid,-5.840 kcal/mol,10,-2.661,5.87
+5.87,100,9,SUCCESS
+CPU-full,hierarchical_cpu,physics_based,-10.187 kcal/mol,2,-3.633,5.69
+5.69,101,8,SUCCESS
+CPU-full,hierarchical_cpu,empirical,-1.968 kcal/mol,6,-1.303,5.36
+5.36,101,8,SUCCESS
+CPU-full,hierarchical_cpu,precision_score,-4.983 kcal/mol,6,-2.148,7.19
+7.19,101,9,SUCCESS
+CPU-full,hierarchical_cpu,hybrid,-5.506 kcal/mol,10,-2.437,20.15
+20.15,101,24,SUCCESS
+CPU-full,enhanced_hierarchical_cpu,physics_based,-4.184 kcal/mol,50,-2.008,1.33
+1.33,102,4,SUCCESS
+CPU-full,enhanced_hierarchical_cpu,empirical,5.300 kcal/mol,50,0.395,1.97
+1.97,102,6,SUCCESS
+CPU-full,enhanced_hierarchical_cpu,precision_score,1.758 kcal/mol,50,-0.272,5.72
+5.72,102,9,SUCCESS
+CPU-full,enhanced_hierarchical_cpu,hybrid,2.175 kcal/mol,50,-0.400,8.37
+8.37,102,11,SUCCESS
+CPU-full,crystal_guided_cpu,physics_based,-11.761 kcal/mol,10,-4.038,4.38
+4.38,102,8,SUCCESS
+CPU-full,crystal_guided_cpu,empirical,-7.831 kcal/mol,10,-2.849,4.52
+4.52,101,8,SUCCESS
+CPU-full,crystal_guided_cpu,precision_score,-15.002 kcal/mol,10,-8.000,4.34
+4.34,101,7,SUCCESS
+CPU-full,crystal_guided_cpu,hybrid,-9.866 kcal/mol,10,-3.469,4.46
+4.46,102,8,SUCCESS
+FLEX-CPU,induced_fit_flexible,physics_based,,N/A,N/A,N/A,N/A,785,SUCCESS
+FLEX-CPU,induced_fit_flexible,empirical,,N/A,N/A,N/A,N/A,796,SUCCESS
+FLEX-CPU,induced_fit_flexible,precision_score,,N/A,N/A,N/A,N/A,714,SUCCESS
+FLEX-CPU,induced_fit_flexible,hybrid,,N/A,N/A,N/A,N/A,667,SUCCESS
+REPORT,cpu_fast_analysis,publication,UNKNOWN,N/A,N/A,N/A,N/A,1,UNKNOWN
+REPORT,cpu_full_analysis,publication,UNKNOWN,N/A,N/A,N/A,N/A,6,UNKNOWN
+REPORT,flex_cpu_analysis,publication,UNKNOWN,N/A,N/A,N/A,N/A,1,UNKNOWN

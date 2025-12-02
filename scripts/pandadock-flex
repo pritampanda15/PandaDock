@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""
+PandaDock-Flex: Professional Induced-Fit Docking CLI
+
+Entry point for flexible docking with receptor conformational sampling
+"""
+
+import sys
+import os
+
+# Add parent directory to path to import pandadock modules
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from pandadock.flex_docking_cli import main
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,11 @@
+{
+  "total_interactions": 100,
+  "interaction_types": {
+    "hydrogen_bonds": 32,
+    "hydrophobic_contacts": 34,
+    "electrostatic_interactions": 0,
+    "van_der_waals_contacts": 34
+  },
+  "binding_affinity_estimate": -15.0,
+  "interaction_summary": "Found 100 total interactions"
+}

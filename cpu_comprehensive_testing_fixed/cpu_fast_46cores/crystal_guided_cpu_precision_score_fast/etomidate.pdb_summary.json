@@ -1,0 +1,34 @@
+{
+  "ligand_name": "etomidate.pdb",
+  "receptor_file": "preprocessing/intermediate/receptor_processed.pdb",
+  "grid_center": [
+    129.249,
+    120.21,
+    145.249
+  ],
+  "grid_dimensions": [
+    10.0,
+    10.051300000000012,
+    10.131399999999985
+  ],
+  "algorithm_used": "crystal_guided_cpu",
+  "scoring_function": "precision_score",
+  "ensemble_binding_energy": -1.8328059520031301,
+  "ensemble_confidence": 0.29958613666518913,
+  "num_poses": 10,
+  "runtime_seconds": 4.779474258422852,
+  "parameters": {
+    "num_conformers": 3,
+    "crystal_samples": 100,
+    "perturbation_cycles": 5,
+    "max_translation": 2.0,
+    "max_rotation": 30.0,
+    "keep_top_poses": 10,
+    "crystal_reference": [
+      129.249,
+      120.21,
+      145.249
+    ]
+  },
+  "best_pose_energy": -4.032005021980137
+}

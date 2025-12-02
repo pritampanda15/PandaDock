@@ -1,0 +1,30 @@
+{
+  "ligand_name": "etomidate.pdb",
+  "receptor_file": "preprocessing/intermediate/receptor_processed.pdb",
+  "grid_center": [
+    129.249,
+    120.21,
+    145.249
+  ],
+  "grid_dimensions": [
+    10.0,
+    10.051300000000012,
+    10.131399999999985
+  ],
+  "algorithm_used": "genetic_algorithm_cpu",
+  "scoring_function": "hybrid",
+  "ensemble_binding_energy": -2.708369929931966,
+  "ensemble_confidence": 0.6062084511462645,
+  "num_poses": 10,
+  "runtime_seconds": 5.882284879684448,
+  "parameters": {
+    "population_size": 20,
+    "generations": 10,
+    "mutation_rate": 0.3,
+    "crossover_rate": 0.7,
+    "elite_fraction": 0.2,
+    "num_conformers": 3,
+    "keep_top_poses": 10
+  },
+  "best_pose_energy": -6.299641294583825
+}

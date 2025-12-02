@@ -1,0 +1,504 @@
+
+
+
+Next task 3
+Wow!. That works great and wonderful suggestions. Appreciate the methods that you proposed. The next task is docking which 
+  is much more crucial. I want multiple algorithms but fast and accurate. Both should support GPU and CPU implementation. 
+  Clearly categorize CPU based algorithms and GPU based algorithms in that way I can propose both to the users. Also make 
+  concrete steps to write each algorithm separately. Do not put all algorithms in one file which might be confusing. I have 
+  attached here implementation algorithms which you might consider for docking purpose. 
+  /Users/pritam/Downloads/Implementation\ algorithms . Do it step by step and do not combine everything. Provide indicvidual 
+  commands for all. Make sure also to provide outputs as complex pdb files meaning protein and ligand docked together and also
+   ligand poses as pdb file. Name it like complex1 complex2 and for ligand poses pose1 pose2 pose3. Simple and effective. For 
+  plotting of diagrams please provide output as binding affinities.png where x axis will be the poses and Y axis with 
+  affinities. Use modern tools  for best plotting. Do not make simple and boring plottings. Please do it step by step and 
+  individual algorithms separated. Do not hallucinate while writing algorithms. Provide me best and concreate code.
+
+**Goal**:
+Develop a next-generation docking software, inspired by **CDOCKER** (CHARMm + MD refinement) and **Glide** (hierarchical scoring), but modernized with **GPU acceleration, Boltzmann ensemble binding free energy estimation, and optional ML rescoring (Boltz-2–like)**.
+
+---
+
+## 🔑 Core Docking Algorithm
+
+**1. Ligand Conformation Generation**
+
+* Generate an ensemble of ligand conformations using:
+
+  * High-temperature molecular dynamics (random seeds).
+  * Systematic torsional sampling for flexible bonds.
+  * Optional: precomputed conformers from RDKit or Omega.
+
+**2. Pose Sampling (Search)**
+
+* Translate ligand center into the binding pocket.
+* Perform random rotations, softened vdW scoring for filtering.
+* Accept poses below an energy threshold or until max attempts reached.
+* Techniques:
+
+  * **Monte Carlo sampling** with random translations/rotations.
+  * **Genetic Algorithm (GA)** for flexible ligands.
+  * **Hierarchical site-point search** (like Glide).
+
+**3. Pose Refinement**
+
+* **Simulated annealing MD**:
+
+  * Heat ligand → cool → relax in pocket.
+* **Energy minimization** (steepest descent + conjugate gradient).
+* Use grid-based nonbonded interactions for speed; switch to full potential for final minimization.
+
+---
+
+## ⚡ Scoring Functions (Binding Affinity Terms)
+
+Include modular scoring terms, all in kcal/mol:
+
+1. **Van der Waals (vdW)** – Lennard-Jones or CHARMM/AMBER potential.
+2. **Electrostatics (Coulomb)** – dielectric-dependent, with softened charges for metals and salts.
+3. **Hydrogen Bonding** – directional and distance-dependent.
+4. **Hydrophobic / Lipophilic interactions** – burial, water displacement (SiteMap-style).
+5. **Desolvation penalty** – loss of water H-bonding (GB/SA approximation).
+6. **Entropy penalty** – per rotatable bond frozen on binding.
+7. **Clash penalty** – severe steric overlaps.
+8. **Special terms (optional)** – metal coordination, π–cation, π–π stacking.
+
+You can think of your scoring framework as modular layers:
+
+
+## 1. Core Algorithms to Consider
+
+To rival CDocker/Glide/Schrödinger, you’ll need a hybrid approach:
+
+* **Pose generation**
+
+  * Systematic or stochastic ligand sampling in the binding site (Monte Carlo, genetic algorithm, fragment-based build-up, or MD-based simulated annealing).
+  * Grid-based or spherical coordinate sampling for efficiency.
+* **Scoring function**
+
+  * Physics-based energy terms (vdW, electrostatics, hydrogen bonds, solvation, entropy).
+  * Knowledge-based/empirical terms (hydrophobic enclosure, water displacement, SiteMap-like corrections).
+  * Boltzmann-weighted ensemble scoring for free energy approximation.
+* **Binding affinity prediction**
+
+  * ΔG ≈ -RT ln(Σ exp(-Ei/RT)) where Ei are per-pose energies (Boltz2 style).
+  * Add entropic corrections (rotatable bonds, internal strain).
+  * Optional post-docking refinement (MM/GBSA or FEP-lite).
+
+---
+
+## 2. Energy / Reward Terms 
+
+The table you shared is essentially a **modern scoring dictionary** — it blends physics + empiricism.
+We can group them into categories:
+
+### **A. Enthalpic interaction terms**
+
+* **van der Waals**: attraction/repulsion (Lennard-Jones or soft-core).
+* **Hydrogen bonds**: neutral vs hydrophobically enclosed vs hydroxyl-specific.
+* **Electrostatics**: Coulombic + environment rewards (distance-dependent dielectric).
+* **π–cation, aromatic stacking, halogen bonds**.
+* **Special cases**: “Magic Methyl”, “Recessed Salt Bridge”, ARG stacking.
+
+### **B. Solvation / desolvation terms**
+
+* Removal of buried waters (triply-bound, tetrahedral, bridging).
+* Desolvation penalties for backbone, sidechains, ligand polar atoms.
+* Hydrophobic enclosure reward (water displacement).
+* SiteMap-style lipophilic and polar grid adjustments.
+
+### **C. Entropy / Strain corrections**
+
+* Rotatable bond entropy penalty.
+* Twisted amide strain, aromatic torsion strain, ligand internal strain.
+* Axial clash (ligand intramolecular steric issues).
+* Receptor offset (empirical receptor reorganization).
+
+### **D. Clash / penalty terms**
+
+* Polar clashes (protein-ligand or intra-ligand).
+* vdW adjustment penalties if energy is “too low” for ligand size.
+* Over-occupying voids or excessive strain.
+
+---
+
+## 3. Binding Affinity Calculation
+
+For **Boltzmann-weighted scoring** (Boltz2-like):
+
+$$
+\Delta G_{bind} = -RT \ln \left( \sum_i e^{-E_i/RT} \right) + \Delta G_{entropy}
+$$
+
+* Ei = docking score (sum of all above terms for pose i).
+* Multiple poses contribute (not just best-scoring).
+* Entropy correction:
+
+  * Rotatable bond penalty.
+  * Conformational strain correction.
+* Temperature (T) typically 298 K.
+
+# 2) Core principles you must implement in PandaDock
+
+1. **Ensemble sampling of ligand & receptor conformations** (multiple poses & protein conformers). Use MD, normal modes, or multiple crystal structures. Ensemble → more realistic ΔG. ([ScienceDirect][3])
+2. **Boltzmann weighting / statistical averaging** over poses and conformers (not just pick-top-score). This converts many sampled energies into an ensemble ΔG estimate. (Formula below.) ([Frontiers][4])
+3. **Rescoring with higher-fidelity physics** (MM-GBSA/MM-PBSA as fast-ish endpoint; FEP for top hits). MM-GBSA is a pragmatic mid-point. ([PubMed Central][5])
+4. **Optional ML affinity model** (if you want Boltz-2–like speed and accuracy, integrate an ML model trained on structure→affinity). Boltz-2 and similar models unify structure prediction and affinity scoring. ([jclinic.mit.edu][2])
+5. **Calibration to experimental ΔG / Kd** — convert model scores to physical ΔG using a small experimental set (fit offset and scale).
+
+---
+
+# 3) Key formulae & units (use these exactly)
+
+* Convert experimental dissociation constant $K_d$ (M) to free energy:
+
+$$
+\Delta G = RT \ln K_d \quad\text{(use R = 0.0019872041 kcal·mol^{-1}·K^{-1}, T=298.15 K)}
+$$
+
+* Boltzmann weight for pose/conformer $i$ from energy $E_i$ (kcal/mol):
+
+$$
+w_i = \frac{e^{-E_i/(k_B T)}}{\sum_j e^{-E_j/(k_B T)}},\qquad k_B\!T \approx 0.593\ \text{kcal/mol at }298.15\mathrm{K}
+$$
+
+* Ensemble (partition-function style) effective binding free energy from a set of energies $\{E_i\}$:
+
+$$
+\Delta G_\text{ensemble} = -k_B T \ln\Big(\sum_i e^{-E_i/(k_B T)}\Big) \;+\; C
+$$
+
+$C$ is a calibration/offset constant that corrects your raw scores into experimental ΔG units (learned from training set).
+
+**Important:** the $E_i$ you use must be *comparable* across poses (same scoring function/units). If docking gives only relative scores, you must calibrate.
+
+---
+
+# 4) Practical pipeline (recommended tiered workflow)
+
+1. **Dock & sample** (fast): generate N poses per ligand across M protein conformers (GPU-parallel MC / GA + minimization). Keep, say, top 200 poses per ligand.
+2. **Value-pack scoring** (fast): compute physics-informed score for each pose (vdW + elec + hbond + desolv + clash + rotatable-bond penalty). Keep top K (e.g., 20–50).
+3. **Boltzmann ensemble calc**: compute $\Delta G_\text{ensemble}$ from those top K energies using the formula above. This is better than single-pose ranking. ([Frontiers][4])
+4. **MM-GBSA rescoring**: run short minimization and MM-GBSA on the top \~10–50 ligands to refine ΔG estimate. Use single-trajectory or separate-trajectory protocol carefully. ([PubMed Central][5])
+5. **FEP / TI (optional, for final hits)**: use rigorous free-energy calculations on the top handful to get the best absolute ΔG. ([American Chemical Society Publications][1])
+6. **Optionally pass through an ML model** (e.g., Boltz-2 or your own trained model) as an alternative to MM-GBSA or to fuse both (ensemble predictions).
+
+---
+
+# 5) Pseudocode (Boltzmann ensemble + calibration)
+
+```python
+# energies: list of E_i in kcal/mol (interaction energies or rescored ΔG-like values)
+T = 298.15
+kT = 0.0019872041 * T  # kcal/mol
+Z = sum(math.exp(-E / kT) for E in energies)
+deltaG_ensemble_raw = -kT * math.log(Z)
+
+# calibrate to experimental scale: deltaG = a * deltaG_ensemble_raw + b
+# Fit a,b on small training set (ridge regression or linear fit)
+deltaG_calibrated = a * deltaG_ensemble_raw + b
+```
+
+Notes:
+
+* If your E\_i are not already ΔG-like, treat `deltaG_ensemble_raw` as a *score* that you calibrate against experiments to produce physical ΔG.
+* Use robust fitting (train/test split) and report RMSE / Pearson on a validation set.
+
+---
+
+# 6) Implementation tips & pitfalls
+
+* **Units matter.** Always operate in kcal·mol⁻¹ when doing Boltzmann averaging and use consistent T.
+* **Don't Boltzmann-average hundreds of terrible poses.** Filter to a reasonable top-K (bad high-energy poses just blow up exponentials numerically).
+* **Entropy is hard.** Docking scores usually miss ligand conformational entropy loss — add a rotatable-bond penalty or use normal-mode/Quasi-harmonic estimates if you need more accuracy. ([Frontiers][4])
+* **Dataset bias:** ML models (Boltz-2 etc.) perform best on chemistries similar to their training sets. Always validate on held-out targets. ([jclinic.mit.edu][2])
+* **Ensemble diversity:** include protein flexibility (side-chains, backbone where relevant) to capture induced fit; ensemble averaging over conformers improves ΔG. ([ScienceDirect][3])
+
+---
+
+# 7) Where Boltz-2 fits into this (and how you can use it)
+
+* Boltz-2 unifies structure prediction and affinity prediction, giving fast, accurate ΔG estimates for many small-molecule targets. It's open-source and designed to serve as a fast triage / rescoring module you can call from PandaDock. If you want Boltz-2–level speed/accuracy, consider integrating Boltz-2 as a rescoring step or training your own similar model on in-house data. ([jclinic.mit.edu][2])
+
+---
+
+# 8) Concrete short checklist to implement next in PandaDock
+
+* [ ] Add ensemble docking (multiple receptor conformers).
+* [ ] Implement Boltzmann-weighted ensemble ΔG calculation (per formulas above).
+* [ ] Add MM-GBSA rescoring pipeline for top candidates. ([PubMed Central][5])
+* [ ] Integrate (or provide a plug) for ML affinity models (e.g., Boltz-2) as a fast rescoring option. ([jclinic.mit.edu][2])
+* [ ] Make a tiny calibration dataset (10–50 ligands with experimental Kd/ΔG) and fit the offset/scale for your scoring function.
+* [ ] Validate: report RMSE and Pearson r against experimental ΔG on held-out targets.
+
+---
+
+---
+
+## 4. What You’d Need in PandaDock
+
+* **Pose generator**: grid + genetic algorithm or GPU-accelerated Monte Carlo.
+* **Scoring engine**: modular, with per-term contributions (like your table).
+* **Boltzmann ensemble handling**: store energies of all viable poses, compute ΔG with Boltzmann weighting.
+* **Post-processing**:
+
+  * Optional rescoring with MM/GBSA.
+  * Ranking ligands by ΔGbind.
+* **GPU acceleration** (like you already did for PandaDock scoring functions).
+
+---
+
+👉 So the table you provided should absolutely be **encoded into your scoring function** as adjustable weights. That way, PandaDock can combine physics-based terms (vdW, electrostatics) with empirical corrections (hydrophobic enclosure, water displacement, entropy). For performance, many of these steps use a nonbond energy grid, rather than the full potential energy terms usually used by CHARMm. This provides a significant time saving at the cost of some accuracy. You can specify whether to use a grid or full potential for the simulation and minimization steps.
+
+
+📌 Equation (example hybrid of CDOCKER + Glide):
+
+$$
+\text{Score} = w_{vdW}E_{vdW} + w_{elec}E_{elec} + w_{HB}E_{HB} + w_{lipo}E_{lipo} + w_{desolv}E_{desolv} + w_{entropy}E_{entropy} + w_{clash}E_{clash} + \dots
+$$
+
+---
+
+## 📊 Ensemble Binding Free Energy (Boltzmann Averaging)
+
+Instead of picking a single pose, compute ensemble ΔG:
+
+$$
+\Delta G_\text{ensemble} = -k_BT \ln\left(\sum_i e^{-E_i/k_BT}\right) + C
+$$
+
+* \$E\_i\$: pose energies from scoring function.
+* \$k\_BT \approx 0.593\$ kcal/mol at 298 K.
+* \$C\$: calibration offset fitted to experimental ΔG.
+* Keep only top **K poses** per ligand (avoid poor poses blowing up partition sum).
+
+---
+
+## 🧮 Rescoring & Accuracy Enhancements
+
+1. **MM-GBSA rescoring**
+
+   * On top poses, run MM-GBSA (or MM-PBSA) with implicit solvent.
+   * Produces refined ΔG estimates.
+
+2. **Free Energy Perturbation (FEP/TI)**
+
+   * For final candidates, run rigorous FEP/TI with MD (gold standard).
+
+3. **ML rescoring (Boltz-2–like)**
+
+   * Integrate optional pretrained deep models for affinity prediction.
+   * Fuse with physics-based scores for hybrid accuracy.
+
+---
+
+## ⚙️ Efficiency & Implementation Notes
+
+* **GPU acceleration** for sampling + scoring (CUDA/CuPy/PyTorch).
+* **Nonbonded energy grids** for receptor (like AutoDock/Glide) to save time.
+* **Parallelism** – batch ligands across GPUs for virtual screening.
+* **User control** – allow users to choose between:
+
+  * Fast screening (grid + empirical scoring).
+  * Accurate rescoring (full potential + MM-GBSA/FEP).
+
+---
+
+## ✅ Output & Ranking
+
+For each ligand:
+
+* Pose geometries (top N poses).
+* Per-pose energy breakdown (vdW, elec, H-bond, hydrophobic, entropy, clash).
+* Ensemble ΔG estimate.
+* Rescored ΔG (optional: MM-GBSA/FEP/ML).
+* Rank ligands by ΔG (most negative = best binder).
+
+---
+
+## 📌 Summary of Algorithm Flow
+
+1. Generate ligand conformations.
+2. Sample poses via Monte Carlo / GA / hierarchical search.
+3. Refine via simulated annealing + minimization.
+4. Score with modular energy terms.
+5. Compute **ensemble ΔG** via Boltzmann weighting.
+6. Rescore top ligands with MM-GBSA or ML.
+7. Rank ligands and output final poses + binding affinities.
+
+
+----
+
+Design Considerations for PandaDock
+
+If you want PandaDock to be modern and competitive, here’s a recipe:
+
+Search: Monte Carlo + local minimization (GPU-parallel).
+
+Scoring: Physics-based, modular components (vdW, electrostatics, H-bond, desolvation, entropy, clash).
+
+Efficiency: Use grids for protein–ligand interaction precomputation (like AutoDock, CDOCKER).
+
+Flexibility: Allow pluggable scoring functions (users can choose empirical vs. physics-based).
+
+Accuracy: Support optional rescoring with MM-GBSA.
+
+Parallelism: Leverage GPUs for pose sampling and scoring.
+
+----
+Some background about Algorithms
+
+CDOCKER
+
+CDOCKER is an implementation of a CHARMm based docking tool using a rigid receptor (Wu et al. 2003). The following steps are included in the CDOCKER protocol:
+
+    A set of ligand conformations are generated using high-temperature molecular dynamics with different random seeds. This step can be skipped to dock the input conformation(s) only.
+    Random orientations of the conformations are produced by translating the center of the ligand to a specified location within the receptor active site, and performing a series of random rotations. A softened energy is calculated and the orientation is kept if the energy is less than a specified threshold. This process continues until either the desired number of low-energy orientations is found, or the maximum number of bad orientations have been tried. This step can be skipped to use the input orientation only.
+    Each orientation is subjected to simulated annealing molecular dynamics. The temperature is heated up to a high temperature then cooled to the target temperature.
+    A final minimization of the ligand in the rigid receptor using non-softened potential is performed.
+    For each final pose, the CHARMm energy (interaction energy plus ligand strain) and the interaction energy alone are calculated. The poses are sorted by CHARMm energy and the top scoring (most negative, thus favorable to binding) poses are retained.
+
+
+
+GlideScore Glide Score
+
+The units of GlideScore are kcal/mol. Both SP and XP GlideScore have been calibrated to reproduce certain experimental binding affinities. The individual terms (Emodel, Ecoul, and so on) in the GlideScore formula are parametrized in this calibration: these terms should therefore not be interpreted as quantitative calculations of energies.
+
+GlideScore is based on ChemScore, but includes a steric-clash term, adds other rewards and penalties such as buried polar terms (devised by Schrödinger to penalize electrostatic mismatches), amide twist penalties, hydrophobic enclosure terms, and excluded volume penalties, and has modifications to other terms:
+
+GScore = 0.05*vdW + 0.15*Coul + Lipo + Hbond + Metal + Rewards + RotB + Site
+
+The choice of best-docked structure for each ligand is made using a model energy score (Emodel) that combines the energy grid score, the binding affinity predicted by GlideScore, and (for flexible docking) the internal strain energy for the model potential used to direct the conformational-search algorithm.
+
+Glide also computes a specially constructed Coulomb-van der Waals interaction-energy score (CvdW) that is formulated to avoid overly rewarding charge-charge interactions at the expense of charge-dipole and dipole-dipole interactions. This score is intended to be more suitable for comparing the binding affinities of different ligands than is the “raw” Coulomb-van der Waals interaction energy. In addition to the GlideScore, a “docking score” is reported, which is the GlideScore supplemented by Epik state penalties, if used, and strain corrections, if used.
+
+This hierarchical search gives Glide exceptionally high accuracy in predicting the binding mode of the ligand. At the same time, the computational cost is dramatically reduced compared to what would be required for a complete systematic search. The key to this reduction is that the algorithm allows the rotamer groups to be optimized one at a time for a given core conformation and location of the ligand. For example, if there are five rotamer groups and each has three rotamer states, the total number of conformers in the ensemble based on this core conformation/location is 35 = 243. However, if the rotamer groups are optimized one at a time, the number of conformational combinations is only 3×5 = 15, for a savings of about a factor of 15 in computational effort. While many other time-saving algorithms in Glide contribute to its performance advantages, this fundamental qualitative feature allows large libraries to be screened at an affordable computational cost.
+Stage 1
+
+Conformational flexibility is handled in Glide by an extensive conformational search, augmented by a heuristic screen that rapidly eliminates unsuitable conformations, such as conformations that have long-range internal hydrogen bonds.
+
+Figure 1:Definition of core and rotamer groups.
+
+As illustrated in Figure 1, each ligand is divided into a core region and some number of rotamer groups. Each rotamer group is attached to the core by a rotatable bond, but does not contain additional rotatable bonds. The core is what remains when each terminus of the ligand is severed at the “last” rotatable bond. Carbon and nitrogen end groups terminated with hydrogen (—CH3, —NH2, —NH3+) are not considered rotatable because their conformational variation is of little significance. In Figure 1, the four central torsions are part of the core, and the methyl groups are not considered rotatable.
+
+During conformation generation, each core region is represented by a set of core conformations, the number of which depends on the number of rotatable bonds, conformationally labile 5- and 6-membered rings, and asymmetric pyramidal trigonal nitrogen centers in the core. This set typically contains fewer than 500 core conformations, even for quite large and flexible ligands, and far fewer for more rigid ligands. Every rotamer state for each rotamer group attached to the core is enumerated. The core plus all possible rotamer-group conformations is docked as a single object. Glide can also dock sets of pre-computed conformations. However, Glide offers its greatest value when conformations are generated internally.
+
+For each core conformation (or for rigid docking, each ligand), an exhaustive search of possible locations and orientations is performed over the active site of the protein. The search begins with the selection of “site points” on an equally spaced 2 Å grid that covers the active-site region (Stage 1 in Figure 2). This selection is made as follows. Distances from the site point to the receptor surface are evaluated at a series of pre-specified directions and sorted into distance ranges (“bins”) of width 1 Å. Likewise, distances from the ligand center (the midpoint of the two most widely separated atoms) to the ligand surface are sorted into bins of width 1 Å. For a given site point, the distance ranges from the site point to the receptor are compared with those from the ligand center to the ligand surface. Glide positions the ligand center at the site point if there is a good enough match, but skips over the site point if there is not.
+Stage 2
+
+The second stage of the hierarchy begins by examining the placement of atoms that lie within a specified distance of the line drawn between the most widely separated atoms (the ligand diameter). This is done for a pre-specified selection of possible orientations of the ligand diameter (Step 2a). If there are too many steric clashes with the receptor, the orientation is skipped.
+
+Figure 2:The Glide docking hierarchy.
+
+Next (Step 2b), rotation about the ligand diameter is considered, and the interactions of a subset consisting of all atoms capable of making hydrogen bonds or ligand-metal interactions with the receptor are scored (subset test). If this score is good enough, all interactions with the receptor are scored (Step 2c).
+
+The scoring in these three tests is carried out using Schrödinger’s discretized version of the ChemScore empirical scoring function [1]. Much as for ChemScore itself, this algorithm recognizes favorable hydrophobic, hydrogen-bonding, and metal-ligation interactions, and penalizes steric clashes. This stage is called “greedy scoring,” because the actual score for each atom depends not only on its position relative to the receptor but also on the best possible score it could get by moving ±1 Å in x, y, or z. This is done to mute the sting of the large 2 Å jumps in the site-point/ligand-center positions. The final step in Stage 2 is to re-score the top greedy-scoring poses via a “refinement” procedure (Step 2d), in which the ligand as a whole is allowed to move rigidly by ±1 Å in the Cartesian directions.
+
+Only a small number of the best refined poses (typically 100-400) is passed on to the third stage in the hierarchy—energy minimization on the pre-computed OPLS van der Waals and electrostatic grids for the receptor. The energy minimization typically begins on a set of van der Waals and electrostatic grids that have been “smoothed” to reduce the large energy and gradient terms that result from too-close interatomic contacts. It finishes on the full-scale OPLS nonbonded energy surface (“annealing”). This energy minimization consists only of rigid-body translations and rotations when external conformations are docked. When conformations are generated internally, however, the optimization also includes torsional motion about the core and end-group rotatable bonds. Unless otherwise specified, a small number of the top-ranked poses are then subjected to a sampling procedure in which alternative local-minima core and rotamer-group torsion angles are examined to try to improve the energy score.
+GlideScore
+
+The units of GlideScore are kcal/mol. Both SP and XP GlideScore have been calibrated to reproduce certain experimental binding affinities. The individual terms (Emodel, Ecoul, and so on) in the GlideScore formula are parametrized in this calibration: these terms should therefore not be interpreted as quantitative calculations of energies.
+
+GlideScore is based on ChemScore, but includes a steric-clash term, adds other rewards and penalties such as buried polar terms (devised by Schrödinger to penalize electrostatic mismatches), amide twist penalties, hydrophobic enclosure terms, and excluded volume penalties, and has modifications to other terms:
+
+GScore = 0.05*vdW + 0.15*Coul + Lipo + Hbond + Metal + Rewards + RotB + Site
+
+The components of the GlideScore (GScore) are described in Table 1.
+
+Table 1. GlideScore components
+Component
+	
+
+Description
+
+vdW
+	
+
+Van der Waals energy. This term is calculated with reduced net ionic charges on groups with formal charges, such as metals, carboxylates, and guanidiniums.
+
+Coul
+	
+
+Coulomb energy. This term is calculated with reduced net ionic charges on groups with formal charges, such as metals, carboxylates, and guanidiniums.
+
+Lipo
+	
+
+Lipophilic term, which is a pairwise term in SP but is derived from the hydrophobic grid potential for XP. Rewards favorable hydrophobic interactions.
+
+HBond
+	
+
+Hydrogen-bonding term. This term is separated into differently weighted components that depend on whether the donor and acceptor are neutral, one is neutral and the other is charged, or both are charged.
+
+Metal
+	
+
+Metal-binding term. Only the interactions with anionic or highly polar acceptor atoms are included. If the net metal charge in the apo protein is positive, the preference for anionic or polar ligands is included; if the net charge is zero, the preference is suppressed.
+
+Rewards
+	
+
+Rewards and penalties for various features, such as buried polar groups, hydrophobic enclosure, correlated hydrogen bonds, amide twists, and so on. This category covers all terms other than those explicitly mentioned.
+
+RotB
+	
+
+Penalty for freezing rotatable bonds.
+
+Site
+	
+
+Polar interactions in the active site. Polar but non-hydrogen-bonding atoms in a hydrophobic region are rewarded.
+
+The choice of best-docked structure for each ligand is made using a model energy score (Emodel) that combines the energy grid score, the binding affinity predicted by GlideScore, and (for flexible docking) the internal strain energy for the model potential used to direct the conformational-search algorithm.
+
+Glide also computes a specially constructed Coulomb-van der Waals interaction-energy score (CvdW) that is formulated to avoid overly rewarding charge-charge interactions at the expense of charge-dipole and dipole-dipole interactions. This score is intended to be more suitable for comparing the binding affinities of different ligands than is the “raw” Coulomb-van der Waals interaction energy. In addition to the GlideScore, a “docking score” is reported, which is the GlideScore supplemented by Epik state penalties, if used, and strain corrections, if used.
+
+This hierarchical search gives Glide exceptionally high accuracy in predicting the binding mode of the ligand. At the same time, the computational cost is dramatically reduced compared to what would be required for a complete systematic search. The key to this reduction is that the algorithm allows the rotamer groups to be optimized one at a time for a given core conformation and location of the ligand. For example, if there are five rotamer groups and each has three rotamer states, the total number of conformers in the ensemble based on this core conformation/location is 35 = 243. However, if the rotamer groups are optimized one at a time, the number of conformational combinations is only 3×5 = 15, for a savings of about a factor of 15 in computational effort. While many other time-saving algorithms in Glide contribute to its performance advantages, this fundamental qualitative feature allows large libraries to be screened at an affordable computational cost.
+
+
+List of Glide WS Scoring Terms
+Title 	Description 	Value Type 	Range
+Void Reward 	Reward for ligand halogen/methyl in a large protein void 	Discrete 	-2
+Van der Waals Phobically Enclosed Hydrogen Bond 	Reward for hydrophobically enclosed hydrogen bond 	Discrete 	-1.5
+Van der Waals Neutral Hydrogen Bond 	Individual protein-ligand hydrogen bond 	Continuous 	<=0
+Hydroxyl Interaction 	Hydrogen bond score specific to ligand hydroxyl moieties 	Continuous 	<=0
+Solvation Adjustment 	Hydrogen bond score reduction of solvated hydrogen bonds 	Continuous 	> 0
+Lipophilic Hydrophoic Adjustment from SiteMap 	Lipophilic score, a indirect reward for ligand evacuation of water from protein. Hydrophobic term taken from SiteMap calculation 	Continuous 	<= 0
+Electrostatic Environment Reward 	A reward for a ligand atom in an electrostatically favorable region. 	Discrete 	0,-1.5
+Magic Methyl Reward 	Displacement of a water in a small cavity by a ligand halogen or methyl atom. 	Discrete 	0, -3.0
+Pi-Cation 	Pi-Cation interaction 	Discrete 	0,-1.5,-2.0
+Mass Adjustment for Rotatable Bonds 	Entropy correction for rotatable bonds 	Continuous 	>=0
+Enclosed Hydrogen Bond 	Reward for a proximal pair of hydrogen bonds in a hydrophobic environ. 	Discrete 	0, -3.0
+Ligand binding to ALR2 warhead 	Charged ligand atom binding to three proximal sidechains (alr2 receptor warhead) 	Discrete 	-2
+Polar Clash 	Polar clash between ligand and protein atom 	Discrete 	>=0
+Intra-ligand Polar Clash 	Polar clash involving two or more ligand atoms 	Discrete 	>=0
+Triply-bound Water Protein Desolvation 	Ligand removal of a water with three good H bonds to the protein and no compensating ligand H bonds formed 	Discrete 	0, 5.0
+Tetrahedral Coordinated Water Desolvation 	Desolvation of water tetrahedrally coordinated to the protein without suitable replacement 	Discrete 	>=0
+Ligand aromatic acceptor desolvation 	Desolvation of a ligand aromatic N or O atom. 	Discrete 	0, 2.5
+Protein Backbone Desolvation 	Desolvation of protein backbone CO/NH groups by ligand 	Discrete 	0, 2.5
+Hydroxyl Sidechain Desolvation 	Desolvation of hydroxyl sidechain by ligand 	Discrete 	0, 2.5
+Twisted Amide Strain 	Strained amide bond correction 	Continuous 	0, 2.5
+Aromatic-ARG Stacking Reward 	Reward for ligand aromatic ring stacked on ARG sidechain face 	Discrete 	 
+Van der Waals Adjustment 	Penalty for low van der Waals energy relative to ligand size 	Continuous 	> 0.0
+Charged Sidechain Desolvation 	Desolvation of charged sidechain by ligand. 	Discrete 	0, 4.0
+Partial desolvation of ARG sidechain NH 	Ligand forces water binding to ARG sidechain NH to be move weakening the water-ARG H bond. 	Continuous 	0, 3.0
+Removal of water bridging two protein polar groups 	Penalty for removing water bound to protein NH or CO groups. 	Discrete 	0, 4.5
+Bridging Water Displacement 	Desolvation by ligand of water bridging two neutral protein acceptors 	Discrete 	0, 3.0
+Pair of Phobically Enclosed Hydrogen Bonds 	Hydrophobically enclosed HB pair involving ligand OH 	Discrete 	0, -1.0
+Phobic Enclosure Score 	Ligand phobic enclosure score 	Continuous 	0,-4.5
+Sitemap Polar Score 	Site-based adjustment based on the polar grid score from SiteMap 	Continuous 	<=0
+Ligand Electrostatic Adjustment 	Adjustment for multiple hydrogen bonds to ligand sulfonamide 	Continuous 	0, -1
+Multiple Ligand Backbone NH Desolvation 	Penalty for removing waters coordinated to a proximal series of NH donors 	Discrete 	2
+Negative ligand atom binding to multiple NH 	Reward for placing negative ligand charge at location of water that was multiply bound to series of NH backbone donors 	Discrete 	0, -2.0
+Halogen Water Displacement 	Reward for placing ligand halogen on face of protein PHE ring 	Discrete 	 
+Recessed Salt Bridge 	Reward for ligand binding a positive charge to a recessed ASP/GLU sidechain 	Discrete 	0, -0.5
+Ligand Internal Strain Correction 	Penalty for high ligand strain 	Discrete 	 
+Axial clash 	Penalty for ligand axial group off ring clashing with the ligand ring 	Discrete 	0, 2.0
+Aromatic Torsion Strain 	Aromatic Torsion Strain 	Continuous 	>=0
+Receptor Offset 	Empirical reorganization estimate 	Continuous 	>=0
+
+
+
+

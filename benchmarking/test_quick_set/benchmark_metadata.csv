@@ -1,0 +1,2 @@
+pdb_id,ligand_name,protein_family,affinity_nM,pKd,ligand_n_atoms,center_x,center_y,center_z,notes,sdf_available
+1hpx,KNI,hiv_protease,0.08,10.096910013008056,87,6.0997133,0.041655015,12.52116,KNI-272 inhibitor,True

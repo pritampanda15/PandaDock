@@ -1,0 +1,107 @@
+# Hydrogen atoms
+atom_par H      2.00  0.020   0.0000   0.00051  0.0  0.0  0  -1  -1  3	# Non H-bonding Hydrogen
+atom_par HD     2.00  0.020   0.0000   0.00051  0.0  0.0  2  -1  -1  3	# Donor 1 H-bond Hydrogen
+atom_par HS     2.00  0.020   0.0000   0.00051  0.0  0.0  1  -1  -1  3	# Donor S Spherical Hydrogen
+
+# Carbon atoms
+atom_par C      4.00  0.150  33.5103  -0.00143  0.0  0.0  0  -1  -1  0	# Non H-bonding Aliphatic Carbon
+atom_par A      4.00  0.150  33.5103  -0.00052  0.0  0.0  0  -1  -1  0	# Non H-bonding Aromatic Carbon
+
+# Nitrogen atoms
+atom_par N      3.50  0.160  22.4493  -0.00162  0.0  0.0  0  -1  -1  1	# Non H-bonding Nitrogen
+atom_par NA     3.50  0.160  22.4493  -0.00162  1.9  5.0  4  -1  -1  1	# Acceptor 1 H-bond Nitrogen
+atom_par NS     3.50  0.160  22.4493  -0.00162  1.9  5.0  3  -1  -1  1	# Acceptor S Spherical Nitrogen
+
+# Oxygen atoms
+atom_par OA     3.20  0.200  17.1573  -0.00251  1.9  5.0  5  -1  -1  2	# Acceptor 2 H-bonds Oxygen
+atom_par OS     3.20  0.200  17.1573  -0.00251  1.9  5.0  3  -1  -1  2	# Acceptor S Spherical Oxygen
+
+# Halogens
+atom_par F      3.09  0.080  15.4480  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Fluorine
+atom_par Cl     4.09  0.276  35.8235  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Chlorine
+atom_par CL     4.09  0.276  35.8235  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Chlorine
+atom_par Br     4.33  0.389  42.5661  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Bromine
+atom_par BR     4.33  0.389  42.5661  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Bromine
+atom_par I      4.72  0.550  55.0585  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Iodine
+
+# Other non-metals
+atom_par P      4.20  0.200  38.7924  -0.00110  0.0  0.0  0  -1  -1  5	# Non H-bonding Phosphorus
+atom_par SA     4.00  0.200  33.5103  -0.00214  2.5  1.0  5  -1  -1  6	# Acceptor 2 H-bonds Sulphur
+atom_par S      4.00  0.200  33.5103  -0.00214  0.0  0.0  0  -1  -1  6	# Non H-bonding Sulphur
+
+#=============================================================================
+# CORRECTED AND COMPREHENSIVE METAL ION PARAMETERS
+#=============================================================================
+
+# Group 1 - Alkali Metals
+atom_par Li     1.82  0.300   1.2000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Lithium
+atom_par Na     2.27  0.400   1.8000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Sodium
+atom_par K      2.75  0.500   3.2000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Potassium
+
+# Group 2 - Alkaline Earth Metals
+atom_par Mg     1.30  0.875   1.5600  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Magnesium
+atom_par MG     1.30  0.875   1.5600  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Magnesium
+atom_par Ca     1.98  0.550   2.7700  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Calcium
+atom_par CA     1.98  0.550   2.7700  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Calcium
+atom_par Ba     2.68  0.400   4.5000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Barium
+
+# Group 13 - Post-transition Metals
+atom_par Al     2.05  0.350   2.2000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Aluminum
+
+# Transition Metals - First Row
+atom_par Ti     2.00  0.200   3.0000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Titanium (CORRECTED)
+atom_par V      1.92  0.250   2.8000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Vanadium
+atom_par Cr     1.85  0.300   2.6000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Chromium
+atom_par Mn     1.30  0.875   2.1400  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Manganese
+atom_par MN     1.30  0.875   2.1400  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Manganese
+atom_par Fe     1.30  0.010   1.8400  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Iron
+atom_par FE     1.30  0.010   1.8400  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Iron
+atom_par Co     1.67  0.400   2.0000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Cobalt
+atom_par Ni     1.63  0.350   1.9000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Nickel
+atom_par Cu     1.40  0.600   1.8000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Copper
+atom_par Zn     1.48  0.550   1.7000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Zinc
+atom_par ZN     1.48  0.550   1.7000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Zinc
+
+# Transition Metals - Second Row
+atom_par Mo     2.10  0.200   3.5000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Molybdenum
+atom_par Pd     1.63  0.300   2.1000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Palladium
+atom_par Ag     1.72  0.250   2.3000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Silver (CORRECTED)
+atom_par Cd     1.58  0.400   2.0000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Cadmium
+
+# Transition Metals - Third Row
+atom_par Pt     1.75  0.350   2.4000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Platinum
+atom_par Au     1.66  0.400   2.2000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Gold
+atom_par Hg     1.55  0.200   2.1000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Mercury
+
+# Post-transition Metals
+atom_par Pb     2.02  0.300   3.8000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Lead
+
+# Lanthanides (commonly used)
+atom_par La     2.43  0.200   4.2000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Lanthanum
+atom_par Gd     2.33  0.250   4.0000  -0.00110  0.0  0.0  0  -1  -1  4	# Non H-bonding Gadolinium
+
+#=============================================================================
+# SPECIAL ATOM TYPES
+#=============================================================================
+atom_par Z      4.00  0.150  33.5103  -0.00143  0.0  0.0  0  -1  -1  0  # Non H-bonding covalent map
+atom_par G      4.00  0.150  33.5103  -0.00143  0.0  0.0  0  -1  -1  0	# Ring closure Glue Aliphatic Carbon
+atom_par GA     4.00  0.150  33.5103  -0.00052  0.0  0.0  0  -1  -1  0	# Ring closure Glue Aromatic Carbon
+atom_par J      4.00  0.150  33.5103  -0.00143  0.0  0.0  0  -1  -1  0	# Ring closure Glue Aliphatic Carbon
+atom_par Q      4.00  0.150  33.5103  -0.00143  0.0  0.0  0  -1  -1  0	# Ring closure Glue Aliphatic Carbon
+
+#=============================================================================
+# PARAMETER RATIONALE AND NOTES
+#=============================================================================
+# Parameter Selection Criteria:
+# 1. Rii values based on experimental van der Waals radii
+# 2. epsii values scaled appropriately for metal-ligand interactions
+# 3. Solvation volumes consistent with metal size and hydration
+# 4. All metals use bond_index = 4 (standard for metals in AutoDock)
+# 5. solpar = -0.00110 for all metals (consistent with existing parameters)
+#
+# Common Metals in Drug Design:
+# - Zn, Mg, Ca, Fe, Cu: Essential biological metals
+# - Pt, Au, Pd: Anticancer drug components
+# - Li: Psychiatric medications
+# - Gd: MRI contrast agents
+# - Mo: Enzyme cofactor
