@@ -1,14 +1,11 @@
-# Documentation build requirements
-mkdocs>=1.5.0
-mkdocs-material>=9.0.0
-mkdocs-minify-plugin>=0.7.0
-pymdown-extensions>=10.0
-Pygments>=2.15.0
-markdown>=3.4.0
+# Documentation build requirements for Sphinx
+sphinx>=5.0.0
+sphinx-rtd-theme>=1.2.0
+myst-parser>=1.0.0
+sphinx-autodoc-typehints>=1.19.0
 
-# Optional for API docs
-mkdocstrings>=0.22.0
-mkdocstrings-python>=1.0.0
+# Optional for better markdown support
+recommonmark>=0.7.1
 
-# For code examples
-jupyter>=1.0.0
+# For code documentation
+sphinx-copybutton>=0.5.0

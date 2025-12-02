@@ -1,0 +1,68 @@
+/* Custom CSS for PandaDock documentation */
+
+/* Improve logo display */
+.wy-side-nav-search {
+    background-color: #4CAF50;
+}
+
+.wy-side-nav-search > a img.logo {
+    width: 200px;
+    max-width: 100%;
+}
+
+/* Improve table styling */
+table.docutils {
+    border: none;
+    border-collapse: collapse;
+}
+
+table.docutils th {
+    background-color: #4CAF50;
+    color: white;
+    padding: 12px;
+    text-align: left;
+    font-weight: bold;
+}
+
+table.docutils td {
+    padding: 10px;
+    border-bottom: 1px solid #ddd;
+}
+
+table.docutils tr:hover {
+    background-color: #f5f5f5;
+}
+
+/* Improve code blocks */
+.rst-content .highlight {
+    margin: 1em 0;
+}
+
+/* Improve admonition styling */
+.rst-content .note {
+    background-color: #e7f3ff;
+    border-left: 4px solid #2196F3;
+}
+
+.rst-content .tip {
+    background-color: #e8f5e9;
+    border-left: 4px solid #4CAF50;
+}
+
+.rst-content .warning {
+    background-color: #fff3e0;
+    border-left: 4px solid #FF9800;
+}
+
+/* Improve navigation */
+.wy-menu-vertical li.current {
+    background: #e3f2e8;
+}
+
+.wy-menu-vertical a {
+    padding: 0.4045em 1.618em;
+}
+
+.wy-menu-vertical li.current a {
+    border-right: 3px solid #4CAF50;
+}
