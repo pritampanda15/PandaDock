@@ -1,0 +1,3 @@
+"""
+PandaDock test suite
+"""
