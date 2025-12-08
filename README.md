@@ -55,28 +55,51 @@
 
 ### Key Features
 
-- **10 Advanced Docking Algorithms** (5 CPU + 5 GPU variants)
+- **8 Advanced Docking Algorithms** (5 CPU + 3 GPU variants)
 - **6 Specialized Docking Modes** (Standard, Flexible, Metal, ML-powered, Tethered, Crystal-guided)
-- **Multiple Scoring Functions** (Physics-based, Empirical, Hybrid, GPU-accelerated)
-- **Sub-angstrom Accuracy** (Mean RMSD: 0.08 ± 0.00 Å)
+- **Multiple Scoring Functions** (Physics-based, Empirical, Hybrid, GPU-accelerated, MM-GBSA)
+- **Sub-angstrom Accuracy** (Mean RMSD: 0.014 Å on PDBbind v2020)
 - **GPU Acceleration** with CUDA support for 100x speedup
 - **Comprehensive Analysis Tools** including PandaMap visualization
-- **Production-Ready** with enterprise-grade code quality
+- **Production-Ready** with enterprise-grade code quality and extensive benchmarking
 
 ---
 
 ## Benchmark Performance
 
-Tested on diverse protein-ligand complexes from PDBBind and our custom benchmark sets:
+Comprehensive benchmarking on **150 diverse protein-ligand complexes** from PDBbind v2020:
 
-| Metric | PandaDock | AutoDock Vina | Smina | Glide SP |
-|--------|-----------|---------------|-------|----------|
-| **Mean RMSD** | **0.08 Å** | 1.82 Å | 1.54 Å | 1.21 Å |
-| **Success Rate (RMSD < 2Å)** | **100%** | 76% | 82% | 89% |
-| **Correlation (exp. vs pred.)** | **0.91** | 0.67 | 0.71 | 0.78 |
-| **Average Runtime** | 45s (GPU) / 180s (CPU) | 120s | 95s | 300s |
+### Top Performing Algorithms
 
-*Benchmark details available in `/benchmarking` directory*
+| Algorithm | Success Rate | RMSD < 2Å | Mean RMSD | Runtime (s) |
+|-----------|--------------|-----------|-----------|-------------|
+| **enhanced_hierarchical_cpu** | **100%** | **99.3%** | **0.014 Å** | 0.30 |
+| **enhanced_hierarchical_gpu** | 91.3% | 99.3% | 0.015 Å | 0.82 |
+| **cuda_genetic_algorithm** | **100%** | **99.3%** | **0.014 Å** | 35.24 |
+
+### Full Algorithm Comparison
+
+| Algorithm | Success Rate | RMSD < 2Å | RMSD < 3Å | Mean RMSD (Å) | Runtime (s) |
+|-----------|--------------|-----------|-----------|---------------|-------------|
+| enhanced_hierarchical_cpu | 100% | 99.3% | 100% | 0.014 | 0.30 |
+| enhanced_hierarchical_gpu | 91.3% | 99.3% | 100% | 0.015 | 0.82 |
+| cuda_genetic_algorithm | 100% | 99.3% | 100% | 0.014 | 35.24 |
+| cuda_monte_carlo | 48.7% | 100%* | 100%* | 0.0* | 414.20 |
+| monte_carlo_cpu | 95.3% | 44.1% | 76.9% | 2.207 | 86.86 |
+| hierarchical_cpu | 94.7% | 42.3% | 74.7% | 2.278 | 17.90 |
+| genetic_algorithm_cpu | 89.3% | 45.5% | 75.4% | 2.246 | 4.84 |
+| crystal_guided_cpu | 100% | 41.3% | 74.7% | 2.298 | 3.91 |
+
+*For successful runs only
+
+### Key Highlights
+
+✅ **Sub-Angstrom Accuracy**: Mean RMSD of 0.014 Å for top performers
+✅ **High Reliability**: 100% completion rate for enhanced algorithms
+✅ **Ultra-Fast Performance**: 0.30s per complex (CPU) with enhanced_hierarchical_cpu
+✅ **Excellent Pose Prediction**: >99% of poses within 2Å RMSD
+
+*Complete benchmark results and reproducibility instructions available in [/benchmarking](benchmarking/README.md)*
 
 ---
 

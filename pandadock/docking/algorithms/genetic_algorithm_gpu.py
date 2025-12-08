@@ -402,48 +402,82 @@ if CUPY_AVAILABLE:
             self.logger.info(f"Starting CUDA GA docking: pop={self.population_size}, "
                              f"generations={self.num_generations}")
 
-            start_time = time.time()
-            n_ligand_atoms = int(ligand_coords.shape[0])
-            n_receptor_atoms = int(receptor_coords.shape[0])
+            # Initialize GPU variables for cleanup
+            gpu_receptor_coords = None
+            gpu_receptor_charges = None
+            gpu_grid_center = None
+            gpu_grid_dimensions = None
+            population = None
+            best_individuals = None
 
-            # Transfer data to GPU
-            gpu_receptor_coords = cp.asarray(receptor_coords, dtype=cp.float32)
-            gpu_receptor_charges = cp.asarray(receptor_charges, dtype=cp.float32)
-            gpu_grid_center = cp.asarray(grid_center, dtype=cp.float32)
-            gpu_grid_dimensions = cp.asarray(grid_dimensions, dtype=cp.float32)
+            try:
+                start_time = time.time()
+                n_ligand_atoms = int(ligand_coords.shape[0])
+                n_receptor_atoms = int(receptor_coords.shape[0])
 
-            # Initialize population
-            population = self._initialize_population()
+                # Transfer data to GPU
+                gpu_receptor_coords = cp.asarray(receptor_coords, dtype=cp.float32)
+                gpu_receptor_charges = cp.asarray(receptor_charges, dtype=cp.float32)
+                gpu_grid_center = cp.asarray(grid_center, dtype=cp.float32)
+                gpu_grid_dimensions = cp.asarray(grid_dimensions, dtype=cp.float32)
 
-            # Evolution loop
-            best_individuals, best_fitness_values, best_fitness, evolution_stats = self._evolve_population(
-            population, gpu_receptor_coords, gpu_receptor_charges,
-            gpu_grid_center, gpu_grid_dimensions, n_ligand_atoms, n_receptor_atoms
-            )
+                # Initialize population
+                population = self._initialize_population()
 
-            # Convert best individuals to poses with their fitness values as energies
-            poses = self._convert_to_poses(
-            best_individuals, best_fitness_values, ligand_coords, grid_center, grid_dimensions
-            )
+                # Evolution loop
+                best_individuals, best_fitness_values, best_fitness, evolution_stats = self._evolve_population(
+                population, gpu_receptor_coords, gpu_receptor_charges,
+                gpu_grid_center, gpu_grid_dimensions, n_ligand_atoms, n_receptor_atoms
+                )
 
-            runtime = time.time() - start_time
-            self.logger.info(f"CUDA GA docking completed in {runtime:.2f} seconds")
+                # Convert best individuals to poses with their fitness values as energies
+                poses = self._convert_to_poses(
+                best_individuals, best_fitness_values, ligand_coords, grid_center, grid_dimensions
+                )
 
-            return DockingResult(
-                ligand_name=ligand_mol.GetProp('_Name') if ligand_mol.HasProp('_Name') else 'unknown',
-                receptor_file=receptor_file,
-                grid_center=grid_center,
-                grid_dimensions=grid_dimensions,
-                algorithm_used=self.name,
-                scoring_function="cuda_ga",
-                poses=poses,
-                parameters={
-                    'population_size': self.population_size,
-                    'num_generations': self.num_generations,
-                    'runtime': runtime,
-                    'num_evaluations': self.population_size * self.num_generations
-                }
-            )
+                runtime = time.time() - start_time
+                self.logger.info(f"CUDA GA docking completed in {runtime:.2f} seconds")
+
+                return DockingResult(
+                    ligand_name=ligand_mol.GetProp('_Name') if ligand_mol.HasProp('_Name') else 'unknown',
+                    receptor_file=receptor_file,
+                    grid_center=grid_center,
+                    grid_dimensions=grid_dimensions,
+                    algorithm_used=self.name,
+                    scoring_function="cuda_ga",
+                    poses=poses,
+                    parameters={
+                        'population_size': self.population_size,
+                        'num_generations': self.num_generations,
+                        'runtime': runtime,
+                        'num_evaluations': self.population_size * self.num_generations
+                    }
+                )
+
+            finally:
+                # CRITICAL: Clean up GPU memory to prevent memory leaks
+                try:
+                    # Delete GPU arrays explicitly
+                    if gpu_receptor_coords is not None:
+                        del gpu_receptor_coords
+                    if gpu_receptor_charges is not None:
+                        del gpu_receptor_charges
+                    if gpu_grid_center is not None:
+                        del gpu_grid_center
+                    if gpu_grid_dimensions is not None:
+                        del gpu_grid_dimensions
+                    if population is not None:
+                        del population
+                    if best_individuals is not None:
+                        del best_individuals
+
+                    # Force free all memory blocks in the pool
+                    mempool = cp.get_default_memory_pool()
+                    mempool.free_all_blocks()
+
+                    self.logger.debug(f"GPU memory cleaned successfully")
+                except Exception as e:
+                    self.logger.warning(f"GPU cleanup warning: {e}")
 
         def _initialize_population(self) -> cp.ndarray:
             """Initialize random population on GPU"""

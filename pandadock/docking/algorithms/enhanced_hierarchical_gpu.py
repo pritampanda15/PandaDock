@@ -397,70 +397,113 @@ if CUPY_AVAILABLE:
             """
             self.logger.info("Starting GPU enhanced hierarchical docking")
 
-            start_time = time.time()
-            n_ligand_atoms = int(ligand_coords.shape[0])
-            n_receptor_atoms = int(receptor_coords.shape[0])
+            # Initialize GPU variables for cleanup
+            gpu_ligand_coords = None
+            gpu_receptor_coords = None
+            gpu_receptor_charges = None
+            gpu_grid_center = None
+            gpu_grid_dimensions = None
+            favorable_sites = None
+            initial_poses = None
+            scored_poses = None
+            optimized_poses = None
 
-            # Transfer data to GPU
-            gpu_ligand_coords = cp.asarray(ligand_coords, dtype=cp.float32)
-            gpu_receptor_coords = cp.asarray(receptor_coords, dtype=cp.float32)
-            gpu_receptor_charges = cp.asarray(
-                receptor_charges, dtype=cp.float32)
-            gpu_grid_center = cp.asarray(grid_center, dtype=cp.float32)
-            gpu_grid_dimensions = cp.asarray(grid_dimensions, dtype=cp.float32)
+            try:
+                start_time = time.time()
+                n_ligand_atoms = int(ligand_coords.shape[0])
+                n_receptor_atoms = int(receptor_coords.shape[0])
 
-            # Stage 1: Site Point Generation and Filtering
-            self.logger.info(
-                "Stage 1: GPU site point generation and filtering")
-            favorable_sites = self._generate_and_filter_sites_gpu(
-                gpu_receptor_coords, gpu_receptor_charges,
-                gpu_grid_center, gpu_grid_dimensions
-            )
+                # Transfer data to GPU
+                gpu_ligand_coords = cp.asarray(ligand_coords, dtype=cp.float32)
+                gpu_receptor_coords = cp.asarray(receptor_coords, dtype=cp.float32)
+                gpu_receptor_charges = cp.asarray(
+                    receptor_charges, dtype=cp.float32)
+                gpu_grid_center = cp.asarray(grid_center, dtype=cp.float32)
+                gpu_grid_dimensions = cp.asarray(grid_dimensions, dtype=cp.float32)
 
-            # Stage 2: Greedy Pose Generation and Scoring
-            self.logger.info("Stage 2: GPU greedy pose generation and scoring")
-            initial_poses = self._generate_poses_at_sites_gpu(
-                gpu_ligand_coords, favorable_sites
-            )
+                # Stage 1: Site Point Generation and Filtering
+                self.logger.info(
+                    "Stage 1: GPU site point generation and filtering")
+                favorable_sites = self._generate_and_filter_sites_gpu(
+                    gpu_receptor_coords, gpu_receptor_charges,
+                    gpu_grid_center, gpu_grid_dimensions
+                )
 
-            scored_poses = self._score_poses_hierarchically_gpu(
-                initial_poses, gpu_receptor_coords, gpu_receptor_charges,
-                gpu_ligand_coords
-            )
+                # Stage 2: Greedy Pose Generation and Scoring
+                self.logger.info("Stage 2: GPU greedy pose generation and scoring")
+                initial_poses = self._generate_poses_at_sites_gpu(
+                    gpu_ligand_coords, favorable_sites
+                )
 
-            # Stage 3: Local Optimization
-            self.logger.info("Stage 3: GPU energy minimization")
-            optimized_poses = self._optimize_poses_gpu(
-                scored_poses, gpu_receptor_coords, gpu_receptor_charges
-            )
+                scored_poses = self._score_poses_hierarchically_gpu(
+                    initial_poses, gpu_receptor_coords, gpu_receptor_charges,
+                    gpu_ligand_coords
+                )
 
-            # Convert results back to CPU
-            final_poses = self._convert_gpu_results_to_poses(
-                optimized_poses, gpu_receptor_coords, ligand_coords
-            )
+                # Stage 3: Local Optimization
+                self.logger.info("Stage 3: GPU energy minimization")
+                optimized_poses = self._optimize_poses_gpu(
+                    scored_poses, gpu_receptor_coords, gpu_receptor_charges
+                )
 
-            runtime = time.time() - start_time
-            self.logger.info(
-                f"GPU hierarchical docking completed in {runtime:.2f} seconds")
+                # Convert results back to CPU
+                final_poses = self._convert_gpu_results_to_poses(
+                    optimized_poses, gpu_receptor_coords, ligand_coords
+                )
 
-            # Get number of sites (avoid implicit conversion with len() on CuPy array)
-            n_sites_evaluated = int(favorable_sites.shape[0])
+                runtime = time.time() - start_time
+                self.logger.info(
+                    f"GPU hierarchical docking completed in {runtime:.2f} seconds")
 
-            return DockingResult(
-                ligand_name=ligand_mol.GetProp('_Name') if ligand_mol.HasProp('_Name') else 'unknown',
-                receptor_file=receptor_file,
-                grid_center=grid_center,
-                grid_dimensions=grid_dimensions,
-                algorithm_used=self.name,
-                scoring_function="cuda_hierarchical",
-                poses=final_poses,
-                parameters={
-                    'runtime': runtime,
-                    'num_evaluations': n_sites_evaluated * self.poses_per_site,
-                    'num_sites_evaluated': n_sites_evaluated,
-                    'optimization_steps': self.opt_steps
-                }
-            )
+                # Get number of sites (avoid implicit conversion with len() on CuPy array)
+                n_sites_evaluated = int(favorable_sites.shape[0])
+
+                return DockingResult(
+                    ligand_name=ligand_mol.GetProp('_Name') if ligand_mol.HasProp('_Name') else 'unknown',
+                    receptor_file=receptor_file,
+                    grid_center=grid_center,
+                    grid_dimensions=grid_dimensions,
+                    algorithm_used=self.name,
+                    scoring_function="cuda_hierarchical",
+                    poses=final_poses,
+                    parameters={
+                        'runtime': runtime,
+                        'num_evaluations': n_sites_evaluated * self.poses_per_site,
+                        'num_sites_evaluated': n_sites_evaluated,
+                        'optimization_steps': self.opt_steps
+                    }
+                )
+
+            finally:
+                # CRITICAL: Clean up GPU memory to prevent memory leaks
+                try:
+                    # Delete GPU arrays explicitly
+                    if gpu_ligand_coords is not None:
+                        del gpu_ligand_coords
+                    if gpu_receptor_coords is not None:
+                        del gpu_receptor_coords
+                    if gpu_receptor_charges is not None:
+                        del gpu_receptor_charges
+                    if gpu_grid_center is not None:
+                        del gpu_grid_center
+                    if gpu_grid_dimensions is not None:
+                        del gpu_grid_dimensions
+                    if favorable_sites is not None:
+                        del favorable_sites
+                    if initial_poses is not None:
+                        del initial_poses
+                    if scored_poses is not None:
+                        del scored_poses
+                    if optimized_poses is not None:
+                        del optimized_poses
+
+                    # Force free all memory blocks in the pool
+                    mempool = cp.get_default_memory_pool()
+                    mempool.free_all_blocks()
+
+                    self.logger.debug(f"GPU memory cleaned successfully")
+                except Exception as e:
+                    self.logger.warning(f"GPU cleanup warning: {e}")
 
         def _generate_and_filter_sites_gpu(
                 self,

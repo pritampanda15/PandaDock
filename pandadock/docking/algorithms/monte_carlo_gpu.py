@@ -330,64 +330,104 @@ if CUPY_AVAILABLE:
             """
             self.logger.info(f"Starting CUDA Monte Carlo docking with {self.num_iterations} iterations")
 
-            start_time = time.time()
-            n_ligand_atoms = int(ligand_coords.shape[0])
-            n_receptor_atoms = int(receptor_coords.shape[0])
+            # Initialize GPU variables for cleanup
+            gpu_ligand_coords = None
+            gpu_receptor_coords = None
+            gpu_receptor_charges = None
+            gpu_grid_center = None
+            gpu_grid_dimensions = None
+            current_poses = None
+            best_poses = None
+            best_energies = None
 
-            # Transfer data to GPU
-            gpu_ligand_coords = cp.asarray(ligand_coords, dtype=cp.float32)
-            gpu_receptor_coords = cp.asarray(receptor_coords, dtype=cp.float32)
-            gpu_receptor_charges = cp.asarray(receptor_charges, dtype=cp.float32)
-            gpu_grid_center = cp.asarray(grid_center, dtype=cp.float32)
-            gpu_grid_dimensions = cp.asarray(grid_dimensions, dtype=cp.float32)
+            try:
+                start_time = time.time()
+                n_ligand_atoms = int(ligand_coords.shape[0])
+                n_receptor_atoms = int(receptor_coords.shape[0])
 
-            # Initialize pose population
-            current_poses = self._generate_initial_poses(
-            gpu_ligand_coords, gpu_grid_center, gpu_grid_dimensions, self.batch_size
-            )
+                # Transfer data to GPU
+                gpu_ligand_coords = cp.asarray(ligand_coords, dtype=cp.float32)
+                gpu_receptor_coords = cp.asarray(receptor_coords, dtype=cp.float32)
+                gpu_receptor_charges = cp.asarray(receptor_charges, dtype=cp.float32)
+                gpu_grid_center = cp.asarray(grid_center, dtype=cp.float32)
+                gpu_grid_dimensions = cp.asarray(grid_dimensions, dtype=cp.float32)
 
-            # Monte Carlo optimization
-            best_poses, best_energies = self._monte_carlo_optimization(
-            current_poses, gpu_receptor_coords, gpu_receptor_charges,
-            n_ligand_atoms, n_receptor_atoms
-            )
-
-            # Convert results back to CPU
-            cpu_poses = cp.asnumpy(best_poses)
-            cpu_energies = cp.asnumpy(best_energies)
-
-            # Create result poses
-            poses = []
-            for i, (pose_coords, energy) in enumerate(zip(cpu_poses, cpu_energies)):
-                pose = Pose(
-                    coordinates=pose_coords,
-                    center=np.mean(pose_coords, axis=0),
-                    rotation=np.array([0, 0, 0, 1]),  # Placeholder quaternion
-                    conformer_id=0,
-                    energy=float(energy),
-                    confidence=self._calculate_confidence(energy, cpu_energies)
+                # Initialize pose population
+                current_poses = self._generate_initial_poses(
+                gpu_ligand_coords, gpu_grid_center, gpu_grid_dimensions, self.batch_size
                 )
-                poses.append(pose)
 
-            runtime = time.time() - start_time
-            self.logger.info(f"CUDA docking completed in {runtime:.2f} seconds")
+                # Monte Carlo optimization
+                best_poses, best_energies = self._monte_carlo_optimization(
+                current_poses, gpu_receptor_coords, gpu_receptor_charges,
+                n_ligand_atoms, n_receptor_atoms
+                )
 
-            return DockingResult(
-                ligand_name=ligand_mol.GetProp('_Name') if ligand_mol.HasProp('_Name') else 'unknown',
-                receptor_file=receptor_file,
-                grid_center=grid_center,
-                grid_dimensions=grid_dimensions,
-                algorithm_used=self.name,
-                scoring_function="cuda_mc",
-                poses=poses,
-                parameters={
-                    'num_iterations': self.num_iterations,
-                    'batch_size': self.batch_size,
-                    'runtime': runtime,
-                    'num_evaluations': self.num_iterations * self.batch_size,
-                    'final_temperature': self.final_temperature
-                }
-            )
+                # Convert results back to CPU
+                cpu_poses = cp.asnumpy(best_poses)
+                cpu_energies = cp.asnumpy(best_energies)
+
+                # Create result poses
+                poses = []
+                for i, (pose_coords, energy) in enumerate(zip(cpu_poses, cpu_energies)):
+                    pose = Pose(
+                        coordinates=pose_coords,
+                        center=np.mean(pose_coords, axis=0),
+                        rotation=np.array([0, 0, 0, 1]),  # Placeholder quaternion
+                        conformer_id=0,
+                        energy=float(energy),
+                        confidence=self._calculate_confidence(energy, cpu_energies)
+                    )
+                    poses.append(pose)
+
+                runtime = time.time() - start_time
+                self.logger.info(f"CUDA docking completed in {runtime:.2f} seconds")
+
+                return DockingResult(
+                    ligand_name=ligand_mol.GetProp('_Name') if ligand_mol.HasProp('_Name') else 'unknown',
+                    receptor_file=receptor_file,
+                    grid_center=grid_center,
+                    grid_dimensions=grid_dimensions,
+                    algorithm_used=self.name,
+                    scoring_function="cuda_mc",
+                    poses=poses,
+                    parameters={
+                        'num_iterations': self.num_iterations,
+                        'batch_size': self.batch_size,
+                        'runtime': runtime,
+                        'num_evaluations': self.num_iterations * self.batch_size,
+                        'final_temperature': self.final_temperature
+                    }
+                )
+
+            finally:
+                # CRITICAL: Clean up GPU memory to prevent memory leaks
+                try:
+                    # Delete GPU arrays explicitly
+                    if gpu_ligand_coords is not None:
+                        del gpu_ligand_coords
+                    if gpu_receptor_coords is not None:
+                        del gpu_receptor_coords
+                    if gpu_receptor_charges is not None:
+                        del gpu_receptor_charges
+                    if gpu_grid_center is not None:
+                        del gpu_grid_center
+                    if gpu_grid_dimensions is not None:
+                        del gpu_grid_dimensions
+                    if current_poses is not None:
+                        del current_poses
+                    if best_poses is not None:
+                        del best_poses
+                    if best_energies is not None:
+                        del best_energies
+
+                    # Force free all memory blocks in the pool
+                    mempool = cp.get_default_memory_pool()
+                    mempool.free_all_blocks()
+
+                    self.logger.debug(f"GPU memory cleaned successfully")
+                except Exception as e:
+                    self.logger.warning(f"GPU cleanup warning: {e}")
 
         def _generate_initial_poses(self, ligand_coords: cp.ndarray,
             grid_center: cp.ndarray,
