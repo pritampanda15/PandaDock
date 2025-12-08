@@ -393,9 +393,9 @@ If you use PandaDock in your research, please cite:
 
 ```bibtex
 @article{panda2024pandadock,
-  title={PandaDock: Next-Generation Molecular Docking with Sub-Angstrom Precision},
+  title={PandaDock: Python based Next-Generation Molecular Docking },
   author={Panda, Pritam Kumar},
-  journal={Journal of Chemical Information and Modeling},
+  journal={arXiv},
   year={2024},
   note={Manuscript in preparation}
 }
