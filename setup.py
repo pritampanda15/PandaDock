@@ -7,7 +7,7 @@ setup(
     install_requires=[
         "click>=8.0.0",
         "biopython>=1.80",
-        "rdkit>=2022.9.5",
+        "rdkit>=2022.3.1",  # Compatible with Python 3.9+
         "propka>=3.5.1",
         "numpy>=1.21.0",
         "scipy>=1.7.0",

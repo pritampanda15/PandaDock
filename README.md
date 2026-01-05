@@ -153,10 +153,16 @@ For detailed installation instructions, see [INSTALL.md](INSTALL.md).
 ### Basic Molecular Docking
 
 ```bash
-# Fast, optimized docking (recommended for most cases)
+# Simple docking with intelligent algorithm auto-selection (recommended)
 pandadock dock -r protein.pdb -l ligand.sdf \
                --center 10 20 30 --box 20 20 20 \
                -o results/
+
+# PandaDock automatically selects the best algorithm based on:
+# - Number of ligands (single vs batch processing)
+# - Conformer library size
+# - GPU availability
+# - Workload characteristics
 ```
 
 ### High-Accuracy Docking
@@ -216,6 +222,34 @@ pandadock-tethered -r protein.pdb -l ligand.sdf \
 
 ---
 
+## Algorithm Selection
+
+### Intelligent Auto-Selection (New in v3.0)
+
+PandaDock now features **intelligent algorithm auto-selection** that automatically chooses the optimal algorithm for your workload:
+
+```bash
+# Default behavior: automatic algorithm selection
+pandadock dock -r protein.pdb -l ligand.sdf --center 10 20 30 --box 20 20 20
+
+# Auto-selection considers:
+# ✓ Single ligand → enhanced_hierarchical_cpu (0.30s, 0.014Å RMSD)
+# ✓ Batch (1000+ ligands) + GPU → enhanced_hierarchical_gpu (batch processing)
+# ✓ Large conformer libraries (100+) + GPU → cuda_genetic_algorithm
+# ✓ No GPU available → optimized CPU algorithms
+```
+
+**Override auto-selection:**
+
+```bash
+# Manually specify algorithm
+pandadock dock -r protein.pdb -l ligand.sdf \
+               --center 10 20 30 --box 20 20 20 \
+               --algorithm enhanced_hierarchical_cpu
+```
+
+---
+
 ## Algorithms
 
 PandaDock provides multiple docking algorithms, each optimized for different use cases:
@@ -244,6 +278,8 @@ PandaDock provides multiple docking algorithms, each optimized for different use
 - **Batch mode (1000+ ligands)**: GPU provides significant throughput advantages
 - **Large conformer libraries (100+ conformers/ligand)**: Up to 100x speedup achievable
 - GPU excels when parallelization opportunities outweigh CPU-GPU transfer overhead
+
+⚠️ **Note**: `cuda_monte_carlo` has a 48.7% success rate in benchmarks and is marked as **experimental**. Use `enhanced_hierarchical_cpu` (100% success) or `enhanced_hierarchical_gpu` for production work.
 
 ### Specialized Docking Modes
 

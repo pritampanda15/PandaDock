@@ -82,7 +82,7 @@ pandadock list-algorithms
 
 You should see:
 ```
-PandaDock v3.0.0 - Pritam Kumar Panda @ Stanford University
+PandaDock v1.0.0 - Pritam Kumar Panda @ Stanford University
 ```
 
 ---

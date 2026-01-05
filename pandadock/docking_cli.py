@@ -44,6 +44,7 @@ from .docking.algorithms.monte_carlo_cpu import MonteCarloDocker as MCDocker
 from .docking.algorithms.genetic_algorithm_cpu import GeneticAlgorithmDocker
 from .docking.algorithms.hierarchical_cpu import HierarchicalDocker
 from .docking.algorithms.crystal_guided_cpu import CrystalGuidedDocker
+from .docking.algorithm_selector import AlgorithmSelector, detect_batch_mode
 
 # Import visualization components
 try:
@@ -212,10 +213,10 @@ def main(ctx, verbose, version, help):
 @click.option('--box', nargs=3, type=float, metavar='X Y Z',
               help='Grid box dimensions (Å)')
 @click.option('--algorithm', '-a', type=click.Choice([
-    'monte_carlo_cpu', 'genetic_algorithm_cpu', 'hierarchical_cpu',
+    'auto', 'monte_carlo_cpu', 'genetic_algorithm_cpu', 'hierarchical_cpu',
     'enhanced_hierarchical_cpu', 'crystal_guided_cpu', 'cuda_monte_carlo', 'cuda_genetic_algorithm',
     'enhanced_hierarchical_gpu'
-]), default='enhanced_hierarchical_cpu', help='Docking algorithm to use')
+]), default='auto', help='Docking algorithm to use (auto = intelligent selection)')
 @click.option('--gpu', is_flag=True, default=False,
               help='Use GPU acceleration (requires CUDA)')
 @click.option('--gpu-batch-size', type=int, default=1000,
@@ -249,6 +250,28 @@ def dock(receptor, ligand, grid_config, center, box, algorithm, scoring,
     click.echo("PandaDock Enhanced Molecular Docking")
     click.echo(f"Receptor: {receptor}")
     click.echo(f"Ligand: {ligand}")
+
+    # Detect batch mode and auto-select algorithm if needed
+    num_ligands, batch_mode = detect_batch_mode(ligand)
+    original_algorithm = algorithm
+
+    if algorithm == 'auto':
+        # Intelligent algorithm selection
+        algorithm = AlgorithmSelector.auto_select(
+            num_ligands=num_ligands,
+            conformers_per_ligand=10,  # Default, can be detected from ligand
+            gpu_available=GPU_ALGORITHMS_REGISTERED,
+            user_preference='balanced',
+            batch_mode=batch_mode
+        )
+        click.echo(f"\n{AlgorithmSelector.explain_selection(algorithm, num_ligands, 10, GPU_ALGORITHMS_REGISTERED)}")
+        click.echo(f"{AlgorithmSelector.get_recommendation(algorithm, num_ligands, GPU_ALGORITHMS_REGISTERED)}\n")
+    else:
+        # Show warning for problematic algorithms
+        warning = AlgorithmSelector.get_algorithm_warning(algorithm)
+        if warning:
+            click.echo(f"\n{warning}\n")
+
     click.echo(f"Algorithm: {algorithm}")
     click.echo(f"Scoring: {scoring}")
 
