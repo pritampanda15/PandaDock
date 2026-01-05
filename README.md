@@ -59,7 +59,8 @@
 - **6 Specialized Docking Modes** (Standard, Flexible, Metal, ML-powered, Tethered, Crystal-guided)
 - **Multiple Scoring Functions** (Physics-based, Empirical, Hybrid, GPU-accelerated, MM-GBSA)
 - **Sub-angstrom Accuracy** (Mean RMSD: 0.014 Å on PDBbind v2020)
-- **GPU Acceleration** with CUDA support for 100x speedup
+- **Ultra-Fast CPU Performance** (0.30s per complex with enhanced hierarchical algorithm)
+- **GPU Acceleration** available for large-scale virtual screening (up to 100x speedup for batch processing)
 - **Comprehensive Analysis Tools** including PandaMap visualization
 - **Production-Ready** with enterprise-grade code quality and extensive benchmarking
 
@@ -98,6 +99,8 @@ Comprehensive benchmarking on **150 diverse protein-ligand complexes** from PDBb
 ✅ **High Reliability**: 100% completion rate for enhanced algorithms
 ✅ **Ultra-Fast Performance**: 0.30s per complex (CPU) with enhanced_hierarchical_cpu
 ✅ **Excellent Pose Prediction**: >99% of poses within 2Å RMSD
+
+**Note on GPU Performance**: GPU algorithms excel in batch processing and large-scale virtual screening scenarios (1000+ ligands). For single-ligand docking, the optimized CPU algorithms offer superior performance. See [GPU Acceleration Guide](docs/gpu_acceleration.md) for detailed performance characteristics.
 
 *Complete benchmark results and reproducibility instructions available in [/benchmarking](benchmarking/README.md)*
 
@@ -170,12 +173,15 @@ pandadock dock -r protein.pdb -l ligand.sdf \
 ### GPU-Accelerated Docking
 
 ```bash
-# 100x faster with GPU
+# GPU acceleration (optimal for batch processing of multiple ligands)
 pandadock dock -r protein.pdb -l ligand.sdf \
                --center 10 20 30 --box 20 20 20 \
                --algorithm enhanced_hierarchical_gpu \
                --gpu \
                -o gpu_results/
+
+# Note: For single ligand docking, enhanced_hierarchical_cpu is typically faster (0.30s vs 0.82s)
+# GPU excels with batch processing: 1000+ ligands or large conformer libraries
 ```
 
 ### Flexible (Induced-Fit) Docking
@@ -226,11 +232,18 @@ PandaDock provides multiple docking algorithms, each optimized for different use
 
 ### GPU Algorithms
 
-| Algorithm | Description | Speedup | Requirements |
-|-----------|-------------|---------|--------------|
-| **enhanced_hierarchical_gpu** | GPU-accelerated hierarchical search | 50-100x | CUDA 11.0+ |
-| **cuda_monte_carlo** | Massively parallel Monte Carlo | 100-200x | CUDA 11.0+ |
-| **cuda_genetic_algorithm** | GPU genetic algorithm | 80-150x | CUDA 11.0+ |
+| Algorithm | Description | Best Use Case | Requirements |
+|-----------|-------------|---------------|--------------|
+| **enhanced_hierarchical_gpu** | GPU-accelerated hierarchical search | Batch processing (1000+ ligands) | CUDA 11.0+ |
+| **cuda_monte_carlo** | Massively parallel Monte Carlo | Large conformer libraries | CUDA 11.0+ |
+| **cuda_genetic_algorithm** | GPU genetic algorithm | High-throughput virtual screening | CUDA 11.0+ |
+
+**GPU Performance Notes**:
+
+- **Single ligand**: CPU algorithms are faster (0.30s vs 0.82s)
+- **Batch mode (1000+ ligands)**: GPU provides significant throughput advantages
+- **Large conformer libraries (100+ conformers/ligand)**: Up to 100x speedup achievable
+- GPU excels when parallelization opportunities outweigh CPU-GPU transfer overhead
 
 ### Specialized Docking Modes
 
