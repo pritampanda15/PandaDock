@@ -7,7 +7,8 @@ setup(
     install_requires=[
         "click>=8.0.0",
         "biopython>=1.80",
-        "rdkit>=2022.3.1",  # Compatible with Python 3.9+
+        # Note: rdkit must be installed via conda (conda install -c conda-forge rdkit)
+        # or from wheels for your platform. Not available on PyPI for all Python versions.
         "propka>=3.5.1",
         "numpy>=1.21.0",
         "scipy>=1.7.0",

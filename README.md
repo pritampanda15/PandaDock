@@ -112,21 +112,41 @@ Comprehensive benchmarking on **150 diverse protein-ligand complexes** from PDBb
 
 - Python 3.8 or higher
 - CUDA 11.0+ (for GPU acceleration, optional)
-- Conda or pip package manager
+- **Conda package manager** (recommended for RDKit installation)
 
-### Basic Installation (CPU Only)
+### Recommended Installation (via Conda)
 
 ```bash
+# Clone repository
 git clone https://github.com/pritampanda15/PandaDock.git
 cd PandaDock
+
+# Create conda environment with RDKit
+conda create -n pandadock python=3.10
+conda activate pandadock
+
+# Install RDKit (required, not available on PyPI for all Python versions)
+conda install -c conda-forge rdkit
+
+# Install PandaDock
+pip install -e .
+```
+
+### Alternative: pip-only Installation
+
+```bash
+# Note: RDKit must be installed separately
+pip install rdkit-pypi  # Limited platform support
 pip install -e .
 ```
 
 ### GPU-Accelerated Installation
 
 ```bash
-# Install with CUDA 11.x support
-pip install -e .
+# After installing PandaDock with conda (see above)
+conda activate pandadock
+
+# Install CUDA support
 pip install cupy-cuda11x  # or cupy-cuda12x for CUDA 12
 
 # Verify GPU availability
