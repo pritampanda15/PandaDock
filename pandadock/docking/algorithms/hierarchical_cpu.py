@@ -20,8 +20,8 @@ from .enhanced_common import EnhancedDockingMixin
 class HierarchicalDocker(EnhancedDockingMixin, BaseDockingAlgorithm):
     """Hierarchical docking with multi-resolution search"""
 
-    def __init__(self):
-        super().__init__("hierarchical_cpu", supports_gpu=False)
+    def __init__(self, name: str = "pandadock"):
+        super().__init__(name, supports_gpu=False)
 
     def dock(self, receptor_file: str, ligand_mol, grid_center: np.ndarray,
              grid_dimensions: np.ndarray, **kwargs) -> DockingResult:

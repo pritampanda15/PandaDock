@@ -3,16 +3,25 @@
 """
 PandaDock Enhanced Molecular Docking CLI
 
-High-Accuracy Algorithms:
-- enhanced_hierarchical: 3-stage hierarchical search (RMSD < 2Å)
-- monte_carlo: Basic Monte Carlo sampling (fast)
-- genetic_algorithm: Genetic algorithm with ensemble refinement
+Main Commands:
+- dock: Traditional hierarchical docking with Vina-style scoring
+- hybrid: Dock + GNN rescoring for best accuracy (recommended)
 
-Advanced Features:
-- Comprehensive precision scoring with interaction energy decomposition
-- MM-GBSA rescoring for accurate binding free energies
-- Detailed interaction analysis and residue contributions
-- Professional outputs (complexes, interaction reports, plots)
+GNN Commands:
+- gnn train: Train SE(3)-equivariant GNN scoring model
+- gnn predict: Predict binding affinity with trained model
+- gnn benchmark: Benchmark GNN model performance
+- gnn compare: Compare against baseline methods
+- gnn rescore: Universal rescorer for poses from any docking tool
+- gnn download-model: Download pre-trained model from GitHub
+
+Other Tools (separate CLIs):
+- pandadock-prepare: Prepare ligands for docking
+- pandadock-gridbox: Generate grid box configurations
+- pandadock-flex: Flexible/induced-fit docking
+- pandadock-report: Generate publication-ready analysis plots
+- pandadock-metal: Specialized metal docking suite
+- pandadock-tethered: Tethered docking for pose validation
 """
 
 import click
@@ -27,24 +36,14 @@ import time
 import sys
 import os
 
-# Import enhanced PandaDock modules
-from .docking.algorithms import (
-    MonteCarloDocker, EnhancedHierarchicalDocker,
-    GPU_AVAILABLE
-)
+# Import PandaDock modules
+from .docking.algorithms import HierarchicalDocker
+from .docking.scoring.vina_scoring import VinaScoring
 from .docking.scoring.physics_based import PhysicsBasedScoring
-from .docking.scoring.precision_score import PrecisionScoring
-from .docking.scoring.empirical import EmpiricalScoring
-from .docking.scoring.hybrid import HybridScoring
 from .docking.scoring.ensemble import BoltzmannEnsemble
 from .docking.refinement.mmgbsa import MMGBSARescoring
 from .docking.analysis.interaction_analysis import InteractionAnalyzer
 from .docking.core import DockingResult, Pose, DockingEngine
-from .docking.algorithms.monte_carlo_cpu import MonteCarloDocker as MCDocker
-from .docking.algorithms.genetic_algorithm_cpu import GeneticAlgorithmDocker
-from .docking.algorithms.hierarchical_cpu import HierarchicalDocker
-from .docking.algorithms.crystal_guided_cpu import CrystalGuidedDocker
-from .docking.algorithm_selector import AlgorithmSelector, detect_batch_mode
 
 # Import visualization components
 try:
@@ -66,48 +65,13 @@ logging.basicConfig(
     format='%(levelname)s: %(message)s'
 )
 
-# Initialize docking engine
+# Initialize docking engine with simplified algorithms
 engine = DockingEngine()
-
-# Register enhanced CPU algorithms
-engine.register_algorithm(MCDocker())
-engine.register_algorithm(GeneticAlgorithmDocker())
 engine.register_algorithm(HierarchicalDocker())
-engine.register_algorithm(EnhancedHierarchicalDocker())
-engine.register_algorithm(CrystalGuidedDocker())
 
-# Register GPU algorithms if available
-GPU_ALGORITHMS_REGISTERED = False
-if GPU_AVAILABLE:
-    try:
-        from .docking.algorithms.monte_carlo_gpu import CUDAMonteCarloDocker
-        from .docking.algorithms.genetic_algorithm_gpu import CUDAGeneticAlgorithmDocker
-        from .docking.algorithms.enhanced_hierarchical_gpu import EnhancedHierarchicalGPUDocker
-        engine.register_algorithm(CUDAMonteCarloDocker())
-        engine.register_algorithm(CUDAGeneticAlgorithmDocker())
-        engine.register_algorithm(EnhancedHierarchicalGPUDocker())
-        GPU_ALGORITHMS_REGISTERED = True
-    except (ImportError, RuntimeError) as e:
-        # CUDA libraries not available or GPU initialization failed
-        import sys
-        print(f"Warning: GPU algorithms could not be registered: {e}", file=sys.stderr)
-        print(f"  GPU docking algorithms (cuda_monte_carlo, cuda_genetic_algorithm, enhanced_hierarchical_gpu) will not be available.", file=sys.stderr)
-        print(f"  To enable: pip install cupy-cuda11x (or cupy-cuda12x for CUDA 12)", file=sys.stderr)
-
-# Register comprehensive scoring functions
+# Register scoring functions
+engine.register_scoring_function('vina', VinaScoring())
 engine.register_scoring_function('physics_based', PhysicsBasedScoring())
-engine.register_scoring_function('empirical', EmpiricalScoring())
-engine.register_scoring_function('precision_score', PrecisionScoring())
-engine.register_scoring_function('hybrid', HybridScoring())  # True hybrid scoring
-
-# Register GPU scoring functions if available
-try:
-    from .docking.scoring.gpu_scoring import GPUPrecisionScoring, GPUMMGBSAScoring, GPUScoringManager
-    engine.register_scoring_function('gpu_precision', GPUPrecisionScoring())
-    engine.register_scoring_function('gpu_mmgbsa', GPUMMGBSAScoring())
-    GPU_SCORING_AVAILABLE = True
-except ImportError:
-    GPU_SCORING_AVAILABLE = False
 
 
 def show_professional_help():
@@ -124,18 +88,28 @@ def show_professional_help():
                https://github.com/pritampanda15/PandaDock
 
 Author: Pritam Kumar Panda @ Stanford University
-Version: 1.0.0
+Version: 3.0.0
 License: MIT
 
-PandaDock is a high-performance molecular docking software with
-GPU acceleration and advanced scoring functions for drug discovery.
+PandaDock is a high-performance molecular docking software featuring
+an SE(3)-equivariant GNN scoring function that achieves R > 0.8 correlation
+with experimental binding affinities.
 
 USAGE:
     pandadock COMMAND [OPTIONS]
 
 MAIN COMMANDS:
-    dock                Perform molecular docking with advanced algorithms
-    list-algorithms     List available docking algorithms and scoring functions
+    dock                Traditional docking with Vina-style scoring
+    hybrid              Dock + GNN rescoring (RECOMMENDED for best accuracy)
+    list-algorithms     List available algorithms and scoring functions
+
+GNN COMMANDS (Machine Learning):
+    gnn train           Train SE(3)-equivariant GNN on protein-ligand dataset
+    gnn predict         Predict binding affinity using trained GNN model
+    gnn benchmark       Benchmark GNN model performance
+    gnn compare         Compare GNN vs baseline scoring methods
+    gnn rescore         Universal rescorer for poses from ANY docking tool
+    gnn download-model  Download pre-trained model (~82 MB)
 
 OTHER TOOLS:
     pandadock-prepare   Prepare ligands for docking (add hydrogens, 3D coordinates)
@@ -143,33 +117,28 @@ OTHER TOOLS:
     pandadock-flex      Perform flexible/induced-fit docking
     pandadock-report    Generate publication-ready analysis plots
     pandadock-metal     Specialized metal docking & metalloprotein docking suite
-    pandadock-tethered  Essential for reproducing crystallographic poses and validation
+    pandadock-tethered  Tethered docking for reproducing crystallographic poses
 
 EXAMPLES:
-    # Fast, optimized docking (recommended)
+    # Traditional docking with Vina scoring
     pandadock dock -r protein.pdb -l ligand.sdf --center 10 20 30 --box 20 20 20
 
-    # High-accuracy docking (slower but more thorough)
-    pandadock dock -r protein.pdb -l ligand.sdf --center 10 20 30 --box 20 20 20 \\
-                   --algorithm enhanced_hierarchical_cpu --scoring physics_based
+    # Hybrid docking with GNN rescoring (recommended)
+    pandadock hybrid -r protein.pdb -l ligand.sdf --center 10 20 30 --box 20 20 20 \\
+                     --model models/best_model.pt
 
-    # Fast mode for quick testing
-    pandadock dock -r protein.pdb -l ligand.sdf --center 10 20 30 --box 20 20 20 \\
-                   --algorithm enhanced_hierarchical_cpu_optimized --fast
+    # Train GNN model
+    pandadock gnn train --dataset ULVSH/ --output models/
 
-    # List available algorithms
-    pandadock list-algorithms
-
-    # Generate publication plots
-    pandadock-report -i results_directory
+    # Compare GNN vs baselines
+    pandadock gnn compare --model models/best_model.pt --dataset ULVSH/ --output results/
 
 FEATURES:
-    ✓ CPU and GPU-accelerated algorithms
-    ✓ Multiple scoring functions (Physics-based, Empirical, Hybrid)
-    ✓ Flexible/Induced-fit docking
-    ✓ MM-GBSA rescoring
+    ✓ SE(3)-Equivariant GNN scoring (R > 0.8)
+    ✓ Vina-style empirical scoring
+    ✓ Hierarchical multi-resolution search
+    ✓ Hybrid dock + rescore workflow
     ✓ Publication-ready visualizations
-    ✓ Comprehensive interaction analysis
 
 For detailed help on specific commands, use:
     pandadock COMMAND --help
@@ -178,18 +147,20 @@ For detailed help on specific commands, use:
 """
     click.echo(help_text)
 
+
 @click.group(invoke_without_command=True, add_help_option=False)
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')
 @click.option('--version', is_flag=True, help='Show version information')
 @click.option('--help', '-h', is_flag=True, help='Show this help message')
 @click.pass_context
 def main(ctx, verbose, version, help):
-    """PandaDock - Next-Generation Molecular Docking with Enhanced Accuracy"""
+    """PandaDock - Next-Generation Molecular Docking with SE(3)-Equivariant GNN"""
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
     if version:
-        click.echo("PandaDock v1.0.0 - Pritam Kumar Panda @ Stanford University")
+        click.echo("PandaDock v3.0.0 - Pritam Kumar Panda @ Stanford University")
+        click.echo("Featuring SE(3)-Equivariant GNN Scoring Function")
         return
 
     if help:
@@ -212,20 +183,8 @@ def main(ctx, verbose, version, help):
               help='Grid center coordinates (Å)')
 @click.option('--box', nargs=3, type=float, metavar='X Y Z',
               help='Grid box dimensions (Å)')
-@click.option('--algorithm', '-a', type=click.Choice([
-    'auto', 'monte_carlo_cpu', 'genetic_algorithm_cpu', 'hierarchical_cpu',
-    'enhanced_hierarchical_cpu', 'crystal_guided_cpu', 'cuda_monte_carlo', 'cuda_genetic_algorithm',
-    'enhanced_hierarchical_gpu'
-]), default='auto', help='Docking algorithm to use (auto = intelligent selection)')
-@click.option('--gpu', is_flag=True, default=False,
-              help='Use GPU acceleration (requires CUDA)')
-@click.option('--gpu-batch-size', type=int, default=1000,
-              help='Batch size for GPU processing')
-@click.option('--gpu-memory-limit', type=float, default=4.0,
-              help='GPU memory limit in GB')
-@click.option('--scoring', '-s', type=click.Choice([
-    'physics_based', 'empirical', 'precision_score', 'hybrid', 'gpu_precision', 'gpu_mmgbsa'
-]), default='physics_based', help='Scoring function to use')
+@click.option('--scoring', '-s', type=click.Choice(['vina', 'physics_based']),
+              default='vina', help='Scoring function to use (default: vina)')
 @click.option('--output-dir', '-o', type=click.Path(), default='docking_output',
               help='Output directory')
 @click.option('--num-poses', '-n', type=int, default=20,
@@ -238,41 +197,13 @@ def main(ctx, verbose, version, help):
               help='Generate visualization plots')
 @click.option('--fast', is_flag=True, default=False,
               help='Use fast mode with reduced sampling for quick testing')
-@click.option('--cpuworkers', type=int, default=None,
-              help='Number of CPU worker threads/processes for parallel execution')
-@click.option('--gpuid', type=int, default=0,
-              help='GPU device ID to use (default: 0)')
-def dock(receptor, ligand, grid_config, center, box, algorithm, scoring,
-         output_dir, num_poses, ensemble, rescoring, visualize, fast,
-         gpu, gpu_batch_size, gpu_memory_limit, cpuworkers, gpuid):
-    """Perform molecular docking"""
+def dock(receptor, ligand, grid_config, center, box, scoring,
+         output_dir, num_poses, ensemble, rescoring, visualize, fast):
+    """Perform molecular docking with Vina-style scoring"""
 
-    click.echo("PandaDock Enhanced Molecular Docking")
+    click.echo("PandaDock Molecular Docking")
     click.echo(f"Receptor: {receptor}")
     click.echo(f"Ligand: {ligand}")
-
-    # Detect batch mode and auto-select algorithm if needed
-    num_ligands, batch_mode = detect_batch_mode(ligand)
-    original_algorithm = algorithm
-
-    if algorithm == 'auto':
-        # Intelligent algorithm selection
-        algorithm = AlgorithmSelector.auto_select(
-            num_ligands=num_ligands,
-            conformers_per_ligand=10,  # Default, can be detected from ligand
-            gpu_available=GPU_ALGORITHMS_REGISTERED,
-            user_preference='balanced',
-            batch_mode=batch_mode
-        )
-        click.echo(f"\n{AlgorithmSelector.explain_selection(algorithm, num_ligands, 10, GPU_ALGORITHMS_REGISTERED)}")
-        click.echo(f"{AlgorithmSelector.get_recommendation(algorithm, num_ligands, GPU_ALGORITHMS_REGISTERED)}\n")
-    else:
-        # Show warning for problematic algorithms
-        warning = AlgorithmSelector.get_algorithm_warning(algorithm)
-        if warning:
-            click.echo(f"\n{warning}\n")
-
-    click.echo(f"Algorithm: {algorithm}")
     click.echo(f"Scoring: {scoring}")
 
     # Validate grid specification
@@ -289,38 +220,6 @@ def dock(receptor, ligand, grid_config, center, box, algorithm, scoring,
     else:
         grid_center = np.array(center)
         grid_dimensions = np.array(box)
-
-    # GPU validation
-    if gpu or algorithm.startswith('cuda') or scoring.startswith('gpu_'):
-        if not GPU_AVAILABLE:
-            click.echo(f"Error: GPU acceleration requested but CUDA not available")
-            click.echo("Please install CuPy and ensure CUDA drivers are properly configured")
-            sys.exit(1)
-        else:
-            click.echo(f"GPU acceleration enabled: batch_size={gpu_batch_size}, memory_limit={gpu_memory_limit}GB")
-
-    # Force GPU algorithm if --gpu flag is used
-    if gpu and not algorithm.endswith('_gpu') and not algorithm.startswith('cuda'):
-        if algorithm == 'monte_carlo_cpu':
-            algorithm = 'cuda_monte_carlo'
-        elif algorithm == 'genetic_algorithm_cpu':
-            algorithm = 'cuda_genetic_algorithm'
-        elif algorithm == 'enhanced_hierarchical_cpu':
-            algorithm = 'enhanced_hierarchical_gpu'
-        elif algorithm == 'induced_fit_cpu':
-            algorithm = 'induced_fit_gpu'
-        click.echo(f"GPU flag detected - using {algorithm}")
-
-    # Check algorithm availability
-    available_algorithms = engine.list_algorithms()
-    if algorithm not in available_algorithms:
-        if algorithm.startswith('cuda') and not GPU_AVAILABLE:
-            click.echo(f"Error: {algorithm} requires CUDA but GPU support not available")
-            click.echo("Available CPU algorithms: monte_carlo_cpu, genetic_algorithm_cpu, hierarchical_cpu, enhanced_hierarchical_cpu, crystal_guided_cpu")
-        else:
-            click.echo(f"Error: Unknown algorithm: {algorithm}")
-            click.echo(f"Available algorithms: {', '.join(available_algorithms)}")
-        sys.exit(1)
 
     # Load ligand
     try:
@@ -341,8 +240,8 @@ def dock(receptor, ligand, grid_config, center, box, algorithm, scoring,
     if not ligand_mol.HasProp('_Name'):
         ligand_mol.SetProp('_Name', ligand_name)
 
-    click.echo(f"Grid center: ({grid_center[0]:.1f}, {grid_center[1]:.1f}, {grid_center[2]:.1f}) A")
-    click.echo(f"Grid dimensions: ({grid_dimensions[0]:.1f}, {grid_dimensions[1]:.1f}, {grid_dimensions[2]:.1f}) A")
+    click.echo(f"Grid center: ({grid_center[0]:.1f}, {grid_center[1]:.1f}, {grid_center[2]:.1f}) Å")
+    click.echo(f"Grid dimensions: ({grid_dimensions[0]:.1f}, {grid_dimensions[1]:.1f}, {grid_dimensions[2]:.1f}) Å")
     click.echo(f"Output directory: {output_path}")
 
     # Set up docking parameters
@@ -350,32 +249,11 @@ def dock(receptor, ligand, grid_config, center, box, algorithm, scoring,
     if fast:
         click.echo("Fast mode enabled - reduced sampling for quick testing")
         dock_params.update({
-            'fast': True,  # Pass fast flag to algorithms
+            'fast': True,
             'num_conformers': 3,
-            'num_poses_per_conformer': 10,  # Increased for better pose diversity
-            'max_attempts': 100,  # More attempts to find good poses
-            'energy_threshold': 20.0,  # Relaxed threshold to allow initial poses (will improve them later)
-            'temperature_schedule': [50, 25],  # Gentle refinement with lower temperatures
-            'refinement_steps': 10  # Minimal refinement to resolve clashes while preserving positions
+            'num_poses_per_conformer': 10,
+            'max_attempts': 100,
         })
-
-    # Add CPU/GPU resource control parameters
-    if cpuworkers is not None:
-        dock_params['cpuworkers'] = cpuworkers
-        click.echo(f"CPU workers: {cpuworkers}")
-
-    if gpu or algorithm.startswith('cuda') or scoring.startswith('gpu_'):
-        dock_params.update({
-            'batch_size': gpu_batch_size,
-            'memory_limit_gb': gpu_memory_limit,
-            'gpu_acceleration': True,
-            'gpuid': gpuid
-        })
-        click.echo(f"GPU device ID: {gpuid}")
-    elif gpuid != 0:
-        # GPU ID specified but not using GPU algorithms
-        dock_params['gpuid'] = gpuid
-        click.echo(f"GPU device ID: {gpuid} (for potential GPU scoring functions)")
 
     # Perform docking
     click.echo("Starting docking...")
@@ -387,7 +265,7 @@ def dock(receptor, ligand, grid_config, center, box, algorithm, scoring,
             ligand_mol=ligand_mol,
             grid_center=grid_center,
             grid_dimensions=grid_dimensions,
-            algorithm=algorithm,
+            algorithm='pandadock',
             scoring_function=scoring,
             num_poses=num_poses,
             **dock_params
@@ -427,7 +305,6 @@ def dock(receptor, ligand, grid_config, center, box, algorithm, scoring,
         click.echo("Performing MM-GBSA rescoring...")
         try:
             mmgbsa = MMGBSARescoring()
-            # Load receptor structure for MM-GBSA
             from Bio.PDB import PDBParser
             parser = PDBParser(QUIET=True)
             receptor_structure = parser.get_structure("receptor", receptor)
@@ -445,7 +322,6 @@ def dock(receptor, ligand, grid_config, center, box, algorithm, scoring,
     # Interaction Analysis
     click.echo("Performing interaction analysis...")
     try:
-        # Load receptor structure for interaction analysis
         from Bio.PDB import PDBParser
         parser = PDBParser(QUIET=True)
         receptor_structure = parser.get_structure("receptor", receptor)
@@ -456,7 +332,6 @@ def dock(receptor, ligand, grid_config, center, box, algorithm, scoring,
             top_pose.coordinates, receptor_structure=receptor_structure, ligand_mol=ligand_mol
         )
 
-        # Save interaction analysis
         interaction_file = output_path / "interaction_analysis.json"
         with open(interaction_file, 'w') as f:
             json.dump(interactions, f, indent=2)
@@ -473,13 +348,6 @@ def dock(receptor, ligand, grid_config, center, box, algorithm, scoring,
                 result, str(output_path / "binding_affinities.png")
             )
             click.echo("Binding affinity plot saved")
-
-            # Create interaction energy plot if available
-            if hasattr(result, 'interaction_energies') and result.interaction_energies:
-                plotter.create_interaction_energy_plot(
-                    result, str(output_path / "interaction_energies.png")
-                )
-                click.echo("Interaction energy plot saved")
         except Exception as e:
             click.echo(f"Visualization failed: {e}")
 
@@ -494,29 +362,1200 @@ def dock(receptor, ligand, grid_config, center, box, algorithm, scoring,
 
 
 @main.command()
-def list_algorithms():
-    """List available docking algorithms"""
-    click.echo("PandaDock Available Docking Algorithms")
-    click.echo("\nCPU Algorithms:")
-    cpu_algorithms = [alg for alg in engine.list_algorithms() if not alg.startswith('cuda')]
-    for alg in cpu_algorithms:
-        click.echo(f"  - {alg}")
+@click.option('--receptor', '-r', required=True, type=click.Path(exists=True),
+              help='Receptor PDB file')
+@click.option('--ligand', '-l', required=True, type=click.Path(exists=True),
+              help='Ligand file (SDF/MOL2/PDB)')
+@click.option('--grid-config', '-g', type=click.Path(exists=True),
+              help='Grid box configuration JSON file')
+@click.option('--center', nargs=3, type=float, metavar='X Y Z',
+              help='Grid center coordinates (Å)')
+@click.option('--box', nargs=3, type=float, metavar='X Y Z',
+              help='Grid box dimensions (Å)')
+@click.option('--model', '-m', required=True, type=click.Path(exists=True),
+              help='Path to trained GNN model checkpoint')
+@click.option('--output-dir', '-o', type=click.Path(), default='hybrid_output',
+              help='Output directory')
+@click.option('--num-poses', '-n', type=int, default=50,
+              help='Number of poses to generate for rescoring')
+@click.option('--top-k', type=int, default=10,
+              help='Number of top poses to keep after rescoring')
+@click.option('--fast', is_flag=True, default=False,
+              help='Use fast mode with reduced sampling')
+def hybrid(receptor, ligand, grid_config, center, box, model, output_dir, num_poses, top_k, fast):
+    """
+    Hybrid docking: Traditional docking + GNN rescoring
 
-    if GPU_ALGORITHMS_REGISTERED:
-        click.echo("\nGPU Algorithms:")
-        gpu_algorithms = engine.list_algorithms(gpu_only=True)
-        for alg in gpu_algorithms:
-            click.echo(f"  - {alg}")
+    This is the RECOMMENDED workflow for best accuracy. It:
+    1. Generates diverse poses using hierarchical docking
+    2. Rescores all poses using the SE(3)-equivariant GNN
+    3. Ranks poses by GNN-predicted binding affinity
+    """
+    try:
+        from .gnn.scoring import GNNScoring
+        from .gnn.data.graph_builder import HeterogeneousGraphBuilder, parse_molecule_file
+    except ImportError as e:
+        click.echo(f"Error: GNN module not available: {e}")
+        click.echo("Install with: pip install torch torch-geometric")
+        sys.exit(1)
+
+    click.echo("=" * 60)
+    click.echo("PandaDock Hybrid Docking (Dock + GNN Rescore)")
+    click.echo("=" * 60)
+    click.echo(f"Receptor: {receptor}")
+    click.echo(f"Ligand: {ligand}")
+    click.echo(f"GNN Model: {model}")
+
+    # Validate grid specification
+    if not grid_config and not (center and box):
+        click.echo("Error: Must specify either --grid-config or --center/--box")
+        sys.exit(1)
+
+    # Load grid configuration
+    if grid_config:
+        with open(grid_config, 'r') as f:
+            grid_data = json.load(f)
+        grid_center = np.array(grid_data['center'])
+        grid_dimensions = np.array(grid_data['dimensions'])
     else:
-        if GPU_AVAILABLE:
-            click.echo("\nGPU Algorithms: Not available (CUDA libraries not installed or GPU initialization failed)")
-        else:
-            click.echo("\nGPU Algorithms: Not available (GPU support not compiled)")
+        grid_center = np.array(center)
+        grid_dimensions = np.array(box)
+
+    # Load ligand
+    try:
+        ligand_mol = load_ligand(ligand)
+        if ligand_mol is None:
+            click.echo(f"Error: Could not load ligand from {ligand}")
+            sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error loading ligand: {e}")
+        sys.exit(1)
+
+    # Create output directory
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    # Set ligand name
+    ligand_name = Path(ligand).stem
+    if not ligand_mol.HasProp('_Name'):
+        ligand_mol.SetProp('_Name', ligand_name)
+
+    click.echo(f"Grid center: ({grid_center[0]:.1f}, {grid_center[1]:.1f}, {grid_center[2]:.1f}) Å")
+    click.echo(f"Grid dimensions: ({grid_dimensions[0]:.1f}, {grid_dimensions[1]:.1f}, {grid_dimensions[2]:.1f}) Å")
+
+    # Phase 1: Traditional Docking
+    click.echo("\n--- Phase 1: Generating Poses ---")
+    dock_params = {'num_conformers': 5, 'num_poses_per_conformer': 10}
+    if fast:
+        dock_params = {'num_conformers': 3, 'num_poses_per_conformer': 8}
+
+    start_time = time.time()
+
+    try:
+        result = engine.dock_ligand(
+            receptor_file=receptor,
+            ligand_mol=ligand_mol,
+            grid_center=grid_center,
+            grid_dimensions=grid_dimensions,
+            algorithm='pandadock',
+            scoring_function='vina',
+            num_poses=num_poses,
+            **dock_params
+        )
+    except Exception as e:
+        click.echo(f"Docking failed: {e}")
+        sys.exit(1)
+
+    dock_time = time.time() - start_time
+    click.echo(f"Generated {len(result.poses)} poses in {dock_time:.1f}s")
+
+    if not result.poses:
+        click.echo("No poses generated")
+        sys.exit(1)
+
+    # Phase 2: GNN Rescoring
+    click.echo("\n--- Phase 2: GNN Rescoring ---")
+
+    gnn_scorer = GNNScoring(model_path=model)
+    graph_builder = HeterogeneousGraphBuilder()
+
+    # Parse receptor once
+    protein_parsed = parse_molecule_file(receptor)
+
+    # Helper function to convert RDKit mol + pose to ParsedMolecule
+    from .gnn.data.mol2_parser import ParsedMolecule, Atom
+
+    def rdkit_pose_to_parsed(mol, pose_coords):
+        """Convert RDKit mol with pose coordinates to ParsedMolecule."""
+        atoms = []
+        for i, atom in enumerate(mol.GetAtoms()):
+            coord = pose_coords[i]
+            # Map RDKit atom type to SYBYL-like type
+            symbol = atom.GetSymbol()
+            hyb = atom.GetHybridization()
+            hyb_map = {
+                Chem.HybridizationType.SP3: '3',
+                Chem.HybridizationType.SP2: '2',
+                Chem.HybridizationType.SP: '1',
+            }
+            hyb_str = hyb_map.get(hyb, '3')
+            atom_type = f"{symbol}.{hyb_str}" if symbol not in ['H'] else symbol
+
+            parsed_atom = Atom(
+                id=i + 1,
+                name=atom.GetSymbol(),
+                x=float(coord[0]),
+                y=float(coord[1]),
+                z=float(coord[2]),
+                atom_type=atom_type,
+                charge=float(atom.GetFormalCharge()),
+                residue_name='LIG',
+                residue_id=1
+            )
+            atoms.append(parsed_atom)
+
+        return ParsedMolecule(
+            name='ligand',
+            atoms=atoms,
+            bonds=[],
+            num_atoms=len(atoms)
+        )
+
+    rescored_poses = []
+    rescore_start = time.time()
+
+    for i, pose in enumerate(result.poses):
+        try:
+            # Convert pose to ParsedMolecule
+            ligand_parsed = rdkit_pose_to_parsed(ligand_mol, pose.coordinates)
+
+            # Build graph and predict
+            graph = graph_builder.build_graph(protein_parsed, ligand_parsed)
+            prediction = gnn_scorer.predict_from_graph(graph)
+
+            rescored_poses.append({
+                'pose': pose,
+                'gnn_pec50': prediction['pec50'],
+                'gnn_energy': prediction['energy'],
+                'vina_energy': pose.energy,
+                'activity_prob': prediction.get('activity_prob', None)
+            })
+
+            if (i + 1) % 10 == 0:
+                click.echo(f"  Rescored {i+1}/{len(result.poses)} poses")
+
+        except Exception as e:
+            # Skip poses that fail rescoring
+            if i == 0:  # Debug first failure
+                click.echo(f"  Warning: Rescoring error: {e}")
+            pass
+
+    rescore_time = time.time() - rescore_start
+    click.echo(f"Rescored {len(rescored_poses)} poses in {rescore_time:.1f}s")
+
+    # Sort by GNN pEC50 (higher = better binding)
+    rescored_poses.sort(key=lambda x: x['gnn_pec50'], reverse=True)
+
+    # Keep top-k
+    top_poses = rescored_poses[:top_k]
+
+    # Phase 3: Output Results
+    click.echo("\n--- Results ---")
+    click.echo(f"\nTop {len(top_poses)} poses (ranked by GNN pEC50):")
+    click.echo("-" * 70)
+    click.echo(f"{'Rank':<6} {'GNN pEC50':<12} {'GNN Energy':<14} {'Vina Energy':<14} {'Activity'}")
+    click.echo("-" * 70)
+
+    for i, p in enumerate(top_poses, 1):
+        activity = f"{p['activity_prob']:.2f}" if p['activity_prob'] else "N/A"
+        click.echo(f"{i:<6} {p['gnn_pec50']:<12.3f} {p['gnn_energy']:<14.3f} {p['vina_energy']:<14.3f} {activity}")
+
+    click.echo("-" * 70)
+
+    # Save results
+    import pandas as pd
+
+    results_df = pd.DataFrame([{
+        'rank': i + 1,
+        'gnn_pec50': p['gnn_pec50'],
+        'gnn_energy': p['gnn_energy'],
+        'vina_energy': p['vina_energy'],
+        'activity_prob': p['activity_prob']
+    } for i, p in enumerate(top_poses)])
+
+    results_df.to_csv(output_path / 'hybrid_results.csv', index=False)
+
+    # Save top pose structures
+    click.echo("\nSaving pose structures...")
+    for i, p in enumerate(top_poses[:5], 1):
+        pose_file = output_path / f"pose_{i}_pec50_{p['gnn_pec50']:.2f}.pdb"
+        save_pose_to_pdb(p['pose'], pose_file, ligand_mol)
+
+    # Save complexes
+    for i, p in enumerate(top_poses[:3], 1):
+        complex_file = output_path / f"complex_{i}.pdb"
+        save_complex_to_pdb(receptor, p['pose'], complex_file, ligand_mol)
+
+    total_time = time.time() - start_time
+    click.echo(f"\nTotal time: {total_time:.1f}s")
+    click.echo(f"Results saved to: {output_path}")
+    click.echo("\nBest pose:")
+    click.echo(f"  pEC50: {top_poses[0]['gnn_pec50']:.3f}")
+    click.echo(f"  Predicted binding energy: {top_poses[0]['gnn_energy']:.3f} kcal/mol")
+
+
+@main.command()
+def list_algorithms():
+    """List available docking algorithms and scoring functions"""
+    click.echo("PandaDock Available Components")
+
+    click.echo("\nDocking Algorithm:")
+    click.echo("  - pandadock: Multi-stage hierarchical search")
+    click.echo("               (Best traditional algorithm, R ~0.12)")
 
     click.echo("\nScoring Functions:")
-    for scoring in engine.list_scoring_functions():
-        click.echo(f"  - {scoring}")
+    click.echo("  - vina: Vina-style empirical scoring (default)")
+    click.echo("  - physics_based: Physics-based Lennard-Jones + electrostatics")
 
+    click.echo("\nML-Based Scoring (pandadock gnn):")
+    click.echo("  - pandadock_gnn: SE(3)-equivariant GNN scoring function")
+    click.echo("                   Achieves R > 0.8 on ULVSH benchmark")
+    click.echo("                   (RECOMMENDED for best accuracy)")
+    click.echo("")
+    click.echo("  Commands:")
+    click.echo("    pandadock gnn train -d ULVSH/ -o models/")
+    click.echo("    pandadock gnn predict -m model.pt -p protein.mol2 -l ligand.mol2")
+    click.echo("    pandadock hybrid -r protein.pdb -l ligand.sdf -m model.pt --center X Y Z --box X Y Z")
+
+
+# =============================================================================
+# GNN Subcommand Group
+# =============================================================================
+
+@main.group()
+def gnn():
+    """PandaDock-GNN: SE(3)-Equivariant Neural Network Scoring Function"""
+    pass
+
+
+@gnn.command()
+@click.option('--dataset', '-d', type=click.Path(exists=True),
+              help='Path to ULVSH dataset directory')
+@click.option('--pdbbind', '-p', type=click.Path(exists=True),
+              help='Path to PDBbind dataset directory')
+@click.option('--output', '-o', required=True, type=click.Path(),
+              help='Output directory for checkpoints and logs')
+@click.option('--epochs', default=100, type=int, help='Number of training epochs')
+@click.option('--batch-size', default=32, type=int, help='Batch size')
+@click.option('--lr', default=1e-4, type=float, help='Learning rate')
+@click.option('--hidden-dim', default=256, type=int, help='Hidden dimension')
+@click.option('--num-layers', default=6, type=int, help='Number of EGNN layers')
+@click.option('--dropout', default=0.1, type=float, help='Dropout rate')
+@click.option('--split', type=click.Choice(['random', 'target']), default='random',
+              help='Data split strategy')
+@click.option('--patience', default=20, type=int, help='Early stopping patience')
+@click.option('--balanced', is_flag=True, help='Use balanced sampling (oversample smaller dataset)')
+@click.option('--gpu/--cpu', default=True, help='Use GPU if available')
+@click.option('--seed', default=42, type=int, help='Random seed')
+def train(dataset, pdbbind, output, epochs, batch_size, lr, hidden_dim, num_layers,
+          dropout, split, patience, balanced, gpu, seed):
+    """Train PandaDock-GNN on protein-ligand dataset(s).
+
+    Can train on ULVSH, PDBbind, or both combined:
+      pandadock gnn train -d ULVSH/ -o models/           # ULVSH only
+      pandadock gnn train -p PDBbind/ -o models/         # PDBbind only
+      pandadock gnn train -d ULVSH/ -p PDBbind/ -o models/  # Combined
+    """
+    if not dataset and not pdbbind:
+        click.echo("Error: Must provide at least one dataset (-d for ULVSH or -p for PDBbind)")
+        return
+
+    try:
+        import torch
+        import numpy as np
+        import random
+        from pathlib import Path
+        import json
+
+        from .gnn.data.dataset import ULVSHDataset, create_dataloaders
+        from .gnn.data.pdbbind_dataset import PDBbindDataset, CombinedDataset
+        from .gnn.data.graph_builder import collate_hetero_graphs
+        from .gnn.models.pandadock_gnn import PandaDockGNN, ModelConfig
+        from .gnn.training.trainer import GNNTrainer, TrainingConfig
+        from torch.utils.data import DataLoader, WeightedRandomSampler
+    except ImportError as e:
+        click.echo(f"Missing GNN dependencies: {e}")
+        click.echo("Install with: pip install torch torch-geometric")
+        return
+
+    # Set seeds
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+    # Create output directory
+    output_dir = Path(output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    click.echo("=" * 60)
+    click.echo("PandaDock-GNN Training")
+    click.echo("=" * 60)
+    if dataset:
+        click.echo(f"ULVSH Dataset: {dataset}")
+    if pdbbind:
+        click.echo(f"PDBbind Dataset: {pdbbind}")
+    click.echo(f"Output: {output}")
+    click.echo(f"Epochs: {epochs}, Batch size: {batch_size}")
+    click.echo(f"Hidden dim: {hidden_dim}, Layers: {num_layers}")
+    click.echo(f"Device: {'cuda' if gpu and torch.cuda.is_available() else 'cpu'}")
+    click.echo("=" * 60)
+
+    # Load dataset(s)
+    click.echo("\nLoading dataset(s)...")
+
+    if dataset and pdbbind:
+        # Combined training on both datasets
+        click.echo("Creating combined ULVSH + PDBbind dataset...")
+
+        train_datasets = []
+        val_datasets = []
+        test_datasets = []
+
+        # ULVSH
+        ulvsh_train = ULVSHDataset(root=dataset, split='train')
+        ulvsh_val = ULVSHDataset(root=dataset, split='val')
+        ulvsh_test = ULVSHDataset(root=dataset, split='test')
+        train_datasets.append(ulvsh_train)
+        val_datasets.append(ulvsh_val)
+        test_datasets.append(ulvsh_test)
+        click.echo(f"  ULVSH: {len(ulvsh_train)} train, {len(ulvsh_val)} val, {len(ulvsh_test)} test")
+
+        # PDBbind
+        pdbbind_train = PDBbindDataset(root=pdbbind, split='train')
+        pdbbind_val = PDBbindDataset(root=pdbbind, split='val')
+        pdbbind_test = PDBbindDataset(root=pdbbind, split='test')
+        train_datasets.append(pdbbind_train)
+        val_datasets.append(pdbbind_val)
+        test_datasets.append(pdbbind_test)
+        click.echo(f"  PDBbind: {len(pdbbind_train)} train, {len(pdbbind_val)} val, {len(pdbbind_test)} test")
+
+        # Combine
+        train_combined = CombinedDataset(train_datasets, normalize=False)
+        val_combined = CombinedDataset(val_datasets, normalize=False)
+        test_combined = CombinedDataset(test_datasets, normalize=False)
+
+        click.echo(f"  Combined: {len(train_combined)} train, {len(val_combined)} val, {len(test_combined)} test")
+
+        if balanced:
+            # Create weights for balanced sampling (oversample smaller dataset)
+            n_ulvsh = len(ulvsh_train)
+            n_pdbbind = len(pdbbind_train)
+            total = n_ulvsh + n_pdbbind
+
+            # Weight each sample inversely proportional to dataset size
+            weight_ulvsh = total / (2.0 * n_ulvsh)
+            weight_pdbbind = total / (2.0 * n_pdbbind)
+
+            weights = [weight_ulvsh] * n_ulvsh + [weight_pdbbind] * n_pdbbind
+            sampler = WeightedRandomSampler(weights, num_samples=len(weights), replacement=True)
+
+            click.echo(f"  Balanced sampling: ULVSH weight={weight_ulvsh:.2f}, PDBbind weight={weight_pdbbind:.2f}")
+            train_loader = DataLoader(train_combined, batch_size=batch_size, sampler=sampler, collate_fn=collate_hetero_graphs)
+        else:
+            train_loader = DataLoader(train_combined, batch_size=batch_size, shuffle=True, collate_fn=collate_hetero_graphs)
+
+        val_loader = DataLoader(val_combined, batch_size=batch_size, shuffle=False, collate_fn=collate_hetero_graphs)
+        test_loader = DataLoader(test_combined, batch_size=batch_size, shuffle=False, collate_fn=collate_hetero_graphs)
+
+    elif pdbbind:
+        # PDBbind only
+        click.echo("Loading PDBbind dataset...")
+        train_ds = PDBbindDataset(root=pdbbind, split='train')
+        val_ds = PDBbindDataset(root=pdbbind, split='val')
+        test_ds = PDBbindDataset(root=pdbbind, split='test')
+        click.echo(f"  {len(train_ds)} train, {len(val_ds)} val, {len(test_ds)} test")
+
+        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, collate_fn=collate_hetero_graphs)
+        val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, collate_fn=collate_hetero_graphs)
+        test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, collate_fn=collate_hetero_graphs)
+
+    else:
+        # ULVSH only (original behavior)
+        train_loader, val_loader, test_loader = create_dataloaders(
+            root=dataset,
+            batch_size=batch_size,
+            split_type=split,
+            seed=seed
+        )
+
+    # Create model
+    config = ModelConfig(
+        hidden_dim=hidden_dim,
+        num_layers=num_layers,
+        dropout=dropout,
+        predict_activity=True
+    )
+    model = PandaDockGNN(config)
+
+    click.echo(f"\nModel parameters: {model.count_parameters():,}")
+
+    # Create trainer
+    train_config = TrainingConfig(
+        learning_rate=lr,
+        epochs=epochs,
+        batch_size=batch_size,
+        patience=patience,
+        checkpoint_dir=str(output_dir),
+        device='cuda' if gpu else 'cpu'
+    )
+    trainer = GNNTrainer(model, train_config)
+
+    # Train
+    click.echo("\nStarting training...")
+    results = trainer.train(train_loader, val_loader, test_loader)
+
+    # Save results
+    results_file = output_dir / 'training_results.json'
+    with open(results_file, 'w') as f:
+        json_results = {
+            'best_metrics': {k: float(v) for k, v in results['best_metrics'].items()},
+            'elapsed_time': results['elapsed_time']
+        }
+        if results['test_metrics']:
+            json_results['test_metrics'] = {k: float(v) for k, v in results['test_metrics'].items()}
+        json.dump(json_results, f, indent=2)
+
+    click.echo(f"\nResults saved to {results_file}")
+    click.echo("\nTraining complete!")
+
+
+@gnn.command()
+@click.option('--model', '-m', required=True, type=click.Path(exists=True),
+              help='Path to trained model checkpoint')
+@click.option('--protein', '-p', required=True, type=click.Path(exists=True),
+              help='Protein MOL2/PDB file')
+@click.option('--ligand', '-l', required=True, type=click.Path(exists=True),
+              help='Ligand MOL2/SDF file')
+@click.option('--site', '-s', type=click.Path(exists=True),
+              help='Optional binding site MOL2 file')
+@click.option('--output', '-o', type=click.Path(), help='Output JSON file')
+def predict(model, protein, ligand, site, output):
+    """Predict binding affinity for a protein-ligand complex."""
+    try:
+        import json
+        from .gnn.scoring import GNNScoring
+    except ImportError as e:
+        click.echo(f"Missing GNN dependencies: {e}")
+        click.echo("Install with: pip install torch torch-geometric")
+        return
+
+    click.echo("Loading model...")
+    scorer = GNNScoring(model_path=model)
+
+    click.echo("Predicting...")
+    result = scorer.predict_affinity(protein, ligand, site)
+
+    click.echo("\nPrediction Results:")
+    click.echo(f"  pEC50: {result['pec50']:.3f}")
+    click.echo(f"  Energy: {result['energy']:.3f} kcal/mol")
+    if 'activity_prob' in result:
+        click.echo(f"  Activity probability: {result['activity_prob']:.3f}")
+        click.echo(f"  Predicted active: {result['active']}")
+
+    if output:
+        import json
+        with open(output, 'w') as f:
+            json.dump(result, f, indent=2)
+        click.echo(f"\nResults saved to {output}")
+
+
+@gnn.command()
+@click.option('--model', '-m', required=True, type=click.Path(exists=True),
+              help='Path to trained model checkpoint')
+@click.option('--dataset', '-d', required=True, type=click.Path(exists=True),
+              help='Path to ULVSH dataset directory')
+@click.option('--output', '-o', required=True, type=click.Path(),
+              help='Output directory for results')
+@click.option('--split', default='test', type=click.Choice(['train', 'val', 'test']),
+              help='Dataset split to evaluate')
+def benchmark(model, dataset, output, split):
+    """Benchmark GNN model performance on test set."""
+    try:
+        import numpy as np
+        import json
+        from pathlib import Path
+
+        from .gnn.data.dataset import ULVSHDataset
+        from .gnn.scoring import GNNScoring
+        from .gnn.training.metrics import compute_affinity_metrics
+    except ImportError as e:
+        click.echo(f"Missing GNN dependencies: {e}")
+        click.echo("Install with: pip install torch torch-geometric pandas")
+        return
+
+    output_dir = Path(output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    click.echo("Loading model...")
+    scorer = GNNScoring(model_path=model)
+
+    click.echo(f"Loading {split} dataset...")
+    test_dataset = ULVSHDataset(root=dataset, split=split)
+
+    click.echo(f"Evaluating {len(test_dataset)} complexes...")
+
+    predictions = []
+    targets = []
+    compound_ids = []
+
+    for i in range(len(test_dataset)):
+        try:
+            compound = test_dataset.get_compound_info(i)
+            result = scorer.predict_affinity(
+                compound.protein_mol2,
+                compound.ligand_mol2,
+                compound.site_mol2
+            )
+            predictions.append(result['pec50'])
+            targets.append(compound.pec50)
+            compound_ids.append(compound.compound_id)
+
+            if (i + 1) % 100 == 0:
+                click.echo(f"  Processed {i + 1}/{len(test_dataset)}")
+        except Exception as e:
+            click.echo(f"  Warning: Failed for {compound.compound_id}: {e}")
+
+    predictions = np.array(predictions)
+    targets = np.array(targets)
+
+    # Compute metrics
+    metrics = compute_affinity_metrics(targets, predictions)
+
+    click.echo("\n" + "=" * 50)
+    click.echo("Benchmark Results")
+    click.echo("=" * 50)
+    for key, value in metrics.items():
+        click.echo(f"  {key}: {value:.4f}")
+
+    # Save metrics
+    with open(output_dir / 'metrics.json', 'w') as f:
+        json.dump({k: float(v) for k, v in metrics.items()}, f, indent=2)
+
+    click.echo(f"\nResults saved to {output_dir}")
+
+
+@gnn.command()
+@click.option('--model', '-m', required=True, type=click.Path(exists=True),
+              help='Path to trained model checkpoint')
+@click.option('--dataset', '-d', required=True, type=click.Path(exists=True),
+              help='Path to ULVSH dataset directory')
+@click.option('--output', '-o', required=True, type=click.Path(),
+              help='Output directory for comparison results')
+@click.option('--split', default='test', type=click.Choice(['train', 'val', 'test', 'all']),
+              help='Dataset split to evaluate')
+def compare(model, dataset, output, split):
+    """Compare GNN performance against all baseline scoring methods."""
+    try:
+        import numpy as np
+        import pandas as pd
+        import json
+        from pathlib import Path
+        from collections import defaultdict
+
+        from .gnn.data.dataset import ULVSHDataset
+        from .gnn.scoring import GNNScoring
+        from .gnn.training.metrics import pearson_r, spearman_rho, rmse, mae
+    except ImportError as e:
+        click.echo(f"Missing dependencies: {e}")
+        return
+
+    output_dir = Path(output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    click.echo("=" * 70)
+    click.echo("PandaDock-GNN vs Baseline Methods Comparison")
+    click.echo("=" * 70)
+
+    # Load model
+    click.echo("\nLoading GNN model...")
+    scorer = GNNScoring(model_path=model)
+
+    # Load dataset
+    click.echo(f"Loading {split} dataset...")
+    if split == 'all':
+        test_dataset = ULVSHDataset(root=dataset, split='train')
+        all_compounds = test_dataset.compounds
+    else:
+        test_dataset = ULVSHDataset(root=dataset, split=split)
+        all_compounds = [test_dataset.compounds[i] for i in test_dataset.indices]
+
+    click.echo(f"Evaluating {len(all_compounds)} compounds...")
+
+    # Baseline methods to compare
+    baseline_methods = [
+        'Hyde', 'DeltaVina', 'Gnina', 'MMPBSA', 'MMGBSA', 'VM2', 'GFN-FF', 'PM6'
+    ]
+
+    # Get experimental pEC50 values
+    click.echo("\nLoading experimental values and baseline scores...")
+    experimental_values = {}
+    compound_to_target = {}
+
+    for compound in all_compounds:
+        compound_key = f"{compound.target}_{compound.compound_id}"
+        experimental_values[compound_key] = compound.pec50
+        compound_to_target[compound.compound_id] = compound.target
+
+    # Load baseline scores from scores.tsv
+    baseline_scores = defaultdict(dict)
+
+    dataset_path = Path(dataset)
+    for target in test_dataset.TARGETS:
+        scores_file = dataset_path / target / 'raw' / 'scores.tsv'
+        if not scores_file.exists():
+            continue
+
+        try:
+            scores_df = pd.read_csv(scores_file, sep=r'\s+')
+        except:
+            continue
+
+        for _, row in scores_df.iterrows():
+            compound_id = row['ID']
+            compound_key = f"{target}_{compound_id}"
+
+            if compound_key not in experimental_values:
+                continue
+
+            for method in baseline_methods:
+                if method in scores_df.columns:
+                    try:
+                        score = float(row[method])
+                        if not np.isnan(score):
+                            baseline_scores[method][compound_key] = score
+                    except:
+                        pass
+
+    # Run GNN predictions
+    click.echo("\nRunning GNN predictions...")
+    gnn_predictions = {}
+    gnn_pec50 = {}
+
+    for i, compound in enumerate(all_compounds):
+        compound_key = f"{compound.target}_{compound.compound_id}"
+
+        try:
+            result = scorer.predict_affinity(
+                compound.protein_mol2,
+                compound.ligand_mol2,
+                compound.site_mol2
+            )
+            gnn_predictions[compound_key] = result['energy']
+            gnn_pec50[compound_key] = result['pec50']
+
+            if (i + 1) % 50 == 0:
+                click.echo(f"  Processed {i + 1}/{len(all_compounds)}")
+        except Exception as e:
+            pass
+
+    click.echo(f"\nSuccessfully predicted {len(gnn_predictions)} compounds")
+
+    # Compute metrics
+    click.echo("\nComputing comparison metrics...")
+
+    results = []
+
+    # GNN vs experimental pEC50
+    common_ids = set(gnn_pec50.keys()) & set(experimental_values.keys())
+    if len(common_ids) >= 5:
+        y_true = np.array([experimental_values[k] for k in common_ids])
+        y_pred = np.array([gnn_pec50[k] for k in common_ids])
+
+        results.append({
+            'Method': 'PandaDock-GNN',
+            'Type': 'ML Scoring',
+            'N': len(common_ids),
+            'Pearson_R': pearson_r(y_true, y_pred),
+            'Spearman_rho': spearman_rho(y_true, y_pred),
+            'RMSE': rmse(y_true, y_pred),
+            'MAE': mae(y_true, y_pred)
+        })
+
+    # Baseline methods
+    for method in baseline_methods:
+        if method not in baseline_scores:
+            continue
+
+        common_ids = set(baseline_scores[method].keys()) & set(experimental_values.keys())
+        if len(common_ids) < 10:
+            continue
+
+        y_true = np.array([experimental_values[k] for k in common_ids])
+        y_pred = np.array([-baseline_scores[method][k] for k in common_ids])
+
+        results.append({
+            'Method': method,
+            'Type': 'ULVSH Baseline',
+            'N': len(common_ids),
+            'Pearson_R': pearson_r(y_true, y_pred),
+            'Spearman_rho': spearman_rho(y_true, y_pred),
+            'RMSE': np.nan,
+            'MAE': np.nan
+        })
+
+    # Sort by Pearson R
+    results = sorted(results, key=lambda x: x['Pearson_R'], reverse=True)
+
+    # Display results
+    click.echo("\n" + "=" * 70)
+    click.echo("COMPARISON RESULTS (sorted by Pearson R)")
+    click.echo("=" * 70)
+    click.echo(f"\n{'Method':<20} {'Type':<15} {'N':>6} {'Pearson R':>12}")
+    click.echo("-" * 60)
+
+    for r in results:
+        if r['Method'] == 'PandaDock-GNN':
+            click.echo(f">>> {r['Method']:<16} {r['Type']:<15} {r['N']:>6} {r['Pearson_R']:>12.4f} <<<")
+        else:
+            click.echo(f"{r['Method']:<20} {r['Type']:<15} {r['N']:>6} {r['Pearson_R']:>12.4f}")
+
+    click.echo("-" * 60)
+
+    # Find GNN rank
+    gnn_rank = next((i + 1 for i, r in enumerate(results) if r['Method'] == 'PandaDock-GNN'), None)
+    if gnn_rank:
+        click.echo(f"\nPandaDock-GNN Rank: {gnn_rank}/{len(results)}")
+        if gnn_rank == 1:
+            click.echo("*** PandaDock-GNN achieves BEST performance! ***")
+
+    # Save results
+    results_df = pd.DataFrame(results)
+    results_df.to_csv(output_dir / 'comparison_results.csv', index=False)
+
+    with open(output_dir / 'comparison_results.json', 'w') as f:
+        json.dump(results, f, indent=2, default=float)
+
+    # Generate plot
+    try:
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(figsize=(12, 6))
+
+        methods = [r['Method'] for r in results]
+        pearson_values = [r['Pearson_R'] for r in results]
+        colors = ['#2ecc71' if m == 'PandaDock-GNN' else '#3498db' for m in methods]
+
+        bars = ax.barh(range(len(methods)), pearson_values, color=colors)
+        ax.set_yticks(range(len(methods)))
+        ax.set_yticklabels(methods)
+        ax.set_xlabel('Pearson Correlation (R)')
+        ax.set_title('PandaDock-GNN vs Baseline Scoring Methods\n(Higher is Better)')
+        ax.axvline(x=0, color='black', linewidth=0.5)
+
+        for i, (bar, val) in enumerate(zip(bars, pearson_values)):
+            ax.text(val + 0.01, i, f'{val:.3f}', va='center', fontsize=9)
+
+        plt.tight_layout()
+        plt.savefig(output_dir / 'comparison_plot.png', dpi=150, bbox_inches='tight')
+        click.echo(f"\nComparison plot saved to {output_dir / 'comparison_plot.png'}")
+
+    except ImportError:
+        click.echo("\nNote: Install matplotlib for comparison plots")
+
+    click.echo(f"\nResults saved to {output_dir}")
+
+
+@gnn.command()
+@click.option('--model', '-m', required=True, type=click.Path(exists=True),
+              help='Path to trained model checkpoint')
+@click.option('--receptor', '-r', required=True, type=click.Path(exists=True),
+              help='Receptor file (PDB, MOL2)')
+@click.option('--poses', '-p', required=True, type=click.Path(exists=True),
+              help='Poses file (multi-conformer SDF from any docking tool)')
+@click.option('--output', '-o', type=click.Path(), default='rescored_poses.csv',
+              help='Output CSV file with ranked poses')
+@click.option('--output-sdf', type=click.Path(),
+              help='Optional: Output SDF file with poses ranked by GNN score')
+@click.option('--site-radius', type=float, default=10.0,
+              help='Radius around ligand centroid to extract binding site (Angstrom)')
+def rescore(model, receptor, poses, output, output_sdf, site_radius):
+    """
+    Universal GNN rescorer for poses from any docking tool.
+
+    Takes docked poses (from pandadock-flex, pandadock-metal, pandadock-tethered,
+    or any other docking software like AutoDock Vina, Glide, etc.) and rescores
+    them using the SE(3)-equivariant GNN model.
+
+    Examples:
+        # Rescore poses from pandadock-flex
+        pandadock gnn rescore -m model.pt -r protein.pdb -p flex_poses.sdf
+
+        # Rescore AutoDock Vina output
+        pandadock gnn rescore -m model.pt -r receptor.pdb -p vina_out.sdf -o ranked.csv
+
+        # Get ranked SDF with GNN scores as properties
+        pandadock gnn rescore -m model.pt -r protein.pdb -p poses.sdf --output-sdf ranked.sdf
+    """
+    try:
+        import numpy as np
+        import pandas as pd
+        from rdkit import Chem
+
+        from .gnn.scoring import GNNScoring
+        from .gnn.data.graph_builder import HeterogeneousGraphBuilder, parse_molecule_file
+        from .gnn.data.mol2_parser import ParsedMolecule, Atom, Bond
+    except ImportError as e:
+        click.echo(f"Missing GNN dependencies: {e}")
+        click.echo("Install with: pip install torch torch-geometric rdkit pandas")
+        return
+
+    click.echo("=" * 60)
+    click.echo("PandaDock-GNN Universal Rescorer")
+    click.echo("=" * 60)
+    click.echo(f"Model: {model}")
+    click.echo(f"Receptor: {receptor}")
+    click.echo(f"Poses: {poses}")
+    click.echo(f"Site radius: {site_radius} Å")
+    click.echo("=" * 60)
+
+    # Load model
+    click.echo("\nLoading GNN model...")
+    scorer = GNNScoring(model_path=model)
+    graph_builder = HeterogeneousGraphBuilder()
+
+    # Load receptor
+    click.echo("Parsing receptor...")
+    receptor_mol = parse_molecule_file(receptor)
+
+    # Load poses from SDF
+    click.echo("Loading poses from SDF...")
+    pose_supplier = Chem.SDMolSupplier(poses, removeHs=False)
+
+    all_poses = []
+    for i, mol in enumerate(pose_supplier):
+        if mol is not None:
+            try:
+                name = mol.GetProp('_Name') if mol.HasProp('_Name') else f'pose_{i+1}'
+            except:
+                name = f'pose_{i+1}'
+            all_poses.append((name, mol))
+
+    if not all_poses:
+        click.echo("Error: No valid poses found in SDF file")
+        return
+
+    click.echo(f"Found {len(all_poses)} poses to rescore")
+
+    # Helper functions
+    def extract_site(receptor_mol, ligand_centroid, radius):
+        """Extract protein atoms within radius of ligand centroid."""
+        site_atoms = []
+        for atom in receptor_mol.atoms:
+            dist = np.sqrt(
+                (atom.x - ligand_centroid[0])**2 +
+                (atom.y - ligand_centroid[1])**2 +
+                (atom.z - ligand_centroid[2])**2
+            )
+            if dist <= radius:
+                site_atoms.append(atom)
+
+        if not site_atoms:
+            return receptor_mol
+
+        site = ParsedMolecule(
+            name=f"{receptor_mol.name}_site",
+            atoms=site_atoms,
+            bonds=[]
+        )
+        site.num_atoms = len(site_atoms)
+        return site
+
+    def rdkit_to_parsed(mol, name="ligand"):
+        """Convert RDKit molecule to ParsedMolecule."""
+        conf = mol.GetConformer()
+        atoms = []
+
+        hybridization_map = {
+            Chem.HybridizationType.SP: '.1',
+            Chem.HybridizationType.SP2: '.2',
+            Chem.HybridizationType.SP3: '.3',
+        }
+
+        for rdkit_atom in mol.GetAtoms():
+            idx = rdkit_atom.GetIdx()
+            element = rdkit_atom.GetSymbol()
+            pos = conf.GetAtomPosition(idx)
+
+            hyb = rdkit_atom.GetHybridization()
+            suffix = hybridization_map.get(hyb, '.3')
+            if rdkit_atom.GetIsAromatic():
+                sybyl_type = f'{element}.ar'
+            else:
+                sybyl_type = f'{element}{suffix}'
+
+            atoms.append(Atom(
+                id=idx + 1,
+                name=f'{element}{idx + 1}',
+                x=pos.x, y=pos.y, z=pos.z,
+                atom_type=sybyl_type,
+                residue_id=1,
+                residue_name='LIG',
+                charge=0.0
+            ))
+
+        bonds = []
+        bond_type_map = {
+            Chem.BondType.SINGLE: '1',
+            Chem.BondType.DOUBLE: '2',
+            Chem.BondType.TRIPLE: '3',
+            Chem.BondType.AROMATIC: 'ar',
+        }
+        for bond in mol.GetBonds():
+            bt = bond_type_map.get(bond.GetBondType(), '1')
+            bonds.append(Bond(
+                id=bond.GetIdx() + 1,
+                atom1_id=bond.GetBeginAtomIdx() + 1,
+                atom2_id=bond.GetEndAtomIdx() + 1,
+                bond_type=bt
+            ))
+
+        parsed = ParsedMolecule(name=name, atoms=atoms, bonds=bonds)
+        parsed.num_atoms = len(atoms)
+        parsed.num_bonds = len(bonds)
+        return parsed
+
+    # Score each pose
+    results = []
+    scored_mols = []
+
+    click.echo("\nScoring poses...")
+    for i, (name, mol) in enumerate(all_poses):
+        try:
+            mol = Chem.AddHs(mol, addCoords=True)
+            conf = mol.GetConformer()
+            coords = np.array([conf.GetAtomPosition(j) for j in range(mol.GetNumAtoms())])
+            centroid = coords.mean(axis=0)
+
+            site_mol = extract_site(receptor_mol, centroid, site_radius)
+            ligand_parsed = rdkit_to_parsed(mol, name=name)
+            graph = graph_builder.build_graph(site_mol, ligand_parsed)
+            result = scorer.predict_from_graph(graph)
+
+            results.append({
+                'pose_name': name,
+                'pose_index': i + 1,
+                'gnn_pKd': result['pec50'],
+                'gnn_energy': result['energy'],
+                'activity_prob': result.get('activity_prob', None),
+                'predicted_active': result.get('active', None),
+                'site_atoms': site_mol.num_atoms,
+                'ligand_atoms': ligand_parsed.num_atoms
+            })
+
+            mol.SetProp('GNN_pKd', f"{result['pec50']:.3f}")
+            mol.SetProp('GNN_Energy', f"{result['energy']:.3f}")
+            if result.get('activity_prob') is not None:
+                mol.SetProp('GNN_Activity', f"{result['activity_prob']:.3f}")
+            scored_mols.append((result['pec50'], mol))
+
+            if (i + 1) % 10 == 0 or (i + 1) == len(all_poses):
+                click.echo(f"  Processed {i + 1}/{len(all_poses)} poses")
+
+        except Exception as e:
+            click.echo(f"  Warning: Failed to score pose {name}: {e}")
+            results.append({
+                'pose_name': name,
+                'pose_index': i + 1,
+                'gnn_pKd': None,
+                'gnn_energy': None,
+                'error': str(e)
+            })
+
+    # Create results DataFrame
+    df = pd.DataFrame(results)
+    df_valid = df[df['gnn_pKd'].notna()].copy()
+    df_valid = df_valid.sort_values('gnn_pKd', ascending=False)
+    df_valid['gnn_rank'] = range(1, len(df_valid) + 1)
+
+    df_valid.to_csv(output, index=False)
+    click.echo(f"\nResults saved to: {output}")
+
+    # Save ranked SDF if requested
+    if output_sdf:
+        scored_mols.sort(key=lambda x: x[0], reverse=True)
+        writer = Chem.SDWriter(output_sdf)
+        for rank, (score, mol) in enumerate(scored_mols, 1):
+            mol.SetProp('GNN_Rank', str(rank))
+            writer.write(mol)
+        writer.close()
+        click.echo(f"Ranked SDF saved to: {output_sdf}")
+
+    # Print summary
+    click.echo("\n" + "=" * 60)
+    click.echo("RESCORING SUMMARY")
+    click.echo("=" * 60)
+    click.echo(f"Total poses: {len(all_poses)}")
+    click.echo(f"Successfully scored: {len(df_valid)}")
+    if len(df_valid) > 0:
+        click.echo(f"\nTop 5 poses by GNN score:")
+        click.echo("-" * 50)
+        for _, row in df_valid.head(5).iterrows():
+            click.echo(f"  Rank {int(row['gnn_rank'])}: {row['pose_name']}")
+            click.echo(f"    pKd: {row['gnn_pKd']:.3f}, Energy: {row['gnn_energy']:.3f} kcal/mol")
+    click.echo("=" * 60)
+
+
+@gnn.command('download-model')
+@click.option('--output', '-o', type=click.Path(), default='models/',
+              help='Output directory for the model (default: models/)')
+@click.option('--version', '-v', type=str, default='latest',
+              help='Model version to download (default: latest)')
+@click.option('--force', '-f', is_flag=True, default=False,
+              help='Overwrite existing model file')
+def download_model(output, version, force):
+    """
+    Download pre-trained PandaDock-GNN model.
+
+    Downloads the official pre-trained model from GitHub releases.
+    The model was trained on ULVSH + PDBbind combined dataset
+    and achieves R=0.88 on PDBbind validation.
+
+    Examples:
+        pandadock gnn download-model
+        pandadock gnn download-model -o /path/to/models/
+        pandadock gnn download-model --force
+    """
+    import urllib.request
+    import hashlib
+
+    # GitHub release URLs
+    GITHUB_REPO = "pritampanda15/PandaDock"
+    MODEL_FILENAME = "pandadock_gnn_v3.pt"
+
+    # Model info
+    MODEL_INFO = {
+        'v3.0.0': {
+            'url': f'https://github.com/{GITHUB_REPO}/releases/download/v3.0.0/{MODEL_FILENAME}',
+            'sha256': None,  # Will be set when model is uploaded
+            'size_mb': 82,
+            'description': 'Combined ULVSH + PDBbind model (200 epochs)',
+            'metrics': {
+                'pdbbind_pearson_r': 0.88,
+                'ulvsh_test_pearson_r': 0.82,
+                'ulvsh_activity_auc': 0.94
+            }
+        }
+    }
+
+    # Create output directory
+    output_dir = Path(output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / MODEL_FILENAME
+
+    # Check if model already exists
+    if output_path.exists() and not force:
+        click.echo(f"Model already exists at: {output_path}")
+        click.echo("Use --force to re-download")
+        return
+
+    click.echo("=" * 60)
+    click.echo("PandaDock-GNN Model Download")
+    click.echo("=" * 60)
+
+    # Get version info
+    if version == 'latest':
+        version = 'v3.0.0'  # Current latest
+
+    if version not in MODEL_INFO:
+        click.echo(f"Error: Unknown version '{version}'")
+        click.echo(f"Available versions: {', '.join(MODEL_INFO.keys())}")
+        return
+
+    info = MODEL_INFO[version]
+    click.echo(f"Version: {version}")
+    click.echo(f"Size: ~{info['size_mb']} MB")
+    click.echo(f"Description: {info['description']}")
+    click.echo(f"\nPerformance:")
+    for metric, value in info['metrics'].items():
+        click.echo(f"  {metric}: {value}")
+    click.echo()
+
+    # Download with progress
+    url = info['url']
+    click.echo(f"Downloading from: {url}")
+    click.echo(f"Saving to: {output_path}")
+    click.echo()
+
+    try:
+        def show_progress(block_num, block_size, total_size):
+            downloaded = block_num * block_size
+            if total_size > 0:
+                percent = min(100, downloaded * 100 / total_size)
+                mb_downloaded = downloaded / (1024 * 1024)
+                mb_total = total_size / (1024 * 1024)
+                bar_length = 40
+                filled = int(bar_length * percent / 100)
+                bar = '=' * filled + '-' * (bar_length - filled)
+                print(f"\r[{bar}] {percent:.1f}% ({mb_downloaded:.1f}/{mb_total:.1f} MB)", end='', flush=True)
+
+        urllib.request.urlretrieve(url, output_path, show_progress)
+        print("\n")
+
+        # Verify download
+        if output_path.exists():
+            file_size = output_path.stat().st_size / (1024 * 1024)
+            click.echo(f"Download complete! ({file_size:.1f} MB)")
+
+            # Verify SHA256 if available
+            if info['sha256']:
+                click.echo("Verifying checksum...")
+                sha256_hash = hashlib.sha256()
+                with open(output_path, 'rb') as f:
+                    for chunk in iter(lambda: f.read(4096), b''):
+                        sha256_hash.update(chunk)
+                if sha256_hash.hexdigest() == info['sha256']:
+                    click.echo("Checksum verified!")
+                else:
+                    click.echo("WARNING: Checksum mismatch! File may be corrupted.")
+
+            click.echo("\n" + "=" * 60)
+            click.echo("SUCCESS! Model ready to use.")
+            click.echo("=" * 60)
+            click.echo(f"\nExample usage:")
+            click.echo(f"  pandadock gnn predict -m {output_path} -p protein.mol2 -l ligand.mol2")
+            click.echo(f"  pandadock gnn rescore -m {output_path} -r protein.pdb -p poses.sdf")
+            click.echo(f"  pandadock hybrid -r protein.pdb -l ligand.sdf -m {output_path} --center X Y Z --box X Y Z")
+        else:
+            click.echo("Error: Download failed - file not found")
+
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            click.echo(f"\nError: Model not found at release URL.")
+            click.echo(f"The model may not have been uploaded yet for version {version}.")
+            click.echo(f"\nAlternative: Train your own model:")
+            click.echo(f"  pandadock gnn train -d ULVSH/ -o models/ --epochs 100")
+        else:
+            click.echo(f"\nError downloading model: HTTP {e.code}")
+            click.echo(f"Please try again later or download manually from:")
+            click.echo(f"  {url}")
+
+    except urllib.error.URLError as e:
+        click.echo(f"\nError: Could not connect to GitHub.")
+        click.echo(f"Please check your internet connection and try again.")
+        click.echo(f"\nAlternatively, download manually from:")
+        click.echo(f"  https://github.com/{GITHUB_REPO}/releases")
+
+    except Exception as e:
+        click.echo(f"\nError: {e}")
+        click.echo(f"\nPlease download manually from:")
+        click.echo(f"  https://github.com/{GITHUB_REPO}/releases")
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
 
 def load_ligand(ligand_file: str) -> Optional[Chem.Mol]:
     """Load ligand molecule from file"""
@@ -530,14 +1569,12 @@ def load_ligand(ligand_file: str) -> Optional[Chem.Mol]:
         elif ligand_path.suffix.lower() == '.pdb':
             mol = Chem.MolFromPDBFile(str(ligand_path), removeHs=False)
         else:
-            # Try to guess format
             mol = Chem.MolFromMolFile(str(ligand_path), removeHs=False)
 
         if mol is None:
             return None
 
-        # Add hydrogens with 3D coordinates if not present
-        if mol.GetNumAtoms() < 20:  # Rough check if H are missing
+        if mol.GetNumAtoms() < 20:
             mol = Chem.AddHs(mol, addCoords=True)
 
         return mol
@@ -551,8 +1588,7 @@ def save_complex_pdbs(result: DockingResult, receptor_file: str, output_dir: Pat
     """Save protein-ligand complex PDB files"""
     try:
         visualizer = DockingVisualizer()
-
-        top_poses = result.get_top_poses(10)  # Save top 10 complexes
+        top_poses = result.get_top_poses(10)
 
         for i, pose in enumerate(top_poses, 1):
             complex_file = output_dir / f"complex{i}.pdb"
@@ -570,8 +1606,7 @@ def save_pose_pdbs(result: DockingResult, output_dir: Path, ligand_mol=None):
     """Save individual ligand pose PDB files"""
     try:
         visualizer = DockingVisualizer()
-
-        top_poses = result.get_top_poses(10)  # Save top 10 poses
+        top_poses = result.get_top_poses(10)
 
         for i, pose in enumerate(top_poses, 1):
             pose_file = output_dir / f"pose{i}.pdb"
@@ -581,6 +1616,55 @@ def save_pose_pdbs(result: DockingResult, output_dir: Path, ligand_mol=None):
 
     except Exception as e:
         logging.error(f"Error saving pose PDBs: {e}")
+
+
+def save_pose_to_pdb(pose: Pose, filepath: Path, ligand_mol: Chem.Mol):
+    """Save a single pose to PDB file"""
+    try:
+        with open(filepath, 'w') as f:
+            f.write(f"REMARK   1 PandaDock Pose\n")
+            f.write(f"REMARK   2 Energy: {pose.energy:.3f} kcal/mol\n")
+
+            for i, (coord, atom) in enumerate(zip(pose.coordinates, ligand_mol.GetAtoms()), 1):
+                element = atom.GetSymbol()
+                name = f"{element}{i}"[:4].ljust(4)
+                f.write(f"HETATM{i:5d} {name} LIG A   1    "
+                       f"{coord[0]:8.3f}{coord[1]:8.3f}{coord[2]:8.3f}"
+                       f"  1.00  0.00          {element:>2}\n")
+            f.write("END\n")
+    except Exception as e:
+        logging.error(f"Error saving pose PDB: {e}")
+
+
+def save_complex_to_pdb(receptor_file: str, pose: Pose, filepath: Path, ligand_mol: Chem.Mol):
+    """Save protein-ligand complex to PDB file"""
+    try:
+        # Read receptor
+        with open(receptor_file, 'r') as f:
+            receptor_lines = [l for l in f if l.startswith(('ATOM', 'HETATM', 'TER'))]
+
+        with open(filepath, 'w') as f:
+            f.write(f"REMARK   1 PandaDock Complex\n")
+            f.write(f"REMARK   2 Pose Energy: {pose.energy:.3f} kcal/mol\n")
+
+            # Write receptor
+            for line in receptor_lines:
+                f.write(line)
+
+            f.write("TER\n")
+
+            # Write ligand
+            atom_start = 10000
+            for i, (coord, atom) in enumerate(zip(pose.coordinates, ligand_mol.GetAtoms()), atom_start):
+                element = atom.GetSymbol()
+                name = f"{element}{i-atom_start+1}"[:4].ljust(4)
+                f.write(f"HETATM{i:5d} {name} LIG B   1    "
+                       f"{coord[0]:8.3f}{coord[1]:8.3f}{coord[2]:8.3f}"
+                       f"  1.00  0.00          {element:>2}\n")
+
+            f.write("END\n")
+    except Exception as e:
+        logging.error(f"Error saving complex PDB: {e}")
 
 
 if __name__ == '__main__':

@@ -1,22 +1,29 @@
 pandadock - Main Docking Command
 =================================
 
-The ``pandadock dock`` command is the primary interface for molecular docking in PandaDock.
+The ``pandadock`` command is the primary interface for molecular docking in PandaDock.
 
 Synopsis
 --------
 
 .. code-block:: bash
 
-   pandadock dock [OPTIONS]
+   pandadock COMMAND [OPTIONS]
 
-Description
------------
+Commands
+--------
 
-Performs molecular docking of a ligand into a protein receptor using specified algorithm and scoring function. Generates docked poses, binding energies, and interaction analysis.
+* ``dock`` - Traditional molecular docking with Vina-style scoring
+* ``hybrid`` - Hybrid docking: pose generation + GNN rescoring (recommended)
+* ``list-algorithms`` - Show available algorithms and scoring functions
+* ``gnn`` - GNN subcommands (train, predict, benchmark, compare)
 
-Required Options
-----------------
+pandadock dock
+--------------
+
+Performs molecular docking using hierarchical search with Vina-style scoring.
+
+**Required Options:**
 
 ``-r, --receptor PATH``
     Receptor PDB file (protein structure)
@@ -25,53 +32,27 @@ Required Options
     Ligand file (SDF, MOL2, or PDB format)
 
 ``--center X Y Z`` or ``--grid-config PATH``
-    Grid box specification. Either provide center coordinates (X Y Z in Angstroms) or a JSON configuration file.
+    Grid box specification. Either provide center coordinates (in Angstroms) or a JSON configuration file.
 
 ``--box X Y Z``
-    Grid box dimensions (X Y Z in Angstroms). Required if ``--center`` is used.
+    Grid box dimensions (in Angstroms). Required if ``--center`` is used.
 
-Algorithm Selection
--------------------
-
-``-a, --algorithm ALGORITHM``
-    Docking algorithm to use. Default: ``enhanced_hierarchical_cpu``
-
-    CPU Algorithms:
-    
-    * ``enhanced_hierarchical_cpu`` - High-accuracy hierarchical search (recommended)
-    * ``monte_carlo_cpu`` - Fast Monte Carlo sampling
-    * ``genetic_algorithm_cpu`` - Evolutionary algorithm
-    * ``hierarchical_cpu`` - Balanced hierarchical search
-    * ``crystal_guided_cpu`` - Crystal structure-guided docking
-
-    GPU Algorithms (requires CUDA):
-    
-    * ``enhanced_hierarchical_gpu`` - GPU-accelerated hierarchical (50-100x speedup)
-    * ``cuda_monte_carlo`` - GPU Monte Carlo (100-200x speedup)
-    * ``cuda_genetic_algorithm`` - GPU genetic algorithm (80-150x speedup)
-
-Scoring Options
----------------
+**Scoring Options:**
 
 ``-s, --scoring FUNCTION``
-    Scoring function to use. Default: ``physics_based``
+    Scoring function to use. Default: ``vina``
 
     Available:
-    
-    * ``physics_based`` - Comprehensive force field scoring (recommended)
-    * ``empirical`` - Fast empirical scoring
-    * ``precision_score`` - High-precision energy decomposition
-    * ``hybrid`` - Combined physics + ML scoring
-    * ``gpu_precision`` - GPU-accelerated precision scoring
-    * ``gpu_mmgbsa`` - GPU MM-GBSA rescoring
+
+    * ``vina`` - Vina-style empirical scoring (recommended)
+    * ``physics_based`` - Physics-based Lennard-Jones + electrostatics
 
 ``--rescoring METHOD``
     Rescoring method for top poses. Default: ``none``
 
     Options: ``none``, ``mmgbsa``
 
-Output Options
---------------
+**Output Options:**
 
 ``-o, --output-dir PATH``
     Output directory for results. Default: ``docking_output``
@@ -82,127 +63,163 @@ Output Options
 ``--visualize / --no-visualize``
     Generate visualization plots. Default: enabled
 
-Performance Options
--------------------
-
-CPU Options
-^^^^^^^^^^^
-
-``--cpuworkers N``
-    Number of CPU worker threads for parallel execution. Default: auto-detect
+**Performance Options:**
 
 ``--fast``
     Enable fast mode with reduced sampling for quick testing
 
-GPU Options
-^^^^^^^^^^^
-
-``--gpu``
-    Enable GPU acceleration (requires CUDA and compatible algorithm)
-
-``--gpu-batch-size N``
-    Batch size for GPU processing. Default: 1000
-
-``--gpu-memory-limit GB``
-    GPU memory limit in gigabytes. Default: 4.0
-
-``--gpuid ID``
-    GPU device ID to use. Default: 0
-
-Advanced Options
-----------------
-
 ``--ensemble / --no-ensemble``
     Use Boltzmann ensemble averaging. Default: enabled
 
-``--grid-config PATH``
-    JSON file with grid box configuration
-
-Examples
---------
-
-Basic Docking
-^^^^^^^^^^^^^
+**Example:**
 
 .. code-block:: bash
 
    pandadock dock -r protein.pdb -l ligand.sdf \
-                  --center 10 20 30 --box 20 20 20
-
-High-Accuracy Docking
-^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: bash
-
-   pandadock dock -r protein.pdb -l ligand.sdf \
-                  --algorithm enhanced_hierarchical_cpu \
-                  --scoring physics_based \
                   --center 10 20 30 --box 20 20 20 \
-                  --num-poses 50 \
-                  -o high_accuracy/
+                  -o results/
 
-GPU-Accelerated Docking
-^^^^^^^^^^^^^^^^^^^^^^^
+pandadock hybrid
+----------------
+
+**Recommended workflow** for best accuracy. Combines traditional pose generation
+with SE(3)-equivariant GNN rescoring.
+
+**Required Options:**
+
+``-r, --receptor PATH``
+    Receptor PDB file
+
+``-l, --ligand PATH``
+    Ligand file (SDF, MOL2, or PDB format)
+
+``--center X Y Z`` or ``--grid-config PATH``
+    Grid box specification
+
+``--box X Y Z``
+    Grid box dimensions
+
+``-m, --model PATH``
+    Path to trained GNN model checkpoint
+
+**Optional Options:**
+
+``-o, --output-dir PATH``
+    Output directory. Default: ``hybrid_output``
+
+``-n, --num-poses N``
+    Number of poses to generate for rescoring. Default: 50
+
+``--top-k N``
+    Number of top poses to keep after rescoring. Default: 10
+
+``--fast``
+    Use fast mode with reduced sampling
+
+**Example:**
 
 .. code-block:: bash
 
-   pandadock dock -r protein.pdb -l ligand.sdf \
-                  --algorithm enhanced_hierarchical_gpu \
-                  --gpu \
-                  --center 10 20 30 --box 20 20 20
+   pandadock hybrid -r protein.pdb -l ligand.sdf \
+                    --center 10 20 30 --box 20 20 20 \
+                    -m models/best_model.pt \
+                    -o hybrid_results/
 
-Fast Screening Mode
-^^^^^^^^^^^^^^^^^^^
+**Output:**
+
+The hybrid command generates:
+
+* ``hybrid_results.csv`` - Rankings with GNN and Vina scores
+* ``pose_1_pec50_X.XX.pdb`` - Top poses with pEC50 in filename
+* ``complex_1.pdb``, etc. - Protein-ligand complexes
+
+pandadock gnn
+-------------
+
+GNN subcommands for training and prediction. See :doc:`pandadock_gnn` for details.
+
+* ``pandadock gnn train`` - Train GNN model
+* ``pandadock gnn predict`` - Predict binding affinity
+* ``pandadock gnn benchmark`` - Benchmark model performance
+* ``pandadock gnn compare`` - Compare against baselines
+
+pandadock list-algorithms
+-------------------------
+
+Show available docking algorithms and scoring functions.
 
 .. code-block:: bash
 
-   pandadock dock -r protein.pdb -l library.sdf \
-                  --algorithm monte_carlo_cpu \
-                  --fast \
-                  --num-poses 5 \
-                  -o screening/
-
-With MM-GBSA Rescoring
-^^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: bash
-
-   pandadock dock -r protein.pdb -l ligand.sdf \
-                  --scoring physics_based \
-                  --rescoring mmgbsa \
-                  --center 10 20 30 --box 20 20 20
+   pandadock list-algorithms
 
 Output Files
 ------------
 
-The command generates the following outputs in the specified directory:
-
-**Structures:**
+**dock command:**
 
 * ``complex1.pdb, complex2.pdb, ...`` - Protein-ligand complexes (top 10)
 * ``pose1.pdb, pose2.pdb, ...`` - Ligand poses only (top 10)
-
-**Analysis:**
-
-* ``docking_results.json`` - Complete results with energies and metadata
+* ``docking_results.json`` - Complete results with energies
 * ``interaction_analysis.json`` - Detailed interaction analysis
-* ``summary.txt`` - Human-readable summary
-
-**Visualizations:**
-
 * ``binding_affinities.png`` - Affinity distribution plot
-* ``interaction_energies.png`` - Energy decomposition (if available)
 
-Exit Status
------------
+**hybrid command:**
 
-Returns 0 on success, non-zero on error.
+* ``hybrid_results.csv`` - Rankings with GNN and Vina scores
+* ``pose_N_pec50_X.XX.pdb`` - Top pose structures
+* ``complex_N.pdb`` - Protein-ligand complexes
+
+Global Options
+--------------
+
+``-v, --verbose``
+    Enable verbose logging
+
+``--version``
+    Show version information
+
+``-h, --help``
+    Show help message
+
+Examples
+--------
+
+**Basic Docking:**
+
+.. code-block:: bash
+
+   pandadock dock -r protein.pdb -l ligand.sdf \
+                  --center 10 20 30 --box 20 20 20
+
+**Hybrid Docking (Recommended):**
+
+.. code-block:: bash
+
+   pandadock hybrid -r protein.pdb -l ligand.sdf \
+                    --center 10 20 30 --box 20 20 20 \
+                    -m models/best_model.pt
+
+**Fast Screening:**
+
+.. code-block:: bash
+
+   pandadock dock -r protein.pdb -l ligand.sdf \
+                  --center 10 20 30 --box 20 20 20 \
+                  --fast --num-poses 10
+
+**With MM-GBSA Rescoring:**
+
+.. code-block:: bash
+
+   pandadock dock -r protein.pdb -l ligand.sdf \
+                  --center 10 20 30 --box 20 20 20 \
+                  --rescoring mmgbsa
 
 See Also
 --------
 
+* :doc:`pandadock_gnn` - GNN commands reference
 * :doc:`pandadock_flex` - Flexible docking command
 * :doc:`pandadock_metal` - Metal docking command
-* :doc:`../algorithms/cpu_algorithms` - CPU algorithms documentation
-* :doc:`../algorithms/gpu_algorithms` - GPU algorithms documentation
-* :doc:`../scoring/overview` - Scoring functions overview
+* :doc:`pandadock_tethered` - Tethered docking command
+* :doc:`../gnn/overview` - GNN architecture documentation

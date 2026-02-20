@@ -1,74 +1,63 @@
 """
 PandaDock Molecular Docking System
 
-A modern, GPU-accelerated molecular docking platform with multiple algorithms:
+A modern molecular docking platform featuring:
 
-CPU Algorithms:
-- Monte Carlo (MC) docking with simulated annealing
-- Genetic Algorithm (GA) docking with ensemble refinement
-- Hierarchical docking inspired by Glide
-
-GPU Algorithms:
-- CUDA-accelerated Monte Carlo sampling
-- GPU-parallel genetic algorithm
-- Batch pose evaluation and scoring
+Main Algorithm:
+- HierarchicalDocker: Multi-stage hierarchical search (traditional docking)
 
 Scoring Functions:
-- Physics-based scoring (vdW, electrostatics, H-bonds)
-- Empirical scoring terms (hydrophobic, desolvation, entropy)
-- Glide-inspired modular scoring
-- Boltzmann ensemble averaging
+- VinaScoring: Vina-style empirical scoring (default)
+- PhysicsBasedScoring: Physics-based vdW + electrostatics
+- EmpiricalScoring: Hydrophobic, desolvation, entropy terms
+
+ML Scoring (via pandadock gnn):
+- SE(3)-Equivariant GNN: Achieves R > 0.8 correlation with experiment
 
 Advanced Features:
+- Hybrid docking (traditional + GNN rescoring)
 - MM-GBSA rescoring
-- Ensemble binding free energy calculation
+- Boltzmann ensemble averaging
 - Professional visualization and reporting
 """
 
-__version__ = "1.0.0"
-__author__ = "PandaDock Development Team"
+__version__ = "3.0.0"
+__author__ = "Pritam Kumar Panda @ Stanford University"
 
 from .core import DockingEngine, DockingResult
-from .algorithms import (
-    MonteCarloDocker,
-    GeneticAlgorithmDocker,
-    HierarchicalDocker,
-    CUDAMonteCarloDocker,
-    CUDAGeneticAlgorithmDocker
-)
+from .algorithms import HierarchicalDocker
 from .scoring import (
+    VinaScoring,
     PhysicsBasedScoring,
     EmpiricalScoring,
-    PrecisionScoring,
     BoltzmannEnsemble
 )
-from .refinement import (
-    SimulatedAnnealingRefiner,
-    MMGBSARescoring,
-    EnsembleRefiner
-)
-from .visualization import (
-    DockingVisualizer,
-    AffinityPlotter,
-    PoseAnalyzer
-)
+
+# Optional imports
+try:
+    from .refinement import (
+        SimulatedAnnealingRefiner,
+        MMGBSARescoring,
+        EnsembleRefiner
+    )
+except ImportError:
+    pass
+
+try:
+    from .visualization import (
+        DockingVisualizer,
+        AffinityPlotter,
+        PoseAnalyzer
+    )
+except ImportError:
+    pass
 
 __all__ = [
     'DockingEngine',
     'DockingResult',
-    'MonteCarloDocker',
-    'GeneticAlgorithmDocker',
     'HierarchicalDocker',
-    'CUDAMonteCarloDocker',
-    'CUDAGeneticAlgorithmDocker',
+    'VinaScoring',
     'PhysicsBasedScoring',
     'EmpiricalScoring',
-    'GlideScoring',
     'BoltzmannEnsemble',
-    'SimulatedAnnealing',
-    'MMGBSARescoring',
-    'EnsembleRefinement',
-    'DockingVisualizer',
-    'AffinityPlotter',
-    'PoseAnalyzer'
 ]

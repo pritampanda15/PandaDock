@@ -19,7 +19,7 @@ def test_version():
         import pandadock
         # Check if __version__ exists or skip
         if hasattr(pandadock, '__version__'):
-            assert pandadock.__version__ == "3.0.0"
+            assert pandadock.__version__ == "4.0.0"
         else:
             pytest.skip("Version not defined in package")
     except ImportError:
@@ -35,6 +35,18 @@ def test_cli_modules_exist():
         assert True
     except ImportError as e:
         pytest.skip(f"CLI modules not available: {e}")
+
+
+def test_gnn_module_exists():
+    """Test that GNN module exists"""
+    try:
+        from pandadock.gnn import GNNScoring
+        from pandadock.gnn.models.pandadock_gnn import PandaDockGNN, ModelConfig
+        from pandadock.gnn.data.mol2_parser import MOL2Parser
+        from pandadock.gnn.data.graph_builder import HeterogeneousGraphBuilder
+        assert True
+    except ImportError as e:
+        pytest.skip(f"GNN module not available (requires torch-geometric): {e}")
 
 
 def test_basic_functionality():

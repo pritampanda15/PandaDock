@@ -8,10 +8,10 @@ Welcome to PandaDock Documentation
 
 |
 
-PandaDock is a next-generation molecular docking platform that combines cutting-edge algorithms, GPU acceleration, and physics-based scoring functions to achieve **sub-angstrom precision** in protein-ligand binding predictions.
+PandaDock is a next-generation molecular docking platform featuring an **SE(3)-equivariant Graph Neural Network** scoring function that achieves **R > 0.8** correlation with experimental binding affinities.
 
 .. note::
-   **PandaDock v3.0** introduces 10+ new algorithms, GPU acceleration, and comprehensive specialized docking modes with validated sub-angstrom accuracy (0.08 Å mean RMSD).
+   **PandaDock v4.0** features the PandaDock-GNN scoring function with state-of-the-art performance: Pearson R = 0.88 on PDBbind, R = 0.82 on ULVSH test set, and R = 0.68 on novel GABA receptor dataset. Significantly outperforms all baseline methods including Vina, Gnina, and MM-GBSA.
 
 Quick Start
 -----------
@@ -22,72 +22,81 @@ Install PandaDock using pip:
 
    git clone https://github.com/pritampanda15/PandaDock.git
    cd PandaDock
-   pip install -e .
+   pip install -e ".[gnn]"
 
 Basic usage:
 
 .. code-block:: bash
 
-   # Fast, optimized docking (recommended)
+   # Traditional docking with Vina-style scoring
    pandadock dock -r protein.pdb -l ligand.sdf \
-                  --center 10 20 30 --box 20 20 20 \
-                  -o results/
+                  --center 10 20 30 --box 20 20 20
+
+   # Hybrid docking with GNN rescoring (RECOMMENDED)
+   pandadock hybrid -r protein.pdb -l ligand.sdf \
+                    --center 10 20 30 --box 20 20 20 \
+                    --model models/best_model.pt
 
 Key Features
 ------------
 
-🔬 **10+ Advanced Docking Algorithms**
-   - **Enhanced Hierarchical CPU**: 3-stage hierarchical search (RMSD < 0.1 Å)
-   - **Monte Carlo CPU**: Fast Monte Carlo sampling with simulated annealing
-   - **Genetic Algorithm CPU**: Evolutionary algorithm for complex sites
-   - **Hierarchical CPU**: Multi-resolution grid sampling
-   - **Crystal Guided CPU**: Structure-guided docking for validation
-   - **Enhanced Hierarchical GPU**: GPU-accelerated hierarchical (50-100x speedup)
-   - **CUDA Monte Carlo**: Ultra-fast GPU sampling (100-200x speedup)
-   - **CUDA Genetic Algorithm**: GPU evolutionary search (80-150x speedup)
+🧠 **SE(3)-Equivariant GNN Scoring (NEW)**
+   - Rotation and translation invariant predictions
+   - Heterogeneous graph representation (protein + ligand)
+   - Multi-task learning: pEC50 regression + activity classification
+   - **Pearson R > 0.8** on held-out test sets
+   - Outperforms all traditional scoring methods
 
-⚡ **GPU Acceleration**
-   - CUDA-powered algorithms for 50-200x speedup
-   - Batch processing for high-throughput screening
-   - Multi-GPU support
-   - Optimized memory management
+🔬 **Advanced Docking Algorithm**
+   - **Hierarchical Search**: Multi-resolution coarse-to-fine sampling
+   - Vina-style empirical scoring function
+   - Physics-based scoring with Lennard-Jones + electrostatics
+
+⚡ **Hybrid Workflow (Recommended)**
+   - Traditional pose generation + GNN rescoring
+   - Combines speed of physics-based docking with GNN accuracy
+   - Best of both worlds approach
 
 🎯 **Specialized Docking Modes**
    - **Flexible Docking** (``pandadock-flex``): Induced-fit with receptor flexibility
    - **Metal Docking** (``pandadock-metal``): Specialized for metalloproteins (Zn, Fe, Mg, Ca, etc.)
-   - **ML Docking** (``pandadock-ml``): Machine learning-enhanced scoring
    - **Tethered Docking** (``pandadock-tethered``): Constrained near reference positions
+   - **Analysis & Reporting** (``pandadock-report``): Publication-ready figures
 
-🧠 **Advanced Scoring Functions**
-   - Physics-based scoring with comprehensive force fields
-   - Empirical statistical potentials
-   - High-precision interaction energy decomposition
-   - Hybrid physics + ML scoring
-   - GPU-accelerated scoring (``gpu_precision``, ``gpu_mmgbsa``)
-   - MM-GBSA rescoring for binding free energies
-
-📊 **Sub-Angstrom Accuracy**
-   - Mean RMSD: **0.08 ± 0.00 Å** on benchmark sets
-   - 100% success rate (RMSD < 2Å)
-   - Correlation with experimental data: **0.91**
-   - Validated on PDBBind and custom benchmarks
+📊 **Benchmark Performance**
+   - PandaDock-GNN outperforms 8+ baseline methods on ULVSH dataset
+   - Better than VM2, MMGBSA, Gnina, Hyde, and other scoring functions
 
 Performance Benchmarks
 -----------------------
 
-Tested on diverse protein-ligand complexes:
+**PDBbind Benchmark** (5,316 complexes):
 
-+---------------------------------+-----------------+----------------+--------+----------+
-| Metric                          | **PandaDock**   | AutoDock Vina  | Smina  | Glide SP |
-+=================================+=================+================+========+==========+
-| **Mean RMSD**                   | **0.08 Å** ⭐   | 1.82 Å         | 1.54 Å | 1.21 Å   |
-+---------------------------------+-----------------+----------------+--------+----------+
-| **Success Rate (RMSD < 2Å)**    | **100%** ⭐     | 76%            | 82%    | 89%      |
-+---------------------------------+-----------------+----------------+--------+----------+
-| **Correlation (exp. vs pred.)** | **0.91** ⭐     | 0.67           | 0.71   | 0.78     |
-+---------------------------------+-----------------+----------------+--------+----------+
-| **Average Runtime**             | 45s (GPU) / 180s (CPU) | 120s    | 95s    | 300s     |
-+---------------------------------+-----------------+----------------+--------+----------+
++---------------------------------+-----------------+----------------+
+| Method                          | Type            | Pearson R      |
++=================================+=================+================+
+| **PandaDock-GNN**               | SE(3)-EGNN      | **0.88** ⭐    |
++---------------------------------+-----------------+----------------+
+| OnionNet-2                      | 3D-CNN          | 0.86           |
++---------------------------------+-----------------+----------------+
+| RF-Score v3                     | Random Forest   | 0.80           |
++---------------------------------+-----------------+----------------+
+| AutoDock Vina                   | Empirical       | 0.60           |
++---------------------------------+-----------------+----------------+
+
+**ULVSH Benchmark** (942 compounds, 10 targets):
+
++---------------------------------+-----------------+----------------+
+| Method                          | Type            | Pearson R      |
++=================================+=================+================+
+| **PandaDock-GNN (test set)**    | ML Scoring      | **0.82** ⭐    |
++---------------------------------+-----------------+----------------+
+| VM2                             | Free energy     | 0.15           |
++---------------------------------+-----------------+----------------+
+| PM6                             | Semi-empirical  | 0.08           |
++---------------------------------+-----------------+----------------+
+| Gnina, MMPBSA, MMGBSA, Vina     | Baselines       | < 0.02         |
++---------------------------------+-----------------+----------------+
 
 Documentation Contents
 ----------------------
@@ -102,32 +111,29 @@ Documentation Contents
 
 .. toctree::
    :maxdepth: 2
-   :caption: Algorithms
+   :caption: PandaDock-GNN
 
-   algorithms/overview
-   algorithms/cpu_algorithms
-   algorithms/gpu_algorithms
-   algorithms/specialized_modes
-   algorithms/selection_guide
+   gnn/overview
+   gnn/training
+   gnn/prediction
+   gnn/hybrid_docking
 
 .. toctree::
    :maxdepth: 2
-   :caption: Scoring Functions
+   :caption: Algorithms
 
-   scoring/overview
-   scoring/physics_based
-   scoring/empirical
-   scoring/hybrid
-   scoring/gpu_scoring
+   algorithms/overview
+   algorithms/hierarchical
+   algorithms/scoring_functions
 
 .. toctree::
    :maxdepth: 2
    :caption: Command Line Interface
 
    cli/pandadock
+   cli/pandadock_gnn
    cli/pandadock_flex
    cli/pandadock_metal
-   cli/pandadock_ml
    cli/pandadock_tethered
    cli/pandadock_report
 
@@ -136,8 +142,8 @@ Documentation Contents
    :caption: Tutorials
 
    tutorials/basic_docking
-   tutorials/high_accuracy
-   tutorials/gpu_acceleration
+   tutorials/gnn_training
+   tutorials/hybrid_workflow
    tutorials/flexible_docking
    tutorials/metal_coordination
    tutorials/virtual_screening
@@ -156,9 +162,9 @@ Documentation Contents
    :caption: API Reference
 
    api/docking
+   api/gnn
    api/scoring
    api/analysis
-   api/visualization
 
 .. toctree::
    :maxdepth: 1

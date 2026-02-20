@@ -6,10 +6,10 @@ sys.path.insert(0, os.path.abspath('../../'))
 
 # -- Project information -----------------------------------------------------
 project = 'PandaDock'
-copyright = '2025, Pritam Kumar Panda'
+copyright = '2025-2026, Pritam Kumar Panda'
 author = 'Pritam Kumar Panda'
-release = '3.0.0'
-version = '3.0.0'
+release = '4.0.0'
+version = '4.0.0'
 
 # -- General configuration ---------------------------------------------------
 extensions = [

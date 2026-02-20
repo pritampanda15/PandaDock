@@ -1,6 +1,13 @@
 """
 Modular Scoring Function System for PandaDock
 
+Vina-Style Scoring (Recommended):
+- Gaussian steric interactions
+- Repulsion for clashes
+- Hydrophobic interactions
+- Hydrogen bonding
+- Rotatable bond flexibility penalty
+
 Physics-Based Scoring:
 - Van der Waals interactions (Lennard-Jones)
 - Electrostatic interactions (Coulomb)
@@ -24,6 +31,7 @@ Ensemble Methods:
 - Confidence scoring
 """
 
+from .vina_scoring import VinaScoring
 from .physics_based import PhysicsBasedScoring
 from .empirical import EmpiricalScoring
 from .precision_score import PrecisionScoring
@@ -40,6 +48,7 @@ except ImportError:
     GPU_SCORING_AVAILABLE = False
 
 __all__ = [
+    'VinaScoring',
     'PhysicsBasedScoring',
     'EmpiricalScoring',
     'PrecisionScoring',

@@ -1,10 +1,10 @@
-# PandaDock - Next-Generation Molecular Docking Suite
+# PandaDock - Molecular Docking with GNN Scoring
 
 ---
 
 <p align="center">
   <a href="https://github.com/pritampanda15/PandaDock">
-    <img src="https://github.com/pritampanda15/PandaDock/blob/c4e5c9e91c4c8262faf1c7736850ca647d65adc1/PandaDock.png" width="500" alt="PandaDock Logo"/> 
+    <img src="https://github.com/pritampanda15/PandaDock/blob/c4e5c9e91c4c8262faf1c7736850ca647d65adc1/PandaDock.png" width="500" alt="PandaDock Logo"/>
   </a>
 </p>
 <p align="center">
@@ -41,9 +41,9 @@
 
 ---
 
-**High-Accuracy Molecular Docking with GPU Acceleration**
+**SE(3)-Equivariant GNN Scoring for Molecular Docking**
 
-[Installation](#installation) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Algorithms](#algorithms) • [Citation](#citation)
+[Installation](#installation) | [Quick Start](#quick-start) | [Documentation](https://pandadock.readthedocs.io/) | [Benchmark](#benchmark-performance) | [Citation](#citation)
 
 </div>
 
@@ -51,58 +51,48 @@
 
 ## Overview
 
-**PandaDock** is a state-of-the-art molecular docking platform that combines cutting-edge algorithms, GPU acceleration, and physics-based scoring functions to achieve sub-angstrom precision in protein-ligand binding predictions. Designed for both drug discovery and computational biology research, PandaDock delivers exceptional accuracy with industry-leading performance.
+**PandaDock v4.0** features a novel SE(3)-equivariant Graph Neural Network (GNN) scoring function that achieves state-of-the-art correlation with experimental binding affinities (R=0.88 on PDBbind, R=0.82 on ULVSH). The hybrid docking workflow combines traditional pose generation with GNN rescoring to deliver superior accuracy.
 
 ### Key Features
 
-- **8 Advanced Docking Algorithms** (5 CPU + 3 GPU variants)
-- **6 Specialized Docking Modes** (Standard, Flexible, Metal, ML-powered, Tethered, Crystal-guided)
-- **Multiple Scoring Functions** (Physics-based, Empirical, Hybrid, GPU-accelerated, MM-GBSA)
-- **Sub-angstrom Accuracy** (Mean RMSD: 0.014 Å on PDBbind v2020)
-- **Ultra-Fast CPU Performance** (0.30s per complex with enhanced hierarchical algorithm)
-- **GPU Acceleration** available for large-scale virtual screening (up to 100x speedup for batch processing)
-- **Comprehensive Analysis Tools** including PandaMap visualization
-- **Production-Ready** with enterprise-grade code quality and extensive benchmarking
+- **PandaDock-GNN**: SE(3)-equivariant scoring achieving **Pearson R = 0.88** on PDBbind
+- **Hybrid Docking**: Combined pose generation + GNN rescoring (recommended workflow)
+- **Universal Rescorer**: Rescore poses from ANY docking tool (Vina, Glide, GOLD, etc.)
+- **Vina-Style Scoring**: AutoDock Vina empirical weights as default scoring
+- **Multi-Task Learning**: Joint pKd/pEC50 regression + activity classification
+- **Heterogeneous Graphs**: Separate protein/ligand node types with interaction edges
+- **Specialized Modes**: Flexible, metal coordination, and tethered docking
 
 ---
 
 ## Benchmark Performance
 
-Comprehensive benchmarking on **150 diverse protein-ligand complexes** from PDBbind v2020:
+### PDBbind v2020 Refined Set (5,316 complexes)
 
-### Top Performing Algorithms
+| Metric | Value |
+|--------|-------|
+| **Pearson R** | **0.88** |
+| **Spearman R** | **0.88** |
+| **RMSE** | 0.93 pK units |
+| **MAE** | 0.68 pK units |
+| Within 1.0 pK | 77.5% |
+| Within 1.5 pK | 90.5% |
 
-| Algorithm | Success Rate | RMSD < 2Å | Mean RMSD | Runtime (s) |
-|-----------|--------------|-----------|-----------|-------------|
-| **enhanced_hierarchical_cpu** | **100%** | **99.3%** | **0.014 Å** | 0.30 |
-| **enhanced_hierarchical_gpu** | 91.3% | 99.3% | 0.015 Å | 0.82 |
-| **cuda_genetic_algorithm** | **100%** | **99.3%** | **0.014 Å** | 35.24 |
+### ULVSH Dataset (942 compounds, 10 protein targets)
 
-### Full Algorithm Comparison
+| Method | Type | Pearson R | N |
+|--------|------|-----------|---|
+| **PandaDock-GNN (test)** | **ML Scoring** | **0.82** | 95 |
+| **PandaDock-GNN (full)** | **ML Scoring** | **0.67** | 942 |
+| VM2 | ULVSH Baseline | 0.15 | 942 |
+| PM6 | ULVSH Baseline | 0.08 | 939 |
+| Hyde | ULVSH Baseline | 0.02 | 942 |
+| Gnina | ULVSH Baseline | 0.01 | 941 |
 
-| Algorithm | Success Rate | RMSD < 2Å | RMSD < 3Å | Mean RMSD (Å) | Runtime (s) |
-|-----------|--------------|-----------|-----------|---------------|-------------|
-| enhanced_hierarchical_cpu | 100% | 99.3% | 100% | 0.014 | 0.30 |
-| enhanced_hierarchical_gpu | 91.3% | 99.3% | 100% | 0.015 | 0.82 |
-| cuda_genetic_algorithm | 100% | 99.3% | 100% | 0.014 | 35.24 |
-| cuda_monte_carlo | 48.7% | 100%* | 100%* | 0.0* | 414.20 |
-| monte_carlo_cpu | 95.3% | 44.1% | 76.9% | 2.207 | 86.86 |
-| hierarchical_cpu | 94.7% | 42.3% | 74.7% | 2.278 | 17.90 |
-| genetic_algorithm_cpu | 89.3% | 45.5% | 75.4% | 2.246 | 4.84 |
-| crystal_guided_cpu | 100% | 41.3% | 74.7% | 2.298 | 3.91 |
-
-*For successful runs only
-
-### Key Highlights
-
-✅ **Sub-Angstrom Accuracy**: Mean RMSD of 0.014 Å for top performers
-✅ **High Reliability**: 100% completion rate for enhanced algorithms
-✅ **Ultra-Fast Performance**: 0.30s per complex (CPU) with enhanced_hierarchical_cpu
-✅ **Excellent Pose Prediction**: >99% of poses within 2Å RMSD
-
-**Note on GPU Performance**: GPU algorithms excel in batch processing and large-scale virtual screening scenarios (1000+ ligands). For single-ligand docking, the optimized CPU algorithms offer superior performance. See [GPU Acceleration Guide](docs/gpu_acceleration.md) for detailed performance characteristics.
-
-*Complete benchmark results and reproducibility instructions available in [/benchmarking](benchmarking/README.md)*
+**Key Results:**
+- PandaDock-GNN achieves **R = 0.88** on PDBbind (5,316 complexes)
+- **5.5x improvement** over the best baseline (VM2) on ULVSH
+- Activity classification **AUC = 0.94** on ULVSH test set
 
 ---
 
@@ -111,10 +101,9 @@ Comprehensive benchmarking on **150 diverse protein-ligand complexes** from PDBb
 ### Prerequisites
 
 - Python 3.8 or higher
-- CUDA 11.0+ (for GPU acceleration, optional)
-- **Conda package manager** (recommended for RDKit installation)
+- Conda package manager (recommended for RDKit)
 
-### Recommended Installation (via Conda)
+### Basic Installation
 
 ```bash
 # Clone repository
@@ -124,44 +113,20 @@ cd PandaDock
 # Create conda environment with RDKit
 conda create -n pandadock python=3.10
 conda activate pandadock
-
-# Install RDKit (required, not available on PyPI for all Python versions)
 conda install -c conda-forge rdkit
 
 # Install PandaDock
 pip install -e .
 ```
 
-### Alternative: pip-only Installation
+### GNN Installation (Recommended)
 
 ```bash
-# Note: RDKit must be installed separately
-pip install rdkit-pypi  # Limited platform support
-pip install -e .
-```
+# Install PyTorch and PyTorch Geometric for GNN support
+pip install -e ".[gnn]"
 
-### GPU-Accelerated Installation
-
-```bash
-# After installing PandaDock with conda (see above)
-conda activate pandadock
-
-# Install CUDA support
-pip install cupy-cuda11x  # or cupy-cuda12x for CUDA 12
-
-# Verify GPU availability
-pandadock list-algorithms
-```
-
-### Optional Dependencies
-
-```bash
-# For ML-powered docking
-pip install -e ".[ml]"
-
-# For flexible docking with OpenMM
-conda install -c conda-forge openmm pdbfixer
-pip install -e ".[conda]"
+# Or manually:
+pip install torch torch-geometric torch-scatter torch-sparse
 ```
 
 For detailed installation instructions, see [INSTALL.md](INSTALL.md).
@@ -170,289 +135,299 @@ For detailed installation instructions, see [INSTALL.md](INSTALL.md).
 
 ## Quick Start
 
-### Basic Molecular Docking
+### Download Pre-trained Model (Recommended)
+
+Get started immediately with the pre-trained model:
 
 ```bash
-# Simple docking with intelligent algorithm auto-selection (recommended)
+# Download the pre-trained model (~82 MB)
+pandadock gnn download-model
+
+# Model is saved to models/pandadock_gnn_v4.pt
+```
+
+### Hybrid Docking (Recommended)
+
+The hybrid workflow combines traditional pose generation with GNN rescoring for best accuracy:
+
+```bash
+# Using pre-trained model
+pandadock hybrid -r protein.pdb -l ligand.sdf \
+                 --center 10 20 30 --box 20 20 20 \
+                 -m models/pandadock_gnn_v4.pt \
+                 -o results/
+
+# Or train your own model first
+pandadock gnn train -d ULVSH/ -o models/ --epochs 100
+pandadock hybrid -r protein.pdb -l ligand.sdf \
+                 --center 10 20 30 --box 20 20 20 \
+                 -m models/best_model.pt \
+                 -o results/
+```
+
+### Traditional Docking
+
+```bash
+# Simple docking with Vina-style scoring
 pandadock dock -r protein.pdb -l ligand.sdf \
                --center 10 20 30 --box 20 20 20 \
                -o results/
-
-# PandaDock automatically selects the best algorithm based on:
-# - Number of ligands (single vs batch processing)
-# - Conformer library size
-# - GPU availability
-# - Workload characteristics
 ```
 
-### High-Accuracy Docking
+### GNN Prediction Only
 
 ```bash
-# Enhanced hierarchical algorithm with physics-based scoring
-pandadock dock -r protein.pdb -l ligand.sdf \
-               --center 10 20 30 --box 20 20 20 \
-               --algorithm enhanced_hierarchical_cpu \
-               --scoring physics_based \
-               -o high_accuracy_results/
+# Predict binding affinity for a pre-docked complex
+pandadock gnn predict -m model.pt -p protein.mol2 -l ligand.mol2
 ```
 
-### GPU-Accelerated Docking
+### Universal Rescorer (NEW)
+
+Rescore poses from ANY docking tool using the GNN:
 
 ```bash
-# GPU acceleration (optimal for batch processing of multiple ligands)
-pandadock dock -r protein.pdb -l ligand.sdf \
-               --center 10 20 30 --box 20 20 20 \
-               --algorithm enhanced_hierarchical_gpu \
-               --gpu \
-               -o gpu_results/
+# Rescore poses from AutoDock Vina
+pandadock gnn rescore -m model.pt -r receptor.pdb -p vina_out.sdf -o ranked.csv
 
-# Note: For single ligand docking, enhanced_hierarchical_cpu is typically faster (0.30s vs 0.82s)
-# GPU excels with batch processing: 1000+ ligands or large conformer libraries
+# Rescore poses from pandadock-flex
+pandadock gnn rescore -m model.pt -r protein.pdb -p flex_poses.sdf --output-sdf ranked.sdf
+
+# Rescore poses from Glide, GOLD, or any other tool
+pandadock gnn rescore -m model.pt -r protein.pdb -p docked_poses.sdf
 ```
 
-### Flexible (Induced-Fit) Docking
+### Compare Against Baselines
 
 ```bash
-# Account for receptor flexibility
-pandadock-flex -r protein.pdb -l ligand.sdf \
-               --center 10 20 30 --radius 12.0 \
-               --refine-distance 6.0 \
-               -o flex_results/
-```
-
-### Metal-Coordinating Ligands
-
-```bash
-# Specialized for metalloproteins
-pandadock-metal -r metalloprotein.pdb -l ligand.sdf \
-                --center 10 20 30 --box 20 20 20 \
-                --metal-type ZN --metal-residue "A:201" \
-                -o metal_results/
-```
-
-### Tethered Docking (Constrained)
-
-```bash
-# Constrain ligand near reference position
-pandadock-tethered -r protein.pdb -l ligand.sdf \
-                   --reference-ligand crystal_ligand.sdf \
-                   --tether-radius 2.0 \
-                   -o tethered_results/
+# Benchmark GNN against all baseline methods
+pandadock gnn compare -m model.pt -d ULVSH/ -o comparison/
 ```
 
 ---
 
-## Algorithm Selection
+## Commands
 
-### Intelligent Auto-Selection (New in v3.0)
+### Core Commands
 
-PandaDock now features **intelligent algorithm auto-selection** that automatically chooses the optimal algorithm for your workload:
+| Command | Description |
+|---------|-------------|
+| `pandadock dock` | Traditional docking with Vina-style scoring |
+| `pandadock hybrid` | Hybrid docking with GNN rescoring (recommended) |
 
-```bash
-# Default behavior: automatic algorithm selection
-pandadock dock -r protein.pdb -l ligand.sdf --center 10 20 30 --box 20 20 20
+### GNN Commands
 
-# Auto-selection considers:
-# ✓ Single ligand → enhanced_hierarchical_cpu (0.30s, 0.014Å RMSD)
-# ✓ Batch (1000+ ligands) + GPU → enhanced_hierarchical_gpu (batch processing)
-# ✓ Large conformer libraries (100+) + GPU → cuda_genetic_algorithm
-# ✓ No GPU available → optimized CPU algorithms
-```
+| Command | Description |
+|---------|-------------|
+| `pandadock gnn download-model` | **Download pre-trained model (~82 MB)** |
+| `pandadock gnn train` | Train GNN model on dataset (ULVSH, PDBbind, or combined) |
+| `pandadock gnn predict` | Predict binding affinity for a single complex |
+| `pandadock gnn rescore` | **Universal rescorer for poses from ANY docking tool** |
+| `pandadock gnn benchmark` | Benchmark model performance on test set |
+| `pandadock gnn compare` | Compare against baseline scoring methods |
 
-**Override auto-selection:**
+### Specialized Docking
 
-```bash
-# Manually specify algorithm
-pandadock dock -r protein.pdb -l ligand.sdf \
-               --center 10 20 30 --box 20 20 20 \
-               --algorithm enhanced_hierarchical_cpu
-```
+| Command | Description |
+|---------|-------------|
+| `pandadock-flex` | Flexible/induced-fit docking |
+| `pandadock-metal` | Metal coordination docking |
+| `pandadock-tethered` | Constrained docking near reference |
+
+### Utility Tools
+
+| Command | Description |
+|---------|-------------|
+| `pandadock-prepare` | Prepare ligands (add H, generate 3D) |
+| `pandadock-gridbox` | Generate grid box configurations |
+| `pandadock-report` | Generate analysis reports |
 
 ---
 
-## Algorithms
+## Universal GNN Rescorer
 
-PandaDock provides multiple docking algorithms, each optimized for different use cases:
+The `pandadock gnn rescore` command allows you to rescore docked poses from **any docking software** using the SE(3)-equivariant GNN:
 
-### CPU Algorithms
+### Supported Input
 
-| Algorithm | Description | Best For | Speed |
-|-----------|-------------|----------|-------|
-| **enhanced_hierarchical_cpu** | 3-stage hierarchical search with refinement | High-accuracy general docking | ⭐⭐⭐ |
-| **monte_carlo_cpu** | Monte Carlo sampling with simulated annealing | Fast screening | ⭐⭐⭐⭐⭐ |
-| **genetic_algorithm_cpu** | Genetic algorithm with ensemble refinement | Complex binding sites | ⭐⭐⭐ |
-| **hierarchical_cpu** | Standard hierarchical search | Balanced accuracy/speed | ⭐⭐⭐⭐ |
-| **crystal_guided_cpu** | Crystal structure-guided docking | Validation studies | ⭐⭐⭐ |
+- **AutoDock Vina** output (SDF/PDBQT converted to SDF)
+- **Glide** poses (SDF)
+- **GOLD** poses (SDF)
+- **pandadock-flex** flexible docking poses
+- **pandadock-metal** metal coordination poses
+- **pandadock-tethered** constrained poses
+- Any multi-conformer SDF file
 
-### GPU Algorithms
+### Usage
 
-| Algorithm | Description | Best Use Case | Requirements |
-|-----------|-------------|---------------|--------------|
-| **enhanced_hierarchical_gpu** | GPU-accelerated hierarchical search | Batch processing (1000+ ligands) | CUDA 11.0+ |
-| **cuda_monte_carlo** | Massively parallel Monte Carlo | Large conformer libraries | CUDA 11.0+ |
-| **cuda_genetic_algorithm** | GPU genetic algorithm | High-throughput virtual screening | CUDA 11.0+ |
+```bash
+pandadock gnn rescore -m model.pt -r receptor.pdb -p poses.sdf [OPTIONS]
 
-**GPU Performance Notes**:
+Options:
+  -m, --model PATH      Trained GNN model checkpoint (required)
+  -r, --receptor PATH   Receptor PDB or MOL2 file (required)
+  -p, --poses PATH      Multi-conformer SDF with poses (required)
+  -o, --output PATH     Output CSV with ranked poses (default: rescored_poses.csv)
+  --output-sdf PATH     Output SDF with GNN scores as properties
+  --site-radius FLOAT   Binding site extraction radius (default: 10 A)
+```
 
-- **Single ligand**: CPU algorithms are faster (0.30s vs 0.82s)
-- **Batch mode (1000+ ligands)**: GPU provides significant throughput advantages
-- **Large conformer libraries (100+ conformers/ligand)**: Up to 100x speedup achievable
-- GPU excels when parallelization opportunities outweigh CPU-GPU transfer overhead
+### Example Workflow
 
-⚠️ **Note**: `cuda_monte_carlo` has a 48.7% success rate in benchmarks and is marked as **experimental**. Use `enhanced_hierarchical_cpu` (100% success) or `enhanced_hierarchical_gpu` for production work.
+```bash
+# Step 1: Run docking with your preferred tool
+vina --receptor protein.pdbqt --ligand ligand.pdbqt --out poses.sdf
 
-### Specialized Docking Modes
+# Step 2: Rescore with PandaDock-GNN
+pandadock gnn rescore -m model.pt -r protein.pdb -p poses.sdf \
+    -o ranked.csv --output-sdf ranked.sdf
 
-- **Flexible Docking** (`pandadock-flex`): Induced-fit docking with receptor side-chain flexibility
-- **Metal Docking** (`pandadock-metal`): Specialized for metal-coordinating ligands (Zn, Fe, Mg, Ca, Mn, Cu, Ni, Co)
-- **ML Docking** (`pandadock-ml`): Machine learning-enhanced scoring and pose prediction
-- **Tethered Docking** (`pandadock-tethered`): Constrained docking near reference positions
-- **Crystal-Guided Docking** : Use crystallographic information for improved accuracy
+# Output CSV columns:
+# pose_name, pose_index, gnn_pKd, gnn_energy, activity_prob, predicted_active, gnn_rank
+```
 
-For complete algorithm details, see [ALGORITHMS.md](ALGORITHMS.md).
+### Output SDF Properties
+
+When using `--output-sdf`, each molecule gets these properties:
+- `GNN_pKd` - Predicted pKd/pKi value
+- `GNN_Energy` - Predicted binding energy (kcal/mol)
+- `GNN_Activity` - Activity probability (0-1)
+- `GNN_Rank` - Rank based on GNN score (1 = best)
+
+---
+
+## GNN Architecture
+
+PandaDock-GNN uses an SE(3)-equivariant heterogeneous graph neural network:
+
+```
+Input: Protein-Ligand Complex
+  |
+  +-- MOL2/PDB/SDF Parser --> Atom coordinates, types, charges
+  |
+  +-- Graph Builder --> HeteroData graph
+  |   - Protein nodes (56 features)
+  |   - Ligand nodes (56 features)
+  |   - Interaction edges (23 features, 5A cutoff)
+  |
+  +-- EGNN Layers x 6 (SE(3)-equivariant message passing)
+  |   - Coordinate updates preserve symmetry
+  |   - Edge attention mechanism
+  |
+  +-- Attention Pooling --> Graph-level representation
+  |
+  +-- Prediction Heads
+      - pKd/pEC50 regression
+      - Activity classification (sigmoid)
+```
+
+**Node Features (56 dims):**
+- Atom type one-hot (10)
+- SYBYL atom type (16)
+- Partial charge (1)
+- Hybridization (4)
+- Aromaticity, H-bond donor/acceptor (4)
+- Residue type (20, protein only)
+- Backbone flag (1)
+
+**Edge Features (23 dims):**
+- Distance (1)
+- Gaussian RBF expansion (16)
+- Bond type one-hot (4)
+- Interaction type flags (2)
 
 ---
 
 ## Scoring Functions
 
-| Scoring Function | Description | Use Case |
-|------------------|-------------|----------|
-| **physics_based** | Comprehensive force field scoring | General docking (recommended) |
-| **empirical** | Empirical statistical potential | Fast screening |
-| **precision_score** | High-precision interaction energy | Detailed analysis |
-| **hybrid** | Combined physics + ML scoring | Maximum accuracy |
-| **gpu_precision** | GPU-accelerated precision scoring | Large-scale studies |
-| **gpu_mmgbsa** | GPU MM-GBSA rescoring | Binding free energy |
-
----
-
-## Command-Line Tools
-
-PandaDock provides a comprehensive suite of command-line tools:
-
-### Core Tools
-
-```bash
-pandadock                # Main docking interface
-pandadock-flex          # Flexible/induced-fit docking
-pandadock-metal         # Metal coordination docking
-pandadock-ml            # ML-enhanced docking
-pandadock-tethered      # Tethered/constrained docking
-```
-
-### Utility Tools
-
-```bash
-pandadock-prepare       # Prepare ligands (add H, generate 3D)
-pandadock-gridbox       # Generate grid box configurations
-pandadock-report        # Generate publication-quality reports
-```
-
-### Analysis Tools
-
-```bash
-# Generate comprehensive analysis report
-pandadock-report -i docking_output/ \
-                 -t "PandaDock Analysis" \
-                 --compare-algorithms
-
-# PandaMap visualization (Discovery Studio-style)
-pandadock-report pandamap -i docking_output/ -o pandamap_results/
-```
+| Function | Description | Use Case |
+|----------|-------------|----------|
+| `vina` | AutoDock Vina empirical scoring (default) | General docking |
+| `physics_based` | Lennard-Jones + electrostatics | Detailed energy analysis |
 
 ---
 
 ## Output Files
 
-PandaDock generates comprehensive outputs for each docking run:
+### Dock Command
 
 ```
 docking_output/
-├── complex1.pdb                    # Top-ranked protein-ligand complex
-├── complex2.pdb                    # Second-ranked complex
-├── ...
-├── pose1.pdb                       # Top-ranked ligand pose
-├── pose2.pdb                       # Second-ranked pose
-├── ...
-├── docking_results.json            # Complete results with energies
-├── interaction_analysis.json       # Detailed interaction analysis
-├── binding_affinities.png          # Affinity distribution plot
-├── interaction_energies.png        # Energy decomposition plot
-└── summary.txt                     # Human-readable summary
++-- complex1.pdb, complex2.pdb, ...   # Protein-ligand complexes
++-- pose1.pdb, pose2.pdb, ...         # Ligand poses only
++-- docking_results.json              # Complete results with energies
++-- interaction_analysis.json         # Detailed interactions
++-- binding_affinities.png            # Affinity distribution
+```
+
+### Hybrid Command
+
+```
+hybrid_output/
++-- hybrid_results.csv                # Rankings with GNN + Vina scores
++-- pose_1_pec50_X.XX.pdb             # Top poses with pEC50 in filename
++-- complex_1.pdb, ...                # Protein-ligand complexes
+```
+
+### Rescore Command
+
+```
+rescored_poses.csv                    # Ranked poses with GNN scores
+ranked.sdf (optional)                 # SDF with GNN properties
 ```
 
 ---
 
-## Advanced Usage
+## Training Your Own GNN Model
 
-### Ensemble Docking
+### Single Dataset Training
 
 ```bash
-# Generate ensemble of poses with Boltzmann averaging
-pandadock dock -r protein.pdb -l ligand.sdf \
-               --center 10 20 30 --box 20 20 20 \
-               --num-poses 50 --ensemble
+# Train on ULVSH
+pandadock gnn train -d ULVSH/ -o models/ --epochs 100
+
+# Train on PDBbind
+pandadock gnn train -p PDBbind/ -o models/ --epochs 100
 ```
 
-### MM-GBSA Rescoring
+### Combined Dataset Training (Recommended)
 
 ```bash
-# Rescore top poses with MM-GBSA
-pandadock dock -r protein.pdb -l ligand.sdf \
-               --center 10 20 30 --box 20 20 20 \
-               --rescoring mmgbsa
+# Train on both ULVSH + PDBbind for best generalization
+pandadock gnn train -d ULVSH/ -p PDBbind/ -o models/ \
+    --epochs 200 \
+    --batch-size 32 \
+    --hidden-dim 256 \
+    --num-layers 6 \
+    --balanced  # Balance samples from both datasets
 ```
 
-### Parallel CPU Processing
+### Benchmark on Test Set
 
 ```bash
-# Use multiple CPU cores
-pandadock dock -r protein.pdb -l ligand.sdf \
-               --center 10 20 30 --box 20 20 20 \
-               --cpuworkers 16
-```
-
-### Multi-GPU Support
-
-```bash
-# Specify GPU device
-pandadock dock -r protein.pdb -l ligand.sdf \
-               --center 10 20 30 --box 20 20 20 \
-               --algorithm enhanced_hierarchical_gpu \
-               --gpuid 1
+pandadock gnn benchmark -m models/best_model.pt -d ULVSH/ -o results/
 ```
 
 ---
 
-## Validation and Testing
+## Examples
 
-Comprehensive test suites are provided to ensure reproducibility:
+See the `examples/` directory:
 
-```bash
-# Run CPU algorithm tests
-cd cpu_comprehensive_testing_fixed/
-./run_tests.sh
-
-# Run GPU algorithm tests
-cd gpu_comprehensive_testing/
-./run_tests.sh
-```
-
-Test results include:
-- RMSD calculations against crystal structures
-- Energy distribution analysis
-- Algorithm comparison reports
-- Performance benchmarks
+- `examples/basic_docking/` - Simple docking workflow
+- `examples/flexible_docking/` - Induced-fit docking
+- `examples/metal_docking/` - Metalloprotein docking
 
 ---
 
 ## Documentation
 
-- [Installation Guide](INSTALL.md) - Detailed installation instructions
-- [Algorithm Documentation](ALGORITHMS.md) - Complete algorithm descriptions
-- [API Reference](docs/api.md) - Python API documentation
-- [Tutorial](docs/tutorial.md) - Step-by-step tutorials
-- [FAQ](docs/faq.md) - Frequently asked questions
+Full documentation available at [pandadock.readthedocs.io](https://pandadock.readthedocs.io/):
+
+- [Installation Guide](https://pandadock.readthedocs.io/en/latest/installation.html)
+- [GNN Overview](https://pandadock.readthedocs.io/en/latest/gnn/overview.html)
+- [Training Guide](https://pandadock.readthedocs.io/en/latest/gnn/training.html)
+- [Hybrid Docking](https://pandadock.readthedocs.io/en/latest/gnn/hybrid_docking.html)
+- [CLI Reference](https://pandadock.readthedocs.io/en/latest/cli/pandadock.html)
 
 ---
 
@@ -462,53 +437,13 @@ If you use PandaDock in your research, please cite:
 
 ```bibtex
 @article{panda2024pandadock,
-  title={PandaDock: Python based Next-Generation Molecular Docking },
+  title={PandaDock: SE(3)-Equivariant Graph Neural Network Scoring for Molecular Docking},
   author={Panda, Pritam Kumar},
-  journal={arXiv},
+  journal={bioRxiv},
   year={2024},
   note={Manuscript in preparation}
 }
 ```
-
----
-
-## Examples
-
-See the `examples/` directory for complete examples:
-
-- `examples/basic_docking/` - Simple docking workflow
-- `examples/high_accuracy/` - High-accuracy docking protocol
-- `examples/flexible_docking/` - Induced-fit docking examples
-- `examples/metal_docking/` - Metalloprotein docking
-- `examples/virtual_screening/` - Large-scale screening
-- `examples/benchmarking/` - Reproduce benchmark results
-
----
-
-## Troubleshooting
-
-### GPU Issues
-
-```bash
-# Check GPU availability
-pandadock list-algorithms
-
-# If CUDA errors occur, reinstall CuPy
-pip uninstall cupy-cuda11x cupy-cuda12x
-pip install cupy-cuda11x  # Match your CUDA version
-```
-
-### Memory Issues
-
-```bash
-# Reduce batch size for GPU
-pandadock dock ... --gpu-batch-size 500 --gpu-memory-limit 2.0
-
-# Reduce number of poses
-pandadock dock ... --num-poses 10
-```
-
-For more troubleshooting, see [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ---
 
@@ -535,21 +470,18 @@ PandaDock is released under the MIT License. See [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-PandaDock builds upon and is inspired by several excellent open-source projects:
-- AutoDock Vina
-- RDKit
-- OpenMM
-- Biopython
-- CuPy/PyCUDA
-
-Special thanks to the computational chemistry and drug discovery communities for their invaluable contributions.
+PandaDock builds upon excellent open-source projects:
+- AutoDock Vina (scoring function inspiration)
+- PyTorch and PyTorch Geometric (GNN framework)
+- RDKit (molecular handling)
+- E(n)-Equivariant GNN (Satorras et al. 2021)
 
 ---
 
 <div align="center">
 
-**Star ⭐ this repository if you find it useful!**
+**Star this repository if you find it useful!**
 
-[Report Bug](https://github.com/pritampanda15/PandaDock/issues) • [Request Feature](https://github.com/pritampanda15/PandaDock/issues)
+[Report Bug](https://github.com/pritampanda15/PandaDock/issues) | [Request Feature](https://github.com/pritampanda15/PandaDock/issues)
 
 </div>

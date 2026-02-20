@@ -1,9 +1,0 @@
-algorithm,total_complexes,successful_runs,success_rate_%,rmsd_2A_count,rmsd_2A_rate_%,rmsd_3A_count,rmsd_3A_rate_%,mean_rmsd_A,median_rmsd_A,mean_runtime_sec,median_runtime_sec,total_runtime_hours
-monte_carlo_cpu,150,143,95.33,63,44.06,110,76.92,2.207,2.25,86.86,59.83,3.62
-genetic_algorithm_cpu,150,134,89.33,61,45.52,101,75.37,2.246,2.146,4.84,4.18,0.2
-hierarchical_cpu,150,142,94.67,60,42.25,106,74.65,2.278,2.221,17.9,5.2,0.75
-enhanced_hierarchical_cpu,150,150,100.0,149,99.33,150,100.0,0.014,0.0,0.3,0.26,0.01
-crystal_guided_cpu,150,150,100.0,62,41.33,112,74.67,2.298,2.267,3.91,3.21,0.16
-cuda_monte_carlo,150,73,48.67,73,100.0,73,100.0,0.0,0.0,414.2,446.56,17.26
-cuda_genetic_algorithm,150,150,100.0,149,99.33,150,100.0,0.014,0.0,35.24,33.72,1.47
-enhanced_hierarchical_gpu,150,137,91.33,136,99.27,137,100.0,0.015,0.0,0.82,0.7,0.03

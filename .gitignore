@@ -22,6 +22,8 @@ ENV/
 *.swo
 *~
 .DS_Store
+
+# Claude Code
 .claude/
 
 # Jupyter
@@ -34,16 +36,19 @@ ENV/
 htmlcov/
 *.log
 
-# Docking outputs
+# Docking outputs (user-generated)
 docking_output/
 *_output/
 results/
-*_results/
 test_output/
+
+# Benchmark/test outputs (keep results, ignore temp)
 algorithm_comparison*/
-cpu_comprehensive_testing/
+cpu_comprehensive_testing*/
 gpu_comprehensive_testing/
-benchmarking/results/
+comparison_results/
+comparison_results_all/
+gnn_benchmark_results/
 
 # Large data files
 *.pdb
@@ -54,12 +59,27 @@ benchmarking/results/
 *.ccp4
 *.mrc
 
-# Exclude test fixtures (but keep example files)
+# Keep example files
 !examples/**/*.pdb
 !examples/**/*.sdf
 !examples/**/*.mol2
 !benchmarking/structures/*.pdb
 !benchmarking/structures/*.sdf
+
+# Dataset (too large for GitHub)
+ULVSH/
+
+# Trained models (users should train their own or download)
+/models/
+*.pt
+*.pth
+!/models/.gitkeep
+# But keep the GNN source code models
+!pandadock/gnn/models/
+
+# Paper materials (not for public release)
+Paper/
+paper_figures/
 
 # Temporary files
 *.tmp
@@ -74,8 +94,7 @@ __nv_cache__/
 
 # Documentation builds
 docs/_build/
-docs/_static/
-docs/_templates/
+build/
 
 # OS files
 Thumbs.db
@@ -102,3 +121,29 @@ config.local.json
 
 # Conda
 *.conda
+
+# Benchmark scripts and outputs (user-generated)
+benchmark_*.py
+run_benchmark.py
+*_benchmark*/
+benchmark_*/
+scripts/
+
+# Validation outputs (can be regenerated)
+*_validation_results.csv
+*_validation_summary.txt
+*_validation_errors.log
+training_*.log
+
+# Local files not for repo
+_local_files/
+
+# Large datasets
+PDBbind/
+ULVSH/
+GABA_slow/
+
+# Publication figures (keep in separate release)
+publication_figures/
+Paper/
+benchmarking/

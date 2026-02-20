@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="pandadock",
-    version="3.0.0",
+    version="4.0.0",
     packages=find_packages(),
     install_requires=[
         "click>=8.0.0",
@@ -25,6 +25,13 @@ setup(
             "torch>=2.0.0",
             "h5py>=3.7.0",
         ],
+        "gnn": [
+            "torch>=2.0.0",
+            "torch-geometric>=2.4.0",
+            "torch-scatter",
+            "torch-sparse",
+            "pandas>=1.3.0",
+        ],
         "conda": [
             "openmm>=8.0.0",
             "pdbfixer>=1.9",
@@ -40,6 +47,7 @@ setup(
             "pandadock-metal=pandadock.metal_docking_cli:main",
             "pandadock-tethered=pandadock.tethered_cli:main",
             "pandadock-ml=pandadock.ml_docking_cli:main",
+            "pandadock-gnn=pandadock.gnn.cli:main",
         ],
     },
     python_requires=">=3.8",

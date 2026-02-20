@@ -1,45 +1,19 @@
 """
-Docking Algorithms Module
+PandaDock Docking Algorithms Module
 
-CPU Algorithms:
-- MonteCarloDocker: Basic Monte Carlo sampling with simulated annealing
-- GeneticAlgorithmDocker: Genetic algorithm with ensemble refinement
-- HierarchicalDocker: Original hierarchical search
-- EnhancedHierarchicalDocker: Enhanced 3-stage hierarchical search (high accuracy)
-- CrystalGuidedDocker: Crystal-guided sampling with clash avoidance (crystal reproduction)
+Primary Algorithm:
+- HierarchicalDocker: Multi-stage hierarchical search with coarse-to-fine refinement
+  (Best performing traditional algorithm, Pearson R ~0.12 on ULVSH dataset)
 
-GPU Algorithms:
-- CUDAMonteCarloDocker: CUDA-accelerated Monte Carlo
-- CUDAGeneticAlgorithmDocker: GPU-parallel genetic algorithm
-- EnhancedHierarchicalGPUDocker: GPU-accelerated hierarchical search
+For highest accuracy, use PandaDock-GNN (pandadock gnn) which achieves R > 0.8
 """
 
-from .monte_carlo_cpu import MonteCarloDocker
-from .genetic_algorithm_cpu import GeneticAlgorithmDocker
 from .hierarchical_cpu import HierarchicalDocker
-from .enhanced_hierarchical_cpu import EnhancedHierarchicalDocker
-from .crystal_guided_cpu import CrystalGuidedDocker
 
-# GPU algorithms (will check for CUDA availability)
-try:
-    from .monte_carlo_gpu import CUDAMonteCarloDocker
-    from .genetic_algorithm_gpu import CUDAGeneticAlgorithmDocker
-    from .enhanced_hierarchical_gpu import EnhancedHierarchicalGPUDocker
-    GPU_AVAILABLE = True
-except ImportError:
-    CUDAMonteCarloDocker = None
-    CUDAGeneticAlgorithmDocker = None
-    EnhancedHierarchicalGPUDocker = None
-    GPU_AVAILABLE = False
+# For backwards compatibility, also expose under alternate names
+PandaDockAlgorithm = HierarchicalDocker
 
 __all__ = [
-    'MonteCarloDocker',
-    'GeneticAlgorithmDocker',
     'HierarchicalDocker',
-    'EnhancedHierarchicalDocker',
-    'CrystalGuidedDocker',
-    'CUDAMonteCarloDocker',
-    'CUDAGeneticAlgorithmDocker',
-    'EnhancedHierarchicalGPUDocker',
-    'GPU_AVAILABLE'
+    'PandaDockAlgorithm',
 ]
