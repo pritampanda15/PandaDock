@@ -88,7 +88,7 @@ def show_professional_help():
                https://github.com/pritampanda15/PandaDock
 
 Author: Pritam Kumar Panda @ Stanford University
-Version: 3.0.0
+Version: 4.0.0
 License: MIT
 
 PandaDock is a high-performance molecular docking software featuring
@@ -159,7 +159,8 @@ def main(ctx, verbose, version, help):
         logging.getLogger().setLevel(logging.DEBUG)
 
     if version:
-        click.echo("PandaDock v3.0.0 - Pritam Kumar Panda @ Stanford University")
+        from pandadock import __version__
+        click.echo(f"PandaDock v{__version__} - Pritam Kumar Panda @ Stanford University")
         click.echo("Featuring SE(3)-Equivariant GNN Scoring Function")
         return
 
@@ -1432,18 +1433,19 @@ def download_model(output, version, force):
 
     # GitHub release URLs
     GITHUB_REPO = "pritampanda15/PandaDock"
-    MODEL_FILENAME = "pandadock_gnn_v3.pt"
+    MODEL_FILENAME = "pandadock_gnn_v4.pt"
 
     # Model info
     MODEL_INFO = {
-        'v3.0.0': {
-            'url': f'https://github.com/{GITHUB_REPO}/releases/download/v3.0.0/{MODEL_FILENAME}',
+        'v4.0.0': {
+            'url': f'https://github.com/{GITHUB_REPO}/releases/download/v4.0.0/{MODEL_FILENAME}',
             'sha256': None,  # Will be set when model is uploaded
             'size_mb': 82,
             'description': 'Combined ULVSH + PDBbind model (200 epochs)',
             'metrics': {
                 'pdbbind_pearson_r': 0.88,
                 'ulvsh_test_pearson_r': 0.82,
+                'gaba_pearson_r': 0.68,
                 'ulvsh_activity_auc': 0.94
             }
         }
@@ -1466,7 +1468,7 @@ def download_model(output, version, force):
 
     # Get version info
     if version == 'latest':
-        version = 'v3.0.0'  # Current latest
+        version = 'v4.0.0'  # Current latest
 
     if version not in MODEL_INFO:
         click.echo(f"Error: Unknown version '{version}'")
