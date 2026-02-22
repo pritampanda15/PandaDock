@@ -1,14 +1,53 @@
 from setuptools import setup, find_packages
+from pathlib import Path
+
+# Read README for PyPI long description
+this_directory = Path(__file__).parent
+long_description = (this_directory / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="pandadock",
     version="4.0.1",
     packages=find_packages(),
+
+    # PyPI documentation from README
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+
+    # Project metadata
+    author="Pritam Kumar Panda",
+    author_email="pritampanda15@gmail.com",
+    description="Molecular docking with SE(3)-equivariant GNN scoring - achieves R=0.88 on PDBbind",
+    url="https://github.com/pritampanda15/PandaDock",
+    project_urls={
+        "Documentation": "https://pandadock.readthedocs.io/",
+        "Bug Reports": "https://github.com/pritampanda15/PandaDock/issues",
+        "Source": "https://github.com/pritampanda15/PandaDock",
+    },
+
+    # Classifiers for PyPI
+    classifiers=[
+        "Development Status :: 4 - Beta",
+        "Intended Audience :: Science/Research",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Topic :: Scientific/Engineering :: Bio-Informatics",
+        "Topic :: Scientific/Engineering :: Chemistry",
+        "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    ],
+    keywords="molecular-docking, drug-discovery, graph-neural-network, GNN, SE3-equivariant, binding-affinity, computational-chemistry, bioinformatics",
+
+    # Dependencies
     install_requires=[
         "click>=8.0.0",
         "biopython>=1.80",
         # Note: rdkit must be installed via conda (conda install -c conda-forge rdkit)
-        # or from wheels for your platform. Not available on PyPI for all Python versions.
         "propka>=3.5.1",
         "numpy>=1.21.0",
         "scipy>=1.7.0",
@@ -36,6 +75,12 @@ setup(
             "openmm>=8.0.0",
             "pdbfixer>=1.9",
         ],
+        "dev": [
+            "pytest>=7.0.0",
+            "pytest-cov>=4.0.0",
+            "black>=23.0.0",
+            "flake8>=6.0.0",
+        ],
     },
     entry_points={
         "console_scripts": [
@@ -51,6 +96,5 @@ setup(
         ],
     },
     python_requires=">=3.8",
-    author="Pritam Kumar Panda @ Stanford University",
-    description="GPU-accelerated molecular docking software",
+    license="MIT",
 )
