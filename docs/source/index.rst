@@ -98,6 +98,16 @@ Performance Benchmarks
 | Gnina, MMPBSA, MMGBSA, Vina     | Baselines       | < 0.02         |
 +---------------------------------+-----------------+----------------+
 
+**BindingDB Benchmark** (8,891 complexes):
+
++---------------------------------+-----------------+----------------+
+| Training Configuration          | Type            | Pearson R      |
++=================================+=================+================+
+| **BindingDB Only**              | ML Scoring      | **0.81** ⭐    |
++---------------------------------+-----------------+----------------+
+| **BindingDB + ULVSH**           | ML Scoring      | **0.79**       |
++---------------------------------+-----------------+----------------+
+
 Documentation Contents
 ----------------------
 
@@ -114,6 +124,7 @@ Documentation Contents
    :caption: PandaDock-GNN
 
    gnn/overview
+   gnn/dataset_preparation
    gnn/training
    gnn/prediction
    gnn/hybrid_docking

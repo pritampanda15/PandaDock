@@ -328,9 +328,11 @@ class ULVSHDataset(Dataset):
             # Add labels
             data.y_affinity = torch.tensor([compound.pec50], dtype=torch.float32)
             data.y_active = torch.tensor([float(compound.active)], dtype=torch.float32)
+            data.y_activity = data.y_active  # Alias for compatibility with BindingDB training
 
             # Add metadata
             data.compound_id = compound.compound_id
+            data.complex_id = compound.compound_id  # Alias for BindingDB compatibility
             data.target = compound.target
 
             # Apply pre_transform

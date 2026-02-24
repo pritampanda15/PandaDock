@@ -142,6 +142,7 @@ _local_files/
 PDBbind/
 ULVSH/
 GABA_slow/
+BindingDB/
 
 # Publication figures (keep in separate release)
 publication_figures/

@@ -14,8 +14,19 @@ Install the GNN dependencies:
 
 This installs PyTorch, PyTorch Geometric, and related packages.
 
+Supported Datasets
+------------------
+
+PandaDock-GNN supports training on multiple datasets:
+
+* **ULVSH**: 942 compounds, 10 protein targets (pEC50 values)
+* **BindingDB**: 8,891 protein-ligand complexes with experimental pK values
+* **PDBbind**: 5,316 complexes with pKd/pKi values (v2020 refined set)
+
 Dataset Preparation
 -------------------
+
+**ULVSH Format**
 
 PandaDock-GNN is designed for the ULVSH dataset format:
 
@@ -42,6 +53,17 @@ The ``vitro.tsv`` file should contain:
    compound2  10.0        0
    ...
 
+**BindingDB Format**
+
+For BindingDB training, prepare a TSV file with protein-ligand complex paths:
+
+.. code-block:: text
+
+   complex_id    protein_file              ligand_file           pK
+   complex_1     proteins/1abc.mol2        ligands/lig1.mol2     7.5
+   complex_2     proteins/2def.mol2        ligands/lig2.mol2     6.2
+   ...
+
 Training Command
 ----------------
 
@@ -66,6 +88,42 @@ Full options:
        --dropout 0.1 \
        --patience 20 \
        --gpu
+
+BindingDB Training
+------------------
+
+Train on BindingDB dataset:
+
+.. code-block:: bash
+
+   # BindingDB only training
+   python BindingDB_training/train_bindingdb.py \
+       --bindingdb BindingDB_training/bindingdb_affinity.tsv \
+       --output models/ \
+       --epochs 100 \
+       --batch-size 16
+
+Combined training with ULVSH (recommended for generalization):
+
+.. code-block:: bash
+
+   # BindingDB + ULVSH combined training
+   python BindingDB_training/train_bindingdb.py \
+       --bindingdb BindingDB_training/bindingdb_affinity.tsv \
+       --ulvsh ULVSH/ \
+       --combined \
+       --output models/ \
+       --epochs 100
+
+**Benchmark Results:**
+
++---------------------------+----------------+-----------+
+| Training Configuration    | Test Pearson R | Test RMSE |
++===========================+================+===========+
+| BindingDB Only            | 0.81           | -         |
++---------------------------+----------------+-----------+
+| BindingDB + ULVSH         | 0.79           | 0.96      |
++---------------------------+----------------+-----------+
 
 Training Options
 ----------------

@@ -582,66 +582,102 @@ if CLICK_AVAILABLE:
     @main.command('download-model')
     @click.option('--output', '-o', type=click.Path(), default='models/',
                   help='Output directory for the model (default: models/)')
-    @click.option('--version', '-v', type=str, default='latest',
-                  help='Model version to download (default: latest)')
+    @click.option('--model', '-m', type=click.Choice(['default', 'bindingdb', 'bindingdb-ulvsh']),
+                  default='default', help='Model type to download')
     @click.option('--force', '-f', is_flag=True, default=False,
                   help='Overwrite existing model file')
-    def download_model(output, version, force):
+    @click.option('--list', 'list_models', is_flag=True, default=False,
+                  help='List available models')
+    def download_model(output, model, force, list_models):
         """
         Download pre-trained PandaDock-GNN model.
 
-        Downloads the official pre-trained model from GitHub releases.
-        The model was trained on ULVSH + PDBbind combined dataset
-        and achieves R=0.88 on PDBbind validation.
+        Downloads official pre-trained models from GitHub releases.
+
+        Available models:
+
+        \b
+          default       - ULVSH + PDBbind (82 MB, R=0.88 on PDBbind)
+          bindingdb     - BindingDB only (28 MB, R=0.81 on BindingDB)
+          bindingdb-ulvsh - BindingDB + ULVSH (28 MB, R=0.79 combined)
 
         Examples:
-            # Download to default location (models/)
+            # Download default model (recommended)
             pandadock gnn download-model
 
-            # Download to custom directory
-            pandadock gnn download-model -o /path/to/models/
+            # Download BindingDB-trained model
+            pandadock gnn download-model --model bindingdb
 
-            # Force re-download
-            pandadock gnn download-model --force
+            # Download BindingDB + ULVSH combined model
+            pandadock gnn download-model --model bindingdb-ulvsh
+
+            # List available models
+            pandadock gnn download-model --list
         """
         import urllib.request
-        import json as json_module
 
         # GitHub release URLs
         GITHUB_REPO = "pritampanda15/PandaDock"
-        MODEL_FILENAME = "pandadock_gnn_v4.pt"
 
-        # Model info
-        MODEL_INFO = {
-            'v4.0.0': {
-                'url': f'https://github.com/{GITHUB_REPO}/releases/download/v4.0.0/{MODEL_FILENAME}',
-                'sha256': None,  # Will be set when model is uploaded
+        # Available models
+        MODELS = {
+            'default': {
+                'filename': 'pandadock_gnn_v4.pt',
+                'url': f'https://github.com/{GITHUB_REPO}/releases/download/v4.0.0/pandadock_gnn_v4.pt',
                 'size_mb': 82,
-                'description': 'Combined ULVSH + PDBbind model (200 epochs)',
+                'description': 'ULVSH + PDBbind combined (recommended)',
                 'metrics': {
-                    'pdbbind_pearson_r': 0.88,
-                    'ulvsh_test_pearson_r': 0.82,
-                    'gaba_pearson_r': 0.68,
-                    'ulvsh_activity_auc': 0.94
+                    'PDBbind R': 0.88,
+                    'ULVSH R': 0.82,
+                    'Activity AUC': 0.94
                 }
             },
-            'v3.0.0': {
-                'url': f'https://github.com/{GITHUB_REPO}/releases/download/v3.0.0/pandadock_gnn_v3.pt',
-                'sha256': None,
-                'size_mb': 82,
-                'description': 'Legacy v3.0 model',
+            'bindingdb': {
+                'filename': 'pandadock_gnn_bindingdb.pt',
+                'url': f'https://github.com/{GITHUB_REPO}/releases/download/v4.0.0/pandadock_gnn_bindingdb.pt',
+                'size_mb': 28,
+                'description': 'BindingDB only (8,891 complexes)',
                 'metrics': {
-                    'pdbbind_pearson_r': 0.88,
-                    'ulvsh_test_pearson_r': 0.82,
-                    'ulvsh_activity_auc': 0.94
+                    'BindingDB R': 0.81,
+                    'Test RMSE': 0.96
+                }
+            },
+            'bindingdb-ulvsh': {
+                'filename': 'pandadock_gnn_bindingdb_ulvsh.pt',
+                'url': f'https://github.com/{GITHUB_REPO}/releases/download/v4.0.0/pandadock_gnn_bindingdb_ulvsh.pt',
+                'size_mb': 28,
+                'description': 'BindingDB + ULVSH combined',
+                'metrics': {
+                    'BindingDB R': 0.79,
+                    'Test RMSE': 0.96
                 }
             }
         }
 
+        # List models if requested
+        if list_models:
+            print("\nAvailable PandaDock-GNN Models:")
+            print("=" * 60)
+            for name, info in MODELS.items():
+                print(f"\n{name}:")
+                print(f"  File: {info['filename']}")
+                print(f"  Size: ~{info['size_mb']} MB")
+                print(f"  Description: {info['description']}")
+                print(f"  Metrics:")
+                for metric, value in info['metrics'].items():
+                    print(f"    {metric}: {value}")
+            print("\n" + "=" * 60)
+            print("Download with: pandadock gnn download-model --model <name>")
+            return
+
+        # Get model info
+        info = MODELS[model]
+        model_filename = info['filename']
+
         # Create output directory
         output_dir = Path(output)
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / MODEL_FILENAME
+        output_path = output_dir / model_filename
 
         # Check if model already exists
         if output_path.exists() and not force:
@@ -653,17 +689,8 @@ if CLICK_AVAILABLE:
         print("PandaDock-GNN Model Download")
         print("=" * 60)
 
-        # Get version info
-        if version == 'latest':
-            version = 'v4.0.0'  # Current latest
-
-        if version not in MODEL_INFO:
-            print(f"Error: Unknown version '{version}'")
-            print(f"Available versions: {', '.join(MODEL_INFO.keys())}")
-            return
-
-        info = MODEL_INFO[version]
-        print(f"Version: {version}")
+        print(f"\nModel: {model}")
+        print(f"File: {model_filename}")
         print(f"Size: ~{info['size_mb']} MB")
         print(f"Description: {info['description']}")
         print(f"\nPerformance:")
@@ -698,8 +725,9 @@ if CLICK_AVAILABLE:
                 print(f"Download complete! ({file_size:.1f} MB)")
 
                 # Verify SHA256 if available
-                if info['sha256']:
+                if info.get('sha256'):
                     print("Verifying checksum...")
+                    import hashlib
                     sha256_hash = hashlib.sha256()
                     with open(output_path, 'rb') as f:
                         for chunk in iter(lambda: f.read(4096), b''):
@@ -721,8 +749,8 @@ if CLICK_AVAILABLE:
 
         except urllib.error.HTTPError as e:
             if e.code == 404:
-                print(f"\nError: Model not found at release URL.")
-                print(f"The model may not have been uploaded yet for version {version}.")
+                print(f"\nError: Model '{model}' not found at release URL.")
+                print(f"The model may not have been uploaded yet.")
                 print(f"\nAlternative: Train your own model:")
                 print(f"  pandadock gnn train -d ULVSH/ -o models/ --epochs 100")
             else:

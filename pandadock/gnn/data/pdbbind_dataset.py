@@ -197,9 +197,11 @@ class PDBbindDataset(Dataset):
         # Add target values
         graph.y_affinity = torch.tensor([compound.pkd], dtype=torch.float32)
         graph.y_active = torch.tensor([float(compound.pkd >= 6.0)], dtype=torch.float32)
+        graph.y_activity = graph.y_active  # Alias for BindingDB compatibility
 
-        # Add metadata (for compatibility with ULVSH dataset)
+        # Add metadata (for compatibility with ULVSH and BindingDB datasets)
         graph.compound_id = compound.pdb_id
+        graph.complex_id = compound.pdb_id  # Alias for BindingDB compatibility
         graph.target = 'pdbbind'
 
         if self.transform:

@@ -72,31 +72,70 @@ Edge Features (23 dimensions)
 Benchmark Performance
 ---------------------
 
-Tested on ULVSH dataset (942 compounds, 10 protein targets):
+**ULVSH Dataset (942 compounds, 10 protein targets):**
 
 +------------------+-------------+
 | Metric           | Value       |
 +==================+=============+
-| Pearson R        | 0.67        |
+| Pearson R        | 0.82        |
 +------------------+-------------+
-| Spearman ρ       | 0.42        |
+| Spearman ρ       | 0.80        |
 +------------------+-------------+
 | RMSE             | 0.32        |
 +------------------+-------------+
 | MAE              | 0.12        |
 +------------------+-------------+
 
-PandaDock-GNN **outperforms all 8 baseline methods** including:
+**BindingDB Dataset (8,891 protein-ligand complexes):**
+
++---------------------------+----------------+-----------+
+| Training Configuration    | Test Pearson R | Test RMSE |
++===========================+================+===========+
+| BindingDB Only            | 0.81           | -         |
++---------------------------+----------------+-----------+
+| BindingDB + ULVSH         | 0.79           | 0.96      |
++---------------------------+----------------+-----------+
+
+**PDBbind v2020 (5,316 complexes):**
+
++------------------+-------------+
+| Metric           | Value       |
++==================+=============+
+| Pearson R        | 0.88        |
++------------------+-------------+
+| Spearman ρ       | 0.88        |
++------------------+-------------+
+| RMSE             | 0.93 pK     |
++------------------+-------------+
+
+PandaDock-GNN **outperforms all baseline methods** including:
 VM2, MMPBSA, MMGBSA, Gnina, Hyde, DeltaVina, GFN-FF, and PM6.
 
 Usage
 -----
 
-**Training:**
+**Training on ULVSH:**
 
 .. code-block:: bash
 
    pandadock gnn train -d ULVSH/ -o models/ --epochs 100
+
+**Training on BindingDB:**
+
+.. code-block:: bash
+
+   python BindingDB_training/train_bindingdb.py \
+       --bindingdb BindingDB_training/bindingdb_affinity.tsv \
+       --output models/ --epochs 100
+
+**Combined Training (BindingDB + ULVSH):**
+
+.. code-block:: bash
+
+   python BindingDB_training/train_bindingdb.py \
+       --bindingdb BindingDB_training/bindingdb_affinity.tsv \
+       --ulvsh ULVSH/ --combined \
+       --output models/ --epochs 100
 
 **Prediction:**
 

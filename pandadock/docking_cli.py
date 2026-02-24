@@ -644,6 +644,8 @@ def gnn():
               help='Path to ULVSH dataset directory')
 @click.option('--pdbbind', '-p', type=click.Path(exists=True),
               help='Path to PDBbind dataset directory')
+@click.option('--bindingdb', '-b', type=click.Path(exists=True),
+              help='Path to BindingDB TSV file')
 @click.option('--output', '-o', required=True, type=click.Path(),
               help='Output directory for checkpoints and logs')
 @click.option('--epochs', default=100, type=int, help='Number of training epochs')
@@ -658,17 +660,20 @@ def gnn():
 @click.option('--balanced', is_flag=True, help='Use balanced sampling (oversample smaller dataset)')
 @click.option('--gpu/--cpu', default=True, help='Use GPU if available')
 @click.option('--seed', default=42, type=int, help='Random seed')
-def train(dataset, pdbbind, output, epochs, batch_size, lr, hidden_dim, num_layers,
+def train(dataset, pdbbind, bindingdb, output, epochs, batch_size, lr, hidden_dim, num_layers,
           dropout, split, patience, balanced, gpu, seed):
     """Train PandaDock-GNN on protein-ligand dataset(s).
 
-    Can train on ULVSH, PDBbind, or both combined:
-      pandadock gnn train -d ULVSH/ -o models/           # ULVSH only
-      pandadock gnn train -p PDBbind/ -o models/         # PDBbind only
-      pandadock gnn train -d ULVSH/ -p PDBbind/ -o models/  # Combined
+    Can train on ULVSH, PDBbind, BindingDB, or any combination:
+
+    \b
+      pandadock gnn train -d ULVSH/ -o models/              # ULVSH only
+      pandadock gnn train -p PDBbind/ -o models/            # PDBbind only
+      pandadock gnn train -b bindingdb.tsv -o models/       # BindingDB only
+      pandadock gnn train -b bindingdb.tsv -d ULVSH/ -o models/  # BindingDB + ULVSH
     """
-    if not dataset and not pdbbind:
-        click.echo("Error: Must provide at least one dataset (-d for ULVSH or -p for PDBbind)")
+    if not dataset and not pdbbind and not bindingdb:
+        click.echo("Error: Must provide at least one dataset (-d ULVSH, -p PDBbind, or -b BindingDB)")
         return
 
     try:
@@ -681,6 +686,13 @@ def train(dataset, pdbbind, output, epochs, batch_size, lr, hidden_dim, num_laye
         from .gnn.data.dataset import ULVSHDataset, create_dataloaders
         from .gnn.data.pdbbind_dataset import PDBbindDataset, CombinedDataset
         from .gnn.data.graph_builder import collate_hetero_graphs
+        # BindingDB import - handle if not available
+        try:
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / 'BindingDB_training'))
+            from bindingdb_dataset import BindingDBDataset, collate_hetero
+        except ImportError:
+            BindingDBDataset = None
         from .gnn.models.pandadock_gnn import PandaDockGNN, ModelConfig
         from .gnn.training.trainer import GNNTrainer, TrainingConfig
         from torch.utils.data import DataLoader, WeightedRandomSampler
@@ -707,62 +719,82 @@ def train(dataset, pdbbind, output, epochs, batch_size, lr, hidden_dim, num_laye
         click.echo(f"ULVSH Dataset: {dataset}")
     if pdbbind:
         click.echo(f"PDBbind Dataset: {pdbbind}")
+    if bindingdb:
+        click.echo(f"BindingDB Dataset: {bindingdb}")
     click.echo(f"Output: {output}")
     click.echo(f"Epochs: {epochs}, Batch size: {batch_size}")
     click.echo(f"Hidden dim: {hidden_dim}, Layers: {num_layers}")
     click.echo(f"Device: {'cuda' if gpu and torch.cuda.is_available() else 'cpu'}")
     click.echo("=" * 60)
 
-    # Load dataset(s)
+    # Load dataset(s) - supports any combination of ULVSH, PDBbind, BindingDB
     click.echo("\nLoading dataset(s)...")
 
-    if dataset and pdbbind:
-        # Combined training on both datasets
-        click.echo("Creating combined ULVSH + PDBbind dataset...")
+    train_datasets = []
+    val_datasets = []
+    test_datasets = []
+    dataset_sizes = {}
 
-        train_datasets = []
-        val_datasets = []
-        test_datasets = []
-
-        # ULVSH
+    # Load ULVSH if provided
+    if dataset:
+        click.echo("Loading ULVSH dataset...")
         ulvsh_train = ULVSHDataset(root=dataset, split='train')
         ulvsh_val = ULVSHDataset(root=dataset, split='val')
         ulvsh_test = ULVSHDataset(root=dataset, split='test')
         train_datasets.append(ulvsh_train)
         val_datasets.append(ulvsh_val)
         test_datasets.append(ulvsh_test)
+        dataset_sizes['ULVSH'] = len(ulvsh_train)
         click.echo(f"  ULVSH: {len(ulvsh_train)} train, {len(ulvsh_val)} val, {len(ulvsh_test)} test")
 
-        # PDBbind
+    # Load PDBbind if provided
+    if pdbbind:
+        click.echo("Loading PDBbind dataset...")
         pdbbind_train = PDBbindDataset(root=pdbbind, split='train')
         pdbbind_val = PDBbindDataset(root=pdbbind, split='val')
         pdbbind_test = PDBbindDataset(root=pdbbind, split='test')
         train_datasets.append(pdbbind_train)
         val_datasets.append(pdbbind_val)
         test_datasets.append(pdbbind_test)
+        dataset_sizes['PDBbind'] = len(pdbbind_train)
         click.echo(f"  PDBbind: {len(pdbbind_train)} train, {len(pdbbind_val)} val, {len(pdbbind_test)} test")
 
-        # Combine
+    # Load BindingDB if provided
+    if bindingdb:
+        if BindingDBDataset is None:
+            click.echo("Error: BindingDB dataset class not found.")
+            click.echo("Make sure BindingDB_training/bindingdb_dataset.py exists.")
+            return
+        click.echo("Loading BindingDB dataset...")
+        bindingdb_train = BindingDBDataset(bindingdb, split='train')
+        bindingdb_val = BindingDBDataset(bindingdb, split='val')
+        bindingdb_test = BindingDBDataset(bindingdb, split='test')
+        train_datasets.append(bindingdb_train)
+        val_datasets.append(bindingdb_val)
+        test_datasets.append(bindingdb_test)
+        dataset_sizes['BindingDB'] = len(bindingdb_train)
+        click.echo(f"  BindingDB: {len(bindingdb_train)} train, {len(bindingdb_val)} val, {len(bindingdb_test)} test")
+
+    # Create data loaders
+    if len(train_datasets) > 1:
+        # Combined training on multiple datasets
+        click.echo("Creating combined dataset...")
         train_combined = CombinedDataset(train_datasets, normalize=False)
         val_combined = CombinedDataset(val_datasets, normalize=False)
         test_combined = CombinedDataset(test_datasets, normalize=False)
-
         click.echo(f"  Combined: {len(train_combined)} train, {len(val_combined)} val, {len(test_combined)} test")
 
-        if balanced:
-            # Create weights for balanced sampling (oversample smaller dataset)
-            n_ulvsh = len(ulvsh_train)
-            n_pdbbind = len(pdbbind_train)
-            total = n_ulvsh + n_pdbbind
+        if balanced and len(dataset_sizes) > 1:
+            # Create weights for balanced sampling
+            total = sum(dataset_sizes.values())
+            n_datasets = len(dataset_sizes)
+            weights = []
+            for name, size in dataset_sizes.items():
+                weight = total / (n_datasets * size)
+                weights.extend([weight] * size)
+                click.echo(f"  Balanced sampling: {name} weight={weight:.2f}")
 
-            # Weight each sample inversely proportional to dataset size
-            weight_ulvsh = total / (2.0 * n_ulvsh)
-            weight_pdbbind = total / (2.0 * n_pdbbind)
-
-            weights = [weight_ulvsh] * n_ulvsh + [weight_pdbbind] * n_pdbbind
             sampler = WeightedRandomSampler(weights, num_samples=len(weights), replacement=True)
-
-            click.echo(f"  Balanced sampling: ULVSH weight={weight_ulvsh:.2f}, PDBbind weight={weight_pdbbind:.2f}")
             train_loader = DataLoader(train_combined, batch_size=batch_size, sampler=sampler, collate_fn=collate_hetero_graphs)
         else:
             train_loader = DataLoader(train_combined, batch_size=batch_size, shuffle=True, collate_fn=collate_hetero_graphs)
@@ -770,17 +802,17 @@ def train(dataset, pdbbind, output, epochs, batch_size, lr, hidden_dim, num_laye
         val_loader = DataLoader(val_combined, batch_size=batch_size, shuffle=False, collate_fn=collate_hetero_graphs)
         test_loader = DataLoader(test_combined, batch_size=batch_size, shuffle=False, collate_fn=collate_hetero_graphs)
 
+    elif bindingdb:
+        # BindingDB only - use its own collate function
+        train_loader = DataLoader(train_datasets[0], batch_size=batch_size, shuffle=True, collate_fn=collate_hetero)
+        val_loader = DataLoader(val_datasets[0], batch_size=batch_size, shuffle=False, collate_fn=collate_hetero)
+        test_loader = DataLoader(test_datasets[0], batch_size=batch_size, shuffle=False, collate_fn=collate_hetero)
+
     elif pdbbind:
         # PDBbind only
-        click.echo("Loading PDBbind dataset...")
-        train_ds = PDBbindDataset(root=pdbbind, split='train')
-        val_ds = PDBbindDataset(root=pdbbind, split='val')
-        test_ds = PDBbindDataset(root=pdbbind, split='test')
-        click.echo(f"  {len(train_ds)} train, {len(val_ds)} val, {len(test_ds)} test")
-
-        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, collate_fn=collate_hetero_graphs)
-        val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, collate_fn=collate_hetero_graphs)
-        test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, collate_fn=collate_hetero_graphs)
+        train_loader = DataLoader(train_datasets[0], batch_size=batch_size, shuffle=True, collate_fn=collate_hetero_graphs)
+        val_loader = DataLoader(val_datasets[0], batch_size=batch_size, shuffle=False, collate_fn=collate_hetero_graphs)
+        test_loader = DataLoader(test_datasets[0], batch_size=batch_size, shuffle=False, collate_fn=collate_hetero_graphs)
 
     else:
         # ULVSH only (original behavior)

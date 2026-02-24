@@ -10,6 +10,7 @@ Version 4.0.0 (2026)
 
   - Pearson R = 0.88 on PDBbind (5,316 complexes)
   - Pearson R = 0.82 on ULVSH held-out test set
+  - Pearson R = 0.81 on BindingDB (8,891 complexes)
   - Pearson R = 0.68 on novel GABA receptor dataset (30 compounds)
 
 * **Universal GNN Rescorer**: New ``pandadock gnn rescore`` command
@@ -23,10 +24,12 @@ Version 4.0.0 (2026)
   - Download pre-trained model from GitHub releases
   - No training required for quick start
 
-* **Combined Training**: Train on merged PDBbind + ULVSH datasets
+* **Combined Training**: Train on merged datasets
 
+  - Support for PDBbind + ULVSH + BindingDB combined training
+  - BindingDB training script with 8,891 protein-ligand complexes
   - Unified pK scale across different affinity types
-  - Better generalization to novel targets
+  - BindingDB + ULVSH combined achieves R = 0.79 test correlation
 
 **CLI Additions:**
 

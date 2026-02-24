@@ -51,7 +51,7 @@
 
 ## Overview
 
-**PandaDock v4.0** features a novel SE(3)-equivariant Graph Neural Network (GNN) scoring function that achieves state-of-the-art correlation with experimental binding affinities (R=0.88 on PDBbind, R=0.82 on ULVSH). The hybrid docking workflow combines traditional pose generation with GNN rescoring to deliver superior accuracy.
+**PandaDock v4.0** features a novel SE(3)-equivariant Graph Neural Network (GNN) scoring function that achieves state-of-the-art correlation with experimental binding affinities (R=0.88 on PDBbind, R=0.82 on ULVSH, R=0.81 on BindingDB). The hybrid docking workflow combines traditional pose generation with GNN rescoring to deliver superior accuracy.
 
 ### Key Features
 
@@ -89,8 +89,19 @@
 | Hyde | ULVSH Baseline | 0.02 | 942 |
 | Gnina | ULVSH Baseline | 0.01 | 941 |
 
+### BindingDB Dataset (8,891 protein-ligand complexes)
+
+| Training Configuration | Test Pearson R | Test RMSE | N (train) |
+|------------------------|----------------|-----------|-----------|
+| **BindingDB Only** | **0.81** | - | 7,113 |
+| **BindingDB + ULVSH** | **0.79** | 0.96 | 7,866 |
+| BindingDB + ULVSH + PDBbind | 0.49 | 1.37 | 12,118 |
+
+**Note:** Combined training with PDBbind shows reduced performance due to affinity scale differences (pKd vs pEC50). For best results, train on datasets with compatible affinity measurements.
+
 **Key Results:**
 - PandaDock-GNN achieves **R = 0.88** on PDBbind (5,316 complexes)
+- **R = 0.81** on BindingDB test set (889 complexes)
 - **5.5x improvement** over the best baseline (VM2) on ULVSH
 - Activity classification **AUC = 0.94** on ULVSH test set
 
@@ -379,27 +390,58 @@ ranked.sdf (optional)                 # SDF with GNN properties
 
 ## Training Your Own GNN Model
 
+PandaDock supports training on three dataset formats: **ULVSH**, **PDBbind**, and **BindingDB**.
+For detailed dataset preparation instructions, see the [Dataset Preparation Guide](https://pandadock.readthedocs.io/en/latest/gnn/dataset_preparation.html).
+
+### Dataset Requirements
+
+| Dataset | Format | Key Files |
+|---------|--------|-----------|
+| ULVSH | Directory | `vitro.tsv` + `protein.mol2`, `ligand.mol2`, `site.mol2` per compound |
+| PDBbind | Directory | `INDEX_refined_data.2020` + `{pdb}_pocket.pdb`, `{pdb}_ligand.mol2` |
+| BindingDB | TSV file | TSV with `complex_id`, `protein_file`, `ligand_file`, `pK` columns |
+
 ### Single Dataset Training
 
 ```bash
-# Train on ULVSH
+# Train on ULVSH (942 compounds, 10 targets)
 pandadock gnn train -d ULVSH/ -o models/ --epochs 100
 
-# Train on PDBbind
+# Train on PDBbind (5,316 complexes)
 pandadock gnn train -p PDBbind/ -o models/ --epochs 100
+
+# Train on BindingDB (custom TSV file)
+pandadock gnn train -b bindingdb_affinity.tsv -o models/ --epochs 100
 ```
 
 ### Combined Dataset Training (Recommended)
 
+Combining datasets improves generalization. Use `--balanced` to prevent larger datasets from dominating:
+
 ```bash
-# Train on both ULVSH + PDBbind for best generalization
+# BindingDB + ULVSH (recommended for screening)
+pandadock gnn train -b bindingdb.tsv -d ULVSH/ -o models/ \
+    --balanced --epochs 100
+
+# ULVSH + PDBbind (recommended for structure-based)
 pandadock gnn train -d ULVSH/ -p PDBbind/ -o models/ \
-    --epochs 200 \
-    --batch-size 32 \
-    --hidden-dim 256 \
-    --num-layers 6 \
-    --balanced  # Balance samples from both datasets
+    --balanced --epochs 200
+
+# All three datasets
+pandadock gnn train -d ULVSH/ -p PDBbind/ -b bindingdb.tsv -o models/ \
+    --balanced --epochs 200 --batch-size 32
 ```
+
+### Training Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--epochs` | 100 | Number of training epochs |
+| `--batch-size` | 32 | Batch size (reduce if out of memory) |
+| `--hidden-dim` | 256 | Hidden layer dimension |
+| `--num-layers` | 6 | Number of EGNN layers |
+| `--balanced` | off | Balance sampling across datasets |
+| `--patience` | 20 | Early stopping patience |
 
 ### Benchmark on Test Set
 
