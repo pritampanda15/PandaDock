@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/pritampanda15/PandaDock">
-    <img src="https://github.com/pritampanda15/PandaDock/blob/c4e5c9e91c4c8262faf1c7736850ca647d65adc1/PandaDock.png" width="500" alt="PandaDock Logo"/>
+    <img src="https://github.com/pritampanda15/PandaDock/v4.0/PandaDock.png" width="500" alt="PandaDock Logo"/>
   </a>
 </p>
 <p align="center">
