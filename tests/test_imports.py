@@ -19,7 +19,7 @@ def test_version():
         import pandadock
         # Check if __version__ exists or skip
         if hasattr(pandadock, '__version__'):
-            assert pandadock.__version__ == "4.0.0"
+            assert pandadock.__version__ == "4.0.1"
         else:
             pytest.skip("Version not defined in package")
     except ImportError:
