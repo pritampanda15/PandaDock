@@ -2,9 +2,9 @@ name: Python package
 
 on:
   push:
-    branches: [ "latest-v3.0" ]
+    branches: [ "v4.0" ]
   pull_request:
-    branches: [ "latest-v3.0" ]
+    branches: [ "v4.0" ]
 
 jobs:
   build:
