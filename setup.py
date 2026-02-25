@@ -7,7 +7,7 @@ long_description = (this_directory / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="pandadock",
-    version="4.0.1",
+    version="4.0.2",
     packages=find_packages(),
 
     # PyPI documentation from README
