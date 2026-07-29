@@ -446,7 +446,11 @@ def hybrid(receptor, ligand, grid_config, center, box, model, output_dir, num_po
     """
     try:
         from .gnn.scoring import GNNScoring
-        from .gnn.data.graph_builder import HeterogeneousGraphBuilder, parse_molecule_file
+        from .gnn.data.graph_builder import (
+            HeterogeneousGraphBuilder,
+            extract_binding_site,
+            parse_molecule_file,
+        )
     except ImportError as e:
         click.echo(f"Error: GNN module not available: {e}")
         click.echo("Install with: pip install torch torch-geometric")
@@ -582,8 +586,17 @@ def hybrid(receptor, ligand, grid_config, center, box, model, output_dir, num_po
             # Convert pose to ParsedMolecule
             ligand_parsed = rdkit_pose_to_parsed(ligand_mol, pose.coordinates)
 
+            # Restrict the receptor to the pocket around this pose. Passing the
+            # whole protein builds a far larger graph than the model was trained
+            # on -- `pandadock gnn rescore` already extracts a site at a 10 A
+            # default, and hybrid was not, so the two commands were feeding the
+            # same model different inputs.
+            heavy = [a.GetIdx() for a in ligand_mol.GetAtoms() if a.GetAtomicNum() > 1]
+            centroid = (pose.coordinates[heavy] if heavy else pose.coordinates).mean(axis=0)
+            site_parsed = extract_binding_site(protein_parsed, centroid, radius=10.0)
+
             # Build graph and predict
-            graph = graph_builder.build_graph(protein_parsed, ligand_parsed)
+            graph = graph_builder.build_graph(site_parsed, ligand_parsed)
             prediction = gnn_scorer.predict_from_graph(graph)
 
             rescored_poses.append({

@@ -218,6 +218,7 @@ def main(argv=None) -> int:
 
     from pandadock.gnn.data.graph_builder import (
         HeterogeneousGraphBuilder,
+        extract_binding_site,
         parse_molecule_file,
     )
     from pandadock.gnn.scoring import GNNScoring

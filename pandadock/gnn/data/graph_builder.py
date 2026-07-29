@@ -31,6 +31,66 @@ from .mol2_parser import MOL2Parser, ParsedMolecule, Atom, Bond
 from .featurizer import AtomFeaturizer, EdgeFeaturizer, FeaturizationConfig
 
 
+
+# Residue-aware SYBYL atom typing for standard amino acids.
+#
+# Mapping every element through a flat element->sp3 dictionary types every
+# backbone carbonyl as C.3 rather than C.2, every aromatic ring carbon as C.3
+# rather than C.ar, and every amide nitrogen as N.3 rather than N.am. The
+# featurizer embeds the SYBYL type into 16 of its node features, so a receptor
+# parsed from PDB presented the model with protein features quite unlike the
+# MOL2 inputs it was trained on.
+PROTEIN_BACKBONE_SYBYL = {
+    "N": "N.am", "CA": "C.3", "C": "C.2", "O": "O.2", "OXT": "O.co2",
+}
+
+PROTEIN_SIDECHAIN_SYBYL = {
+    "ARG": {"CB": "C.3", "CG": "C.3", "CD": "C.3", "NE": "N.pl3",
+            "CZ": "C.cat", "NH1": "N.pl3", "NH2": "N.pl3"},
+    "ASN": {"CB": "C.3", "CG": "C.2", "OD1": "O.2", "ND2": "N.am"},
+    "ASP": {"CB": "C.3", "CG": "C.2", "OD1": "O.co2", "OD2": "O.co2"},
+    "CYS": {"CB": "C.3", "SG": "S.3"},
+    "GLN": {"CB": "C.3", "CG": "C.3", "CD": "C.2", "OE1": "O.2", "NE2": "N.am"},
+    "GLU": {"CB": "C.3", "CG": "C.3", "CD": "C.2", "OE1": "O.co2", "OE2": "O.co2"},
+    "HIS": {"CB": "C.3", "CG": "C.ar", "ND1": "N.ar", "CD2": "C.ar",
+            "CE1": "C.ar", "NE2": "N.ar"},
+    "ILE": {"CB": "C.3", "CG1": "C.3", "CG2": "C.3", "CD1": "C.3"},
+    "LEU": {"CB": "C.3", "CG": "C.3", "CD1": "C.3", "CD2": "C.3"},
+    "LYS": {"CB": "C.3", "CG": "C.3", "CD": "C.3", "CE": "C.3", "NZ": "N.4"},
+    "MET": {"CB": "C.3", "CG": "C.3", "SD": "S.3", "CE": "C.3"},
+    "PHE": {"CB": "C.3", "CG": "C.ar", "CD1": "C.ar", "CD2": "C.ar",
+            "CE1": "C.ar", "CE2": "C.ar", "CZ": "C.ar"},
+    "PRO": {"CB": "C.3", "CG": "C.3", "CD": "C.3"},
+    "SER": {"CB": "C.3", "OG": "O.3"},
+    "THR": {"CB": "C.3", "OG1": "O.3", "CG2": "C.3"},
+    "TRP": {"CB": "C.3", "CG": "C.ar", "CD1": "C.ar", "CD2": "C.ar",
+            "NE1": "N.ar", "CE2": "C.ar", "CE3": "C.ar", "CZ2": "C.ar",
+            "CZ3": "C.ar", "CH2": "C.ar"},
+    "TYR": {"CB": "C.3", "CG": "C.ar", "CD1": "C.ar", "CD2": "C.ar",
+            "CE1": "C.ar", "CE2": "C.ar", "CZ": "C.ar", "OH": "O.3"},
+    "VAL": {"CB": "C.3", "CG1": "C.3", "CG2": "C.3"},
+    "ALA": {"CB": "C.3"},
+}
+
+
+def protein_sybyl_type(residue_name: str, atom_name: str, element: str) -> str:
+    """SYBYL type for a protein atom, falling back to the sp3 form."""
+    atom_name = (atom_name or "").strip()
+    residue_name = (residue_name or "").strip().upper()
+
+    sidechain = PROTEIN_SIDECHAIN_SYBYL.get(residue_name)
+    if sidechain and atom_name in sidechain:
+        return sidechain[atom_name]
+    if atom_name in PROTEIN_BACKBONE_SYBYL:
+        return PROTEIN_BACKBONE_SYBYL[atom_name]
+
+    element = (element or "C").strip().upper()
+    return {"C": "C.3", "N": "N.3", "O": "O.3", "S": "S.3", "P": "P.3",
+            "H": "H", "F": "F", "CL": "Cl", "BR": "Br", "I": "I"}.get(
+        element, f"{element.capitalize()}.3"
+    )
+
+
 def parse_pdb_file(pdb_path: str) -> ParsedMolecule:
     """
     Parse a PDB file into ParsedMolecule format.
@@ -70,7 +130,9 @@ def parse_pdb_file(pdb_path: str) -> ParsedMolecule:
                 for atom in residue:
                     atom_id += 1
                     element = atom.element.upper() if atom.element else 'C'
-                    sybyl_type = element_to_sybyl.get(element, f'{element}.3')
+                    sybyl_type = protein_sybyl_type(
+                        residue.get_resname(), atom.get_name(), element
+                    )
 
                     # Check for aromatic carbons in specific residues
                     if element == 'C' and res_name in ['PHE', 'TYR', 'TRP', 'HIS']:
@@ -231,6 +293,36 @@ def parse_molecule_file(file_path: str) -> ParsedMolecule:
         return parse_sdf_file(file_path)
     else:
         raise ValueError(f"Unsupported file format: {suffix}. Supported: .mol2, .pdb, .sdf, .mol")
+
+
+
+def extract_binding_site(protein: ParsedMolecule, centroid, radius: float = 10.0) -> ParsedMolecule:
+    """
+    Protein atoms within `radius` of a ligand centroid.
+
+    The GNN is applied to a binding site, not a whole protein: its training data
+    ships a precomputed site.mol2 per complex. Passing an entire receptor builds
+    a graph one to two orders of magnitude larger and presents the model with
+    something unlike anything it was trained on, as well as exhausting memory
+    over a batch.
+    """
+    import numpy as _np
+
+    centroid = _np.asarray(centroid, dtype=float)
+    radius_sq = float(radius) ** 2
+
+    site_atoms = [
+        atom for atom in protein.atoms
+        if (atom.x - centroid[0]) ** 2
+        + (atom.y - centroid[1]) ** 2
+        + (atom.z - centroid[2]) ** 2 <= radius_sq
+    ]
+    if not site_atoms:
+        return protein
+
+    site = ParsedMolecule(name=f"{protein.name}_site", atoms=site_atoms, bonds=[])
+    site.num_atoms = len(site_atoms)
+    return site
 
 
 @dataclass
