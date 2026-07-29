@@ -24,6 +24,7 @@ from .metal_docking.metal_core import MetalDockingEngine, MetalCoordinationGeome
 from .metal_docking.metal_parameters import MetalParameterManager
 from .metal_docking.metal_preparation import MetalLigandPreparator, MetalloproteinPreparator
 from .metal_docking.metal_scoring import MetalAwareScoring
+from . import __version__
 
 def show_metal_help():
     """Display professional help for metal docking"""
@@ -39,7 +40,7 @@ def show_metal_help():
                https://github.com/pritampanda15/PandaDock
 
 Author: Pritam Kumar Panda @ Stanford University
-Version: 1.0.0
+Version: {version}
 License: MIT
 
 PandaDock-Metal handles metal-containing ligands and metalloproteins
@@ -99,7 +100,7 @@ For detailed help on specific commands, use:
 
 #################################################################
 """
-    click.echo(help_text)
+    click.echo(help_text.replace("{version}", __version__))
 
 @click.group(invoke_without_command=True, add_help_option=False)
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')
@@ -136,12 +137,15 @@ def main(ctx, verbose, version, help):
               help='Grid center coordinates (Å)')
 @click.option('--box', nargs=3, type=float, metavar='X Y Z',
               help='Grid box dimensions (Å)')
-@click.option('--algorithm', default='enhanced_hierarchical_cpu',
+@click.option('--algorithm', default='pandadock',
               type=click.Choice([
-                  'monte_carlo_cpu', 'genetic_algorithm_cpu', 'hierarchical_cpu',
-                  'enhanced_hierarchical_cpu', 'crystal_guided_cpu'
+                  # The legacy names are retained for backwards compatibility but
+                  # all resolve to the same flexible-ligand search. 'crystal_guided_cpu'
+                  # was removed: it biased poses toward a reference structure.
+                  'pandadock', 'monte_carlo_cpu', 'genetic_algorithm_cpu',
+                  'hierarchical_cpu', 'enhanced_hierarchical_cpu',
               ]),
-              help='Docking algorithm [default: enhanced_hierarchical_cpu]')
+              help='Docking algorithm [default: pandadock]')
 @click.option('--scoring', default='metal_aware',
               type=click.Choice(['metal_aware', 'metal_constrained', 'physics_based']),
               help='Scoring function [default: metal_aware]')

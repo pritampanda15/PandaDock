@@ -40,10 +40,22 @@ class DockingObjective:
         tree: TorsionTree,
         grids: AffinityGrids,
         intra_weight: float = 1.0,
+        tether_center: Optional[np.ndarray] = None,
+        tether_radius: float = 0.0,
+        tether_force: float = 10.0,
     ):
         self.tree = tree
         self.grids = grids
         self.intra_weight = intra_weight
+
+        # Optional flat-bottom restraint on the ligand centroid, used by tethered
+        # docking. Zero inside the radius, harmonic outside, so the search is free
+        # within the allowed region and pays a smoothly increasing cost beyond it.
+        self.tether_center = (
+            np.asarray(tether_center, dtype=float) if tether_center is not None else None
+        )
+        self.tether_radius = float(tether_radius)
+        self.tether_force = float(tether_force)
 
         self.heavy_atoms = tree.heavy_atoms
         self.n_atoms = tree.n_atoms
@@ -143,6 +155,39 @@ class DockingObjective:
         np.add.at(grad, self.pair_b, -contrib)
         return energy, grad
 
+    def _tether(self, coords: np.ndarray, need_gradient: bool):
+        """
+        Flat-bottom centroid restraint toward a reference position.
+
+        Returns zero energy while the heavy-atom centroid lies within
+        `tether_radius` of `tether_center`, and a harmonic penalty beyond it. The
+        restraint is applied during the search rather than as a post-hoc filter,
+        so the optimizer is steered into the allowed region instead of having
+        out-of-range solutions discarded after the fact.
+        """
+        if self.tether_center is None or self.tether_force <= 0.0:
+            return 0.0, None
+
+        heavy = coords[self.heavy_atoms]
+        centroid = heavy.mean(axis=0)
+        offset = centroid - self.tether_center
+        distance = float(np.linalg.norm(offset))
+
+        excess = distance - self.tether_radius
+        if excess <= 0.0 or distance < 1e-9:
+            return 0.0, (np.zeros_like(coords) if need_gradient else None)
+
+        energy = self.tether_force * excess ** 2
+        if not need_gradient:
+            return energy, None
+
+        # d(energy)/d(atom) spread evenly over the heavy atoms forming the centroid.
+        direction = offset / distance
+        per_atom = (2.0 * self.tether_force * excess / len(heavy)) * direction
+        grad = np.zeros_like(coords)
+        grad[self.heavy_atoms] += per_atom
+        return energy, grad
+
     # ---------------------------------------------------------------- public API
 
     def energy(self, dof: np.ndarray) -> float:
@@ -150,7 +195,8 @@ class DockingObjective:
         coords = self.coords(dof)
         inter = self.grids.score(coords[self.heavy_atoms])
         intra, _ = self._intramolecular(coords, need_gradient=False)
-        return inter + intra
+        tether, _ = self._tether(coords, need_gradient=False)
+        return inter + intra + tether
 
     def energy_and_gradient(self, dof: np.ndarray) -> Tuple[float, np.ndarray]:
         self.n_evaluations += 1
@@ -163,10 +209,15 @@ class DockingObjective:
         intra, grad_intra = self._intramolecular(coords, need_gradient=True)
         energy = inter + intra
 
+        tether, tether_grad = self._tether(coords, need_gradient=True)
+        energy += tether
+
         # Per-atom Cartesian gradient (hydrogens contribute nothing to the score,
         # but they still move, so they simply carry zero gradient).
         grad_atoms = grad_intra
         grad_atoms[self.heavy_atoms] += grad_heavy
+        if tether_grad is not None:
+            grad_atoms += tether_grad
 
         grad = np.zeros(self.n_dof, dtype=np.float64)
 

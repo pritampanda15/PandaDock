@@ -341,20 +341,34 @@ def dock(receptor, ligand, grid_config, center, box, scoring,
 
     # Interaction Analysis
     click.echo("Performing interaction analysis...")
+    per_pose_interactions = []
     try:
         from Bio.PDB import PDBParser
         parser = PDBParser(QUIET=True)
         receptor_structure = parser.get_structure("receptor", receptor)
 
         analyzer = InteractionAnalyzer()
-        top_pose = result.get_top_poses(1)[0]
-        interactions = analyzer.analyze_pose_interactions(
-            top_pose.coordinates, receptor_structure=receptor_structure, ligand_mol=ligand_mol
-        )
 
+        # Analyse every returned mode, not only the top one: poses that score
+        # alike but contact different residues are a real ambiguity, and that is
+        # only visible across the set.
+        per_pose_interactions = []
+        for pose in result.get_top_poses(len(result.poses)):
+            per_pose_interactions.append(
+                analyzer.analyze_pose_interactions(
+                    pose.coordinates,
+                    receptor_structure=receptor_structure,
+                    ligand_mol=ligand_mol,
+                )
+            )
+
+        interactions = per_pose_interactions[0] if per_pose_interactions else {}
         interaction_file = output_path / "interaction_analysis.json"
         with open(interaction_file, 'w') as f:
-            json.dump(interactions, f, indent=2)
+            json.dump(
+                {"top_pose": interactions, "all_poses": per_pose_interactions},
+                f, indent=2, default=float,
+            )
         click.echo(f"Interaction analysis saved to: {interaction_file}")
     except Exception as e:
         click.echo(f"Interaction analysis failed: {e}")
@@ -362,6 +376,25 @@ def dock(receptor, ligand, grid_config, center, box, scoring,
     # Generate visualizations
     if visualize:
         click.echo("Generating visualizations...")
+        try:
+            from .visualization.report import generate_report
+
+            images = generate_report(
+                result,
+                output_path,
+                ligand_mol=ligand_mol,
+                receptor_file=receptor,
+                interaction_analyses=per_pose_interactions,
+                run_pandamap=True,
+            )
+            for name in sorted(images):
+                click.echo(f"  {name}: {Path(images[name]).name}")
+            report_html = output_path / "report.html"
+            if report_html.exists():
+                click.echo(f"  report: {report_html}")
+        except Exception as e:
+            click.echo(f"Report generation failed: {e}")
+
         try:
             plotter = AffinityPlotter()
             plotter.create_binding_affinity_plot(
@@ -413,7 +446,11 @@ def hybrid(receptor, ligand, grid_config, center, box, model, output_dir, num_po
     """
     try:
         from .gnn.scoring import GNNScoring
-        from .gnn.data.graph_builder import HeterogeneousGraphBuilder, parse_molecule_file
+        from .gnn.data.graph_builder import (
+            HeterogeneousGraphBuilder,
+            extract_binding_site,
+            parse_molecule_file,
+        )
     except ImportError as e:
         click.echo(f"Error: GNN module not available: {e}")
         click.echo("Install with: pip install torch torch-geometric")
@@ -549,8 +586,17 @@ def hybrid(receptor, ligand, grid_config, center, box, model, output_dir, num_po
             # Convert pose to ParsedMolecule
             ligand_parsed = rdkit_pose_to_parsed(ligand_mol, pose.coordinates)
 
+            # Restrict the receptor to the pocket around this pose. Passing the
+            # whole protein builds a far larger graph than the model was trained
+            # on -- `pandadock gnn rescore` already extracts a site at a 10 A
+            # default, and hybrid was not, so the two commands were feeding the
+            # same model different inputs.
+            heavy = [a.GetIdx() for a in ligand_mol.GetAtoms() if a.GetAtomicNum() > 1]
+            centroid = (pose.coordinates[heavy] if heavy else pose.coordinates).mean(axis=0)
+            site_parsed = extract_binding_site(protein_parsed, centroid, radius=10.0)
+
             # Build graph and predict
-            graph = graph_builder.build_graph(protein_parsed, ligand_parsed)
+            graph = graph_builder.build_graph(site_parsed, ligand_parsed)
             prediction = gnn_scorer.predict_from_graph(graph)
 
             rescored_poses.append({
@@ -605,16 +651,55 @@ def hybrid(receptor, ligand, grid_config, center, box, model, output_dir, num_po
 
     results_df.to_csv(output_path / 'hybrid_results.csv', index=False)
 
-    # Save top pose structures
+    # Save top pose structures. All of --top-k are written, for poses and
+    # complexes alike: the counts were previously capped at 5 and 3
+    # independently, so a run asking for 5 poses produced 3 complexes and the
+    # ranking table referred to files that did not exist.
     click.echo("\nSaving pose structures...")
-    for i, p in enumerate(top_poses[:5], 1):
+    for i, p in enumerate(top_poses, 1):
         pose_file = output_path / f"pose_{i}_pec50_{p['gnn_pec50']:.2f}.pdb"
         save_pose_to_pdb(p['pose'], pose_file, ligand_mol)
 
-    # Save complexes
-    for i, p in enumerate(top_poses[:3], 1):
         complex_file = output_path / f"complex_{i}.pdb"
         save_complex_to_pdb(receptor, p['pose'], complex_file, ligand_mol)
+
+    # Rebuild a DockingResult from the rescored ordering so the hybrid run
+    # produces the same SDF and report as `pandadock dock`. Pose energies carry
+    # the GNN score, which is what the poses are ranked by here.
+    try:
+        from .visualization.report import generate_report
+
+        rescored = DockingResult(
+            ligand_name=result.ligand_name,
+            receptor_file=receptor,
+            grid_center=result.grid_center,
+            grid_dimensions=result.grid_dimensions,
+            algorithm_used="hybrid",
+            scoring_function="pandadock_gnn",
+            poses=[],
+            runtime_seconds=time.time() - start_time,
+            parameters=dict(result.parameters or {}, rescoring="pandadock_gnn",
+                            model=str(model)),
+        )
+        for p in top_poses:
+            pose = p['pose']
+            pose.energy = p['gnn_energy']
+            pose.energy_components = {
+                'gnn_pec50': float(p['gnn_pec50']),
+                'gnn_energy': float(p['gnn_energy']),
+                'vina_energy': float(p['vina_energy']),
+            }
+            pose.confidence = float(p.get('activity_prob', 0.0))
+            rescored.poses.append(pose)
+
+        save_poses_sdf(rescored, output_path, ligand_mol)
+        generate_report(rescored, output_path, ligand_mol=ligand_mol,
+                        receptor_file=receptor, run_pandamap=True)
+        report_html = output_path / "report.html"
+        if report_html.exists():
+            click.echo(f"  report: {report_html}")
+    except Exception as e:
+        click.echo(f"Report generation failed: {e}")
 
     total_time = time.time() - start_time
     click.echo(f"\nTotal time: {total_time:.1f}s")
@@ -1643,13 +1728,25 @@ def save_complex_pdbs(result: DockingResult, receptor_file: str, output_dir: Pat
         visualizer = DockingVisualizer()
         top_poses = result.get_top_poses(10)
 
+        written = 0
         for i, pose in enumerate(top_poses, 1):
             complex_file = output_dir / f"complex{i}.pdb"
             visualizer.save_complex_pdb(
                 receptor_file, pose, complex_file, ligand_mol
             )
+            if complex_file.exists():
+                written += 1
 
-        logging.info(f"Saved {len(top_poses)} complex PDB files")
+        # Count files that actually landed on disk. The writer catches its own
+        # exceptions, so reporting len(top_poses) claimed success even when every
+        # single write had failed and no file existed.
+        if written < len(top_poses):
+            logging.warning(
+                "Saved %d of %d complex PDB files; %d failed to write",
+                written, len(top_poses), len(top_poses) - written,
+            )
+        else:
+            logging.info(f"Saved {written} complex PDB files")
 
     except Exception as e:
         logging.error(f"Error saving complex PDBs: {e}")
@@ -1661,14 +1758,60 @@ def save_pose_pdbs(result: DockingResult, output_dir: Path, ligand_mol=None):
         visualizer = DockingVisualizer()
         top_poses = result.get_top_poses(10)
 
+        written = 0
         for i, pose in enumerate(top_poses, 1):
             pose_file = output_dir / f"pose{i}.pdb"
             visualizer.save_pose_pdb(pose, pose_file, ligand_mol)
+            if pose_file.exists():
+                written += 1
 
-        logging.info(f"Saved {len(top_poses)} pose PDB files")
+        if written < len(top_poses):
+            logging.warning(
+                "Saved %d of %d pose PDB files; %d failed to write",
+                written, len(top_poses), len(top_poses) - written,
+            )
+        else:
+            logging.info(f"Saved {written} pose PDB files")
+
+        # An SDF alongside the PDBs preserves bond orders and formal charges,
+        # which PDB cannot represent. Viewers and downstream tools infer bonds
+        # from distance when given a ligand PDB, which routinely mis-assigns
+        # aromatic rings.
+        save_poses_sdf(result, output_dir, ligand_mol)
 
     except Exception as e:
         logging.error(f"Error saving pose PDBs: {e}")
+
+
+def save_poses_sdf(result: DockingResult, output_dir: Path, ligand_mol=None):
+    """Write all poses to a single SDF, annotated with rank and score."""
+    if ligand_mol is None:
+        return
+    try:
+        sdf_path = output_dir / "poses.sdf"
+        writer = Chem.SDWriter(str(sdf_path))
+        try:
+            for rank, pose in enumerate(result.get_top_poses(len(result.poses)), 1):
+                mol = Chem.Mol(ligand_mol)
+                mol.RemoveAllConformers()
+                conf = Chem.Conformer(mol.GetNumAtoms())
+                n = min(mol.GetNumAtoms(), len(pose.coordinates))
+                for i in range(n):
+                    conf.SetAtomPosition(i, pose.coordinates[i].tolist())
+                mol.AddConformer(conf, assignId=True)
+
+                mol.SetProp("_Name", f"{result.ligand_name}_pose{rank}")
+                mol.SetProp("rank", str(rank))
+                mol.SetProp("score_kcal_per_mol", f"{pose.energy:.3f}")
+                mol.SetProp("confidence", f"{pose.confidence:.3f}")
+                for key, value in (pose.energy_components or {}).items():
+                    mol.SetProp(f"energy_{key}", f"{value:.3f}")
+                writer.write(mol)
+        finally:
+            writer.close()
+        logging.info(f"Saved poses to {sdf_path}")
+    except Exception as e:
+        logging.error(f"Error saving poses SDF: {e}")
 
 
 def save_pose_to_pdb(pose: Pose, filepath: Path, ligand_mol: Chem.Mol):

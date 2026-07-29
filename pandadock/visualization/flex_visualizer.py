@@ -43,6 +43,45 @@ class FlexDockingVisualizer(DockingVisualizer):
                 ligand_file = complexes_dir / f"flex_ligand_{i}.pdb"
                 self.save_pose_pdb(pose, ligand_file, ligand_mol)
 
+        # An SDF alongside the PDBs, matching what `pandadock dock` writes. PDB
+        # cannot carry bond orders or formal charges, so a ligand read back from
+        # one has its bonds inferred from distance, which routinely mis-assigns
+        # aromatic rings.
+        self._save_flex_poses_sdf(top_poses, ligand_mol, output_dir)
+
+    def _save_flex_poses_sdf(self, poses, ligand_mol: Chem.Mol, output_dir: Path) -> None:
+        """Write all flexible-docking poses to one SDF, annotated with IFD terms."""
+        if ligand_mol is None or not poses:
+            return
+        try:
+            writer = Chem.SDWriter(str(output_dir / "poses.sdf"))
+            try:
+                for rank, pose in enumerate(poses, 1):
+                    mol = Chem.Mol(ligand_mol)
+                    mol.RemoveAllConformers()
+                    conf = Chem.Conformer(mol.GetNumAtoms())
+                    n = min(mol.GetNumAtoms(), len(pose.coordinates))
+                    for i in range(n):
+                        conf.SetAtomPosition(i, pose.coordinates[i].tolist())
+                    mol.AddConformer(conf, assignId=True)
+
+                    mol.SetProp("_Name", f"flex_pose{rank}")
+                    mol.SetProp("rank", str(rank))
+                    for prop, value in (
+                        ("ifd_score", getattr(pose, "ifd_score", None)),
+                        ("binding_energy", getattr(pose, "binding_energy", None)),
+                        ("refinement_cost", getattr(pose, "refinement_cost", None)),
+                        ("receptor_rmsd", getattr(pose, "receptor_rmsd", None)),
+                    ):
+                        if value is not None:
+                            mol.SetProp(prop, f"{float(value):.3f}")
+                    writer.write(mol)
+            finally:
+                writer.close()
+            self.logger.info("Saved flexible docking poses to %s", output_dir / "poses.sdf")
+        except Exception as exc:
+            self.logger.error("Could not write poses.sdf: %s", exc)
+
     def _find_refined_receptor(self, pose: FlexiblePose, refined_complexes) -> Optional[str]:
         """Find the refined receptor corresponding to a pose"""
         # Simplified - in production you'd track pose-receptor relationships
@@ -86,15 +125,30 @@ class FlexDockingVisualizer(DockingVisualizer):
         for i, coord in enumerate(pose_coords):
             if i < ligand_mol.GetNumAtoms():
                 rdkit_atom = ligand_mol.GetAtomWithIdx(i)
-                element = rdkit_atom.GetSymbol()
-                atom_name = f'{element}{i+1:02d}'
+                element = rdkit_atom.GetSymbol().upper()
+                atom_name = f'{element}{i + 1}'[:4]
             else:
                 element = 'C'
-                atom_name = f'C{i+1:02d}'
+                atom_name = f'C{i + 1}'[:4]
 
-            atom_line = (f"ATOM  {atom_serial:5d}  {atom_name:<4} LIG L   1    "
-                        f"{coord[0]:8.3f}{coord[1]:8.3f}{coord[2]:8.3f}  1.00 20.00"
-                        f"           {element:<2}\n")
+            # Strict PDB column layout. The previous format string carried an
+            # extra space after the serial number, which shifted resName, chainID
+            # and every subsequent field one column right. Strict parsers then
+            # read the residue name out of the altLoc column and the coordinates
+            # out of alignment, so the file could not be reloaded. The ligand is
+            # also a HETATM record, not ATOM.
+            #
+            #  1-6 record | 7-11 serial | 13-16 name | 17 altLoc | 18-20 resName
+            #  22 chain   | 23-26 resSeq | 31-38 x | 39-46 y | 47-54 z
+            #  55-60 occupancy | 61-66 bfactor | 77-78 element
+            name_field = atom_name.ljust(4) if len(atom_name) == 4 else f" {atom_name:<3}"
+            atom_line = (
+                f"HETATM{atom_serial:5d} {name_field}"
+                f" {'LIG':<3} L{1:4d}    "
+                f"{coord[0]:8.3f}{coord[1]:8.3f}{coord[2]:8.3f}"
+                f"{1.00:6.2f}{20.00:6.2f}"
+                f"{'':10}{element:>2}\n"
+            )
             ligand_lines.append(atom_line)
             atom_serial += 1
 

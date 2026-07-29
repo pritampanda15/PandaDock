@@ -161,20 +161,28 @@ def main(receptor, mode, center, box, spacing, residues, padding, reference_liga
         else:
             output_file = output_path / f"gridbox_{mode}.json"
 
+        # Track what was actually written. The "next steps" hint below used to be
+        # built from the --output-dir default rather than from the files just
+        # saved, so with --output (a file prefix) it printed a --grid-config path
+        # that did not exist and the copied command failed.
+        saved_files = []
+
         if len(grid_boxes) == 1:
             grid_boxes[0].save(str(output_file))
+            saved_files.append(output_file)
             click.echo(f"💾 Grid box saved to: {output_file}")
         else:
             # Save multiple grid boxes
             for i, grid_box in enumerate(grid_boxes):
                 if output:
                     base_name = output_file.stem
-                    ext = output_file.suffix
+                    ext = output_file.suffix or ".json"
                     multi_file = output_file.parent / f"{base_name}_{i+1}{ext}"
                 else:
                     multi_file = output_path / f"gridbox_{mode}_{i+1}.json"
 
                 grid_box.save(str(multi_file))
+                saved_files.append(multi_file)
                 click.echo(f"💾 Grid box {i+1} saved to: {multi_file}")
 
         # Generate visualization if requested
@@ -188,7 +196,8 @@ def main(receptor, mode, center, box, spacing, residues, padding, reference_liga
 
         # Summary
         click.echo(f"\n🎉 Grid box generation complete!")
-        click.echo(f"📁 Output directory: {output_path}")
+        locations = sorted({str(f.parent) for f in saved_files})
+        click.echo(f"📁 Written to: {', '.join(locations) if locations else output_path}")
 
         # Command examples for next steps
         click.echo(f"\n💡 Next steps:")
@@ -200,7 +209,7 @@ def main(receptor, mode, center, box, spacing, residues, padding, reference_liga
             click.echo(f"   pandadock dock -r {receptor} -l ligand.sdf --center {center[0]:.1f} {center[1]:.1f} {center[2]:.1f} --box {dims[0]:.1f} {dims[1]:.1f} {dims[2]:.1f}")
         else:
             click.echo(f"   # Multiple grid boxes generated - choose the best one for docking")
-            click.echo(f"   pandadock dock -r {receptor} -l ligand.sdf --grid-config {output_path}/gridbox_{mode}_1.json")
+            click.echo(f"   pandadock dock -r {receptor} -l ligand.sdf --grid-config {saved_files[0]}")
 
     except Exception as e:
         click.echo(f"❌ Error: {e}")

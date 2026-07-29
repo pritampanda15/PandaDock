@@ -13,6 +13,37 @@ import logging
 class MetalParameterManager:
     """Manages metal ion parameters for docking calculations"""
 
+    # Fallback used when no AutoDock-format parameter file is available.
+    #
+    # Radii are the values this package already uses for these elements in
+    # VinaScoring.VDW_RADII, so the two scoring paths at least agree with each
+    # other rather than disagreeing silently. The remaining terms are placeholders
+    # chosen to be inert: well depths are uniform, and the solvation and H-bond
+    # terms are zeroed so they contribute nothing rather than contributing a
+    # fabricated amount.
+    #
+    # This is enough to identify coordination geometry and to keep the metal-aware
+    # code paths running. It is NOT a validated parameter set, and metal binding
+    # energies computed from it should not be reported as quantitative. Supply a
+    # real parameter file for that.
+    FALLBACK_METAL_PARAMS: Dict[str, Dict[str, float]] = {
+        symbol: {
+            "rii": radius,
+            "epsii": 0.2,
+            "vol": 0.0,
+            "solpar": 0.0,
+            "r_hbond": 0.0,
+            "eps_hbond": 0.0,
+            "hbond": 0,
+            "bond_index": 0,
+        }
+        for symbol, radius in {
+            "MG": 1.3, "MN": 1.3, "ZN": 1.3, "FE": 1.3, "CA": 1.7,
+            "NA": 1.3, "K": 1.8, "CU": 1.3, "NI": 1.3, "CO": 1.3,
+            "CD": 1.5, "HG": 1.6, "MO": 1.5,
+        }.items()
+    }
+
     def __init__(self, parameter_file: Optional[str] = None):
         """
         Initialize metal parameter manager
@@ -68,6 +99,21 @@ class MetalParameterManager:
                             }
 
             self.logger.info(f"Loaded parameters for {len(self.metal_params)} metal types")
+
+        except FileNotFoundError:
+            # The parameter file has never been shipped with the package, so this
+            # is the normal path rather than an edge case: raising here made every
+            # metal-docking entry point fail at construction. Fall back to
+            # built-in values and say so loudly, because they are approximate.
+            self.logger.warning(
+                "Metal parameter file not found at %s; using built-in fallback "
+                "parameters. These are approximate and are adequate for "
+                "identifying coordination geometry, but for quantitative metal "
+                "binding energies supply an AutoDock-format parameter file via "
+                "MetalParameterManager(parameter_file=...).",
+                self.parameter_file,
+            )
+            self.metal_params = dict(self.FALLBACK_METAL_PARAMS)
 
         except Exception as e:
             self.logger.error(f"Error loading metal parameters: {e}")

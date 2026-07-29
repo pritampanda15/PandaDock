@@ -3,6 +3,9 @@ Four-phase induced-fit docking implementation
 """
 
 import numpy as np
+import os
+import shutil
+import tempfile
 import logging
 from typing import List, Dict, Tuple, Optional, Any
 from pathlib import Path
@@ -91,6 +94,13 @@ class ReceptorRefiner:
         self.cpu_workers = cpu_workers
         self.max_memory_gb = max_memory_gb
         self.logger = logging.getLogger("pandadock.flex.phase2")
+
+        # Refined receptors are written to a private temporary directory rather
+        # than the working directory. Writing them to the CWD left multi-megabyte
+        # files behind whenever a run was interrupted, and made two concurrent
+        # runs in one directory delete each other's files during cleanup.
+        self._temp_dir: Optional[str] = None
+        self._refined_counter = 0
 
         # Refinement configuration
         self.refinement_method = 'minimization'
@@ -239,8 +249,16 @@ class ReceptorRefiner:
             self.logger.error(f"Unknown refinement method: {self.refinement_method}")
             return None
 
-        # Save refined receptor to temporary file
-        refined_pdb_path = f"temp_refined_receptor_{id(pose)}.pdb"
+        # Save refined receptor to a temporary file.
+        #
+        # The name is a per-instance counter, not id(pose). CPython reuses id()
+        # values once an object is collected, so two poses could receive the same
+        # filename and the second would overwrite the first -- meaning the final
+        # redocking phase could dock into the wrong refined receptor.
+        refined_pdb_path = os.path.join(
+            self._ensure_temp_dir(), f"refined_receptor_{self._refined_counter:04d}.pdb"
+        )
+        self._refined_counter += 1
         io = PDBIO()
         io.set_structure(refined_structure)
         io.save(refined_pdb_path)
@@ -327,24 +345,47 @@ class ReceptorRefiner:
 
     def _select_best_rotamer(self, rotamers: List[np.ndarray], pose: Pose,
                            structure: Structure) -> Tuple[Optional[np.ndarray], float]:
-        """Select best rotamer conformation based on energy"""
+        """
+        Choose the best rotamer, and report the strain it leaves behind.
 
+        Selection uses the full energy (clash penalty plus contact reward), but
+        the value returned as the refinement cost is the residual clash strain
+        alone, which is non-negative.
+
+        Returning the full energy conflated the two. With no clashes it is purely
+        a negative contact reward, and the IFD score adds
+        `refinement_cost * refinement_penalty_weight` -- so a negative cost
+        improved the score. A pose demanding more side-chain rearrangement scored
+        better than one needing none, inverting the purpose of an induced-fit
+        penalty.
+        """
         best_rotamer = None
         best_energy = float('inf')
+        best_strain = 0.0
 
         for rotamer in rotamers:
-            # Calculate simple clash score with ligand
-            energy = self._calculate_rotamer_energy(rotamer, pose.coordinates)
+            energy, strain = self._calculate_rotamer_energy(
+                rotamer, pose.coordinates, return_strain=True
+            )
 
             if energy < best_energy:
                 best_energy = energy
+                best_strain = strain
                 best_rotamer = rotamer
 
-        return best_rotamer, best_energy
+        return best_rotamer, best_strain
 
     def _calculate_rotamer_energy(self, rotamer_coords: np.ndarray,
-                                ligand_coords: np.ndarray) -> float:
-        """Calculate simplified energy for rotamer conformation"""
+                                ligand_coords: np.ndarray,
+                                return_strain: bool = False):
+        """
+        Simplified energy for a rotamer conformation.
+
+        Returns the combined energy used to rank rotamers. With
+        `return_strain=True` it also returns the clash component on its own,
+        which is the non-negative strain the receptor carries in that
+        conformation and the quantity an induced-fit penalty should use.
+        """
 
         # Simple distance-based scoring
         min_distances = []
@@ -359,6 +400,8 @@ class ReceptorRefiner:
         favorable_contacts = sum(1 for d in min_distances if 2.5 <= d <= 4.0)
         contact_reward = favorable_contacts * -0.5
 
+        if return_strain:
+            return clash_penalty + contact_reward, clash_penalty
         return clash_penalty + contact_reward
 
     def _update_residue_conformation(self, structure: Structure,
@@ -395,6 +438,33 @@ class ReceptorRefiner:
         # Simplified RMSD calculation
         # In production: use proper structural alignment
         return 1.5  # Placeholder value
+
+
+    def _ensure_temp_dir(self) -> str:
+        """Create this refiner's temporary directory on first use."""
+        if self._temp_dir is None:
+            self._temp_dir = tempfile.mkdtemp(prefix="pandadock_flex_")
+            self.logger.debug("Refined receptors will be written to %s", self._temp_dir)
+        return self._temp_dir
+
+    def cleanup(self) -> None:
+        """
+        Remove the temporary refined receptors.
+
+        Safe to call more than once, and safe to call after a failure. Cleanup
+        used to run only on the success path of the CLI, so an interrupted or
+        failed run left every refined receptor behind -- roughly 375 KB each.
+        """
+        if self._temp_dir and os.path.isdir(self._temp_dir):
+            shutil.rmtree(self._temp_dir, ignore_errors=True)
+            self.logger.debug("Removed temporary directory %s", self._temp_dir)
+        self._temp_dir = None
+
+    def __del__(self):
+        try:
+            self.cleanup()
+        except Exception:
+            pass
 
 
 class FinalRedocker:

@@ -76,6 +76,7 @@ from .docking.core import DockingEngine, DockingResult, Pose
 from .docking.algorithms import GPU_AVAILABLE
 from .docking.scoring.physics_based import PhysicsBasedScoring
 from .docking.scoring.precision_score import PrecisionScoring
+from . import __version__
 
 # Configure logging
 logging.basicConfig(
@@ -97,7 +98,7 @@ def show_ml_help():
                https://github.com/pritampanda15/PandaDock
 
 Author: Pritam Kumar Panda @ Stanford University
-Version: 1.0.0 - ML Extension
+Version: {version} - ML Extension
 License: MIT
 
 PandaDock-ML combines machine learning with physics-based docking for
@@ -148,7 +149,7 @@ For detailed help on specific commands, use:
 
 #################################################################
 """
-    click.echo(help_text)
+    click.echo(help_text.replace("{version}", __version__))
 
 @click.group(invoke_without_command=True, add_help_option=False)
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')
@@ -418,8 +419,9 @@ def train(dataset, model_type, output_dir, epochs, batch_size, learning_rate,
 @click.option('--ml-proposals', type=int, default=100,
               help='Number of ML-generated pose proposals')
 @click.option('--physics-refinement', type=click.Choice([
-    'monte_carlo_cpu', 'enhanced_hierarchical_cpu', 'genetic_algorithm_cpu'
-]), default='enhanced_hierarchical_cpu', help='Physics algorithm for refinement')
+    # Legacy aliases, all resolving to the same flexible-ligand search.
+    'pandadock', 'monte_carlo_cpu', 'enhanced_hierarchical_cpu', 'genetic_algorithm_cpu'
+]), default='pandadock', help='Physics algorithm for refinement')
 @click.option('--ml-model-path', type=click.Path(exists=True),
               help='Path to trained ML model weights')
 @click.option('--output-dir', '-o', type=click.Path(), default='hybrid_docking_output',

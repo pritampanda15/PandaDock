@@ -92,8 +92,24 @@ class MetalCoordinationGeometry:
 class MetalDockingResult(DockingResult):
     """Extended docking result for metal-aware docking"""
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, ligand_name: str = "unknown", receptor_file: str = "",
+                 grid_center: Optional[np.ndarray] = None,
+                 grid_dimensions: Optional[np.ndarray] = None,
+                 algorithm_used: str = "metal_aware",
+                 scoring_function: str = "metal_aware"):
+        # DockingResult is a dataclass with six required fields, so the previous
+        # bare super().__init__() raised TypeError and this class could never be
+        # constructed. Defaults are supplied so existing no-argument call sites
+        # keep working.
+        super().__init__(
+            ligand_name=ligand_name,
+            receptor_file=receptor_file,
+            grid_center=np.zeros(3) if grid_center is None else grid_center,
+            grid_dimensions=np.zeros(3) if grid_dimensions is None else grid_dimensions,
+            algorithm_used=algorithm_used,
+            scoring_function=scoring_function,
+        )
+        self.best_pose: Optional[Pose] = None
         self.metal_interactions = []
         self.coordination_scores = []
         self.metal_binding_scores = []
@@ -103,7 +119,8 @@ class MetalDockingResult(DockingResult):
                       coordination_score: float, metal_binding_score: float,
                       constraint_violations: List[str]):
         """Add pose with metal-specific information"""
-        self.add_pose(pose)
+        # DockingResult has no add_pose(); poses is a plain list.
+        self.poses.append(pose)
         self.metal_interactions.append(metal_interactions)
         self.coordination_scores.append(coordination_score)
         self.metal_binding_scores.append(metal_binding_score)
@@ -141,8 +158,38 @@ class MetalDockingEngine:
         self.protein_prep = MetalloproteinPreparator()
         self.geometry_calc = MetalCoordinationGeometry()
 
-        # Initialize base docking engine
+        # Initialize base docking engine.
+        #
+        # The algorithms and scoring functions have to be registered here:
+        # DockingEngine.dock_ligand() looks them up by name and raises for
+        # anything unknown, so an unpopulated engine fails on every call. The
+        # legacy algorithm names are registered alongside 'pandadock' because the
+        # CLI still accepts them.
         self.base_engine = DockingEngine()
+        self._register_base_algorithms()
+
+    def _register_base_algorithms(self) -> None:
+        """Populate the base engine with algorithms and scoring functions."""
+        from ..docking.algorithms import (
+            EnhancedHierarchicalDocker,
+            GeneticAlgorithmDocker,
+            HierarchicalDocker,
+            MonteCarloDocker,
+            PandaCoreDocker,
+        )
+        from ..docking.scoring import PhysicsBasedScoring, VinaScoring
+
+        for algorithm in (
+            PandaCoreDocker(),
+            HierarchicalDocker(),
+            MonteCarloDocker(),
+            GeneticAlgorithmDocker(),
+            EnhancedHierarchicalDocker(),
+        ):
+            self.base_engine.register_algorithm(algorithm)
+
+        self.base_engine.register_scoring_function("vina", VinaScoring())
+        self.base_engine.register_scoring_function("physics_based", PhysicsBasedScoring())
 
     def prepare_metal_ligand(self, ligand_file: str, output_file: Optional[str] = None) -> Chem.Mol:
         """
@@ -241,7 +288,7 @@ class MetalDockingEngine:
         result = MetalDockingResult()
 
         # Generate initial poses using base engine
-        base_result = self.base_engine.dock(
+        base_result = self.base_engine.dock_ligand(
             receptor_file=receptor_file,
             ligand_mol=ligand_mol,
             algorithm=algorithm,
@@ -259,26 +306,38 @@ class MetalDockingEngine:
         # Score poses with metal-aware scoring
         self.logger.info(f"Rescoring {len(base_result.poses)} poses with metal-aware scoring")
 
+        # The metal scorers forward this to the base scoring function, which
+        # needs a structure rather than coordinates.
+        from Bio.PDB import PDBParser
+
+        receptor_structure = PDBParser(QUIET=True).get_structure("receptor", receptor_file)
+
         scored_poses = []
         for pose in base_result.poses:
-            # Get pose coordinates (this needs to be implemented based on your Pose class)
-            ligand_coords = pose.coordinates  # Assuming this exists
+            ligand_coords = pose.coordinates
 
             # Score with metal awareness
             if use_constraints:
                 scores = scorer.score_constrained_pose(
-                    ligand_coords, ligand_mol, np.array([]), [],  # Receptor coords not needed here
+                    ligand_coords, ligand_mol, receptor_structure, [],
                     metal_sites
                 )
             else:
                 scores = scorer.score_metal_pose(
-                    ligand_coords, ligand_mol, np.array([]), [],
+                    ligand_coords, ligand_mol, receptor_structure, [],
                     metal_sites
                 )
 
             # Create new pose with metal-aware score
+            # Pose requires center, rotation and conformer_id. Carry them over
+            # from the pose being rescored rather than omitting them: this is a
+            # rescored copy of an existing pose, not a new placement, so its
+            # geometry metadata must be preserved for output writing.
             metal_pose = Pose(
                 coordinates=pose.coordinates,
+                center=pose.center,
+                rotation=pose.rotation,
+                conformer_id=pose.conformer_id,
                 energy=scores['total_score'],
                 confidence=pose.confidence
             )
@@ -294,24 +353,32 @@ class MetalDockingEngine:
             if 'constraint_penalty' in scores and scores['constraint_penalty'] > 0:
                 constraint_violations.append(f"Geometry constraint violation: {scores['constraint_penalty']:.2f}")
 
-            result.add_metal_pose(
-                metal_pose, metal_interactions,
+            scored_poses.append((
+                scores['total_score'], metal_pose, metal_interactions,
                 scores.get('metal_coordination', 0.0),
                 scores.get('metal_binding', 0.0),
-                constraint_violations
+                constraint_violations,
+            ))
+
+        # Rank by metal-aware score, then populate the result once.
+        #
+        # The metadata must be truncated together with the poses. Previously every
+        # scored pose was appended to the result and `result.poses` was then
+        # replaced by the top N, leaving the parallel metal_interactions,
+        # coordination_scores and constraint_violations lists at the original
+        # length. get_metal_summary() divides by len(self.poses), so it reported
+        # violation rates above 100% (185% on a 40-pose run truncated to 20).
+        scored_poses.sort(key=lambda entry: entry[0])
+
+        for _, metal_pose, interactions, coord_score, binding_score, violations in \
+                scored_poses[:num_poses]:
+            result.add_metal_pose(
+                metal_pose, interactions, coord_score, binding_score, violations
             )
 
-            scored_poses.append((metal_pose, scores['total_score']))
+        result.best_pose = result.poses[0] if result.poses else None
 
-        # Sort poses by metal-aware score and keep best ones
-        scored_poses.sort(key=lambda x: x[1])
-        final_poses = [pose for pose, score in scored_poses[:num_poses]]
-
-        # Update result with final poses
-        result.poses = final_poses
-        result.best_pose = final_poses[0] if final_poses else None
-
-        self.logger.info(f"Metal-aware docking completed with {len(final_poses)} poses")
+        self.logger.info(f"Metal-aware docking completed with {len(result.poses)} poses")
 
         return result
 
@@ -320,7 +387,7 @@ class MetalDockingEngine:
                            algorithm: str, num_poses: int, **kwargs) -> MetalDockingResult:
         """Fallback to standard docking when no metals are present"""
 
-        base_result = self.base_engine.dock(
+        base_result = self.base_engine.dock_ligand(
             receptor_file=receptor_file,
             ligand_mol=ligand_mol,
             algorithm=algorithm,
@@ -334,7 +401,7 @@ class MetalDockingEngine:
         # Convert to MetalDockingResult
         result = MetalDockingResult()
         result.poses = base_result.poses
-        result.best_pose = base_result.best_pose
+        result.best_pose = base_result.get_best_pose()
 
         # Fill metal-specific fields with empty/zero values
         for _ in result.poses:

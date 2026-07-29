@@ -24,6 +24,7 @@ import json
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple, Any
 import numpy as np
+from . import __version__
 
 def show_tethered_help():
     """Display professional help for tethered docking"""
@@ -39,7 +40,7 @@ def show_tethered_help():
       https://github.com/pritampanda15/PandaDock
 
 Author: Pritam Kumar Panda @ Stanford University
-Version: 1.0.0
+Version: {version}
 
 TETHERED DOCKING PURPOSE:
     Validate scoring functions by docking ligands with distance constraints
@@ -84,7 +85,7 @@ For detailed help on specific commands:
 
 #################################################################
 """
-    click.echo(help_text)
+    click.echo(help_text.replace("{version}", __version__))
 
 @click.group(invoke_without_command=True, add_help_option=False)
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')

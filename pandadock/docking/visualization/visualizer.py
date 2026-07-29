@@ -66,6 +66,46 @@ class DockingVisualizer:
     def __init__(self):
         self.logger = logging.getLogger("pandadock.visualization.visualizer")
 
+    @staticmethod
+    def _ligand_element_and_name(rdkit_atom, index):
+        """
+        PDB element symbol and atom name for a ligand atom.
+
+        BioPython asserts that element symbols are upper case, matching the PDB
+        specification. RDKit returns them capitalised ("Br", "Cl"), so passing
+        the symbol through unchanged raised AssertionError for every two-letter
+        element and no PDB file was written at all. Chlorine and bromine are
+        common in drug-like ligands, so this silently affected a large share of
+        real runs.
+        """
+        element = rdkit_atom.GetSymbol().upper() if rdkit_atom is not None else "C"
+        name = f"{element}{index + 1}"
+        return element, name[:4]
+
+    def _build_ligand_residue(self, coords, ligand_mol, residue_name="LIG"):
+        """Build a BioPython residue holding the ligand pose."""
+        residue = Residue.Residue((" ", 1, " "), residue_name, " ")
+
+        for i, coord in enumerate(coords):
+            rdkit_atom = None
+            if ligand_mol is not None and i < ligand_mol.GetNumAtoms():
+                rdkit_atom = ligand_mol.GetAtomWithIdx(i)
+            element, atom_name = self._ligand_element_and_name(rdkit_atom, i)
+
+            residue.add(
+                Atom.Atom(
+                    name=atom_name,
+                    coord=coord,
+                    bfactor=20.0,
+                    occupancy=1.0,
+                    altloc=" ",
+                    fullname=atom_name.ljust(4),
+                    serial_number=i + 1,
+                    element=element,
+                )
+            )
+        return residue
+
     def save_complex_pdb(self, receptor_file: str, pose: Pose, output_file: Path, ligand_mol=None):
         """
         Save protein-ligand complex as PDB file with proper atom types and hydrogens
@@ -92,51 +132,7 @@ class DockingVisualizer:
 
             # Add ligand as new chain
             ligand_chain = Chain.Chain('L')
-            ligand_residue = Residue.Residue((' ', 1, ' '), 'LIG', ' ')
-
-            # Add ligand atoms with proper element types
-            if ligand_mol is not None:
-                # Use original coordinates for ultra-fast poses to prevent corruption
-                coords_to_use = pose.coordinates
-                if hasattr(pose, '_ultra_fast_mode') and pose._ultra_fast_mode and hasattr(pose, '_original_coords'):
-                    coords_to_use = pose._original_coords
-                    self.logger.debug(f"Using preserved ultra-fast coordinates")
-
-                # Use RDKit molecule for proper atom information
-                for i, coord in enumerate(coords_to_use):
-                    if i < ligand_mol.GetNumAtoms():
-                        rdkit_atom = ligand_mol.GetAtomWithIdx(i)
-                        element = rdkit_atom.GetSymbol()
-                        atom_name = f'{element}{i+1:02d}'
-                    else:
-                        element = 'C'  # Fallback
-                        atom_name = f'C{i+1:02d}'
-
-                    atom = Atom.Atom(
-                        name=atom_name[:4].ljust(4),  # PDB format: 4 chars max
-                        coord=coord,
-                        bfactor=20.0,
-                        occupancy=1.0,
-                        altloc=' ',
-                        fullname=f' {atom_name[:3]}'.ljust(4),
-                        serial_number=i+1,
-                        element=element
-                    )
-                    ligand_residue.add(atom)
-            else:
-                # Fallback: use simplified naming
-                for i, coord in enumerate(pose.coordinates):
-                    atom = Atom.Atom(
-                        name=f'C{i+1:02d}',
-                        coord=coord,
-                        bfactor=20.0,
-                        occupancy=1.0,
-                        altloc=' ',
-                        fullname=f' C{i+1:02d}',
-                        serial_number=i+1,
-                        element='C'
-                    )
-                    ligand_residue.add(atom)
+            ligand_residue = self._build_ligand_residue(pose.coordinates, ligand_mol)
 
             ligand_chain.add(ligand_residue)
             complex_model.add(ligand_chain)
@@ -165,55 +161,7 @@ class DockingVisualizer:
             pose_structure = Structure.Structure('pose')
             pose_model = Model.Model(0)
             pose_chain = Chain.Chain('A')
-            pose_residue = Residue.Residue((' ', 1, ' '), 'LIG', ' ')
-
-            # Add atoms with proper element types
-            if ligand_mol is not None:
-                # Use original coordinates for ultra-fast poses to prevent corruption
-                coords_to_use = pose.coordinates
-                if hasattr(pose, '_ultra_fast_mode') and pose._ultra_fast_mode and hasattr(pose, '_original_coords'):
-                    coords_to_use = pose._original_coords
-                    self.logger.debug(f"Using preserved ultra-fast coordinates for pose PDB")
-
-                # Use RDKit molecule for proper atom information
-                for i, coord in enumerate(coords_to_use):
-                    if i < ligand_mol.GetNumAtoms():
-                        rdkit_atom = ligand_mol.GetAtomWithIdx(i)
-                        element = rdkit_atom.GetSymbol()
-                        atom_name = f'{element}{i+1:02d}'
-                    else:
-                        element = 'C'  # Fallback
-                        atom_name = f'C{i+1:02d}'
-
-                    atom = Atom.Atom(
-                        name=atom_name[:4].ljust(4),
-                        coord=coord,
-                        bfactor=20.0,
-                        occupancy=1.0,
-                        altloc=' ',
-                        fullname=f' {atom_name[:3]}'.ljust(4),
-                        serial_number=i+1,
-                        element=element
-                    )
-                    pose_residue.add(atom)
-            else:
-                # Fallback: use simplified naming
-                coords_to_use = pose.coordinates
-                if hasattr(pose, '_ultra_fast_mode') and pose._ultra_fast_mode and hasattr(pose, '_original_coords'):
-                    coords_to_use = pose._original_coords
-
-                for i, coord in enumerate(coords_to_use):
-                    atom = Atom.Atom(
-                        name=f'C{i+1:02d}',
-                        coord=coord,
-                        bfactor=20.0,
-                        occupancy=1.0,
-                        altloc=' ',
-                        fullname=f' C{i+1:02d}',
-                        serial_number=i+1,
-                        element='C'
-                    )
-                    pose_residue.add(atom)
+            pose_residue = self._build_ligand_residue(pose.coordinates, ligand_mol)
 
             pose_chain.add(pose_residue)
             pose_model.add(pose_chain)

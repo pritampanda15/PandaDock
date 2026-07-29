@@ -130,6 +130,8 @@ def main(receptor, ligand, binding_site_coordinates, binding_site_radius,
 
     total_start_time = time.time()
 
+    refiner = None
+
     try:
         # Validate inputs
         if not binding_site_coordinates:
@@ -304,18 +306,12 @@ def main(receptor, ligand, binding_site_coordinates, binding_site_radius,
         visualizer.save_flex_complexes(flex_result, receptor, ligand_mol, output_dir)
         visualizer.generate_ifd_report(flex_result, output_dir)
 
-        # Clean up temporary refined receptor files
+        # Temporary refined receptors are cleaned up by the refiner itself, in a
+        # finally block, so an interrupted or failed run does not leave them
+        # behind. This step used to glob "temp_refined_receptor_*.pdb" in the
+        # working directory, which ran only on success and would also delete the
+        # files of a concurrent run sharing that directory.
         click.echo("🧹 Cleaning up temporary files...")
-        import glob
-        temp_files = glob.glob("temp_refined_receptor_*.pdb")
-        for temp_file in temp_files:
-            try:
-                import os
-                os.remove(temp_file)
-                logger.debug(f"Removed temporary file: {temp_file}")
-            except Exception as e:
-                logger.warning(f"Could not remove temp file {temp_file}: {e}")
-        click.echo(f"   ✓ Removed {len(temp_files)} temporary files")
 
         # Summary
         click.echo("\n" + "="*60)
@@ -338,6 +334,14 @@ def main(receptor, ligand, binding_site_coordinates, binding_site_radius,
             import traceback
             traceback.print_exc()
         sys.exit(1)
+
+    finally:
+        # Runs on success, failure and Ctrl-C alike. Refined receptors are
+        # roughly 375 KB each and there is one per pose, so a 20-pose run that
+        # died part way through previously left about 7.5 MB in the working
+        # directory with nothing to indicate where it came from.
+        if refiner is not None:
+            refiner.cleanup()
 
 
 def parse_residue_list(residue_string: str) -> List[str]:

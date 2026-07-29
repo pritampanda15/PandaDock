@@ -127,7 +127,13 @@ class PandaCoreDocker(BaseDockingAlgorithm):
         )
         self.logger.info("Grid construction took %.2f s", time.time() - grid_build_start)
 
-        objective = DockingObjective(tree, grids)
+        objective = DockingObjective(
+            tree,
+            grids,
+            tether_center=kwargs.get("tether_center"),
+            tether_radius=float(kwargs.get("tether_radius", 0.0)),
+            tether_force=float(kwargs.get("tether_force", 10.0)),
+        )
         search = MonteCarloSearch(objective, config)
 
         box_min = grid_center - grid_dimensions / 2.0
