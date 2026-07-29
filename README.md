@@ -167,6 +167,11 @@ Removed:
   are deprecated aliases of `PandaCoreDocker`. Their distinctive code was either
   unreachable or non-functional; each module's docstring records the details.
 
+Utilities:
+- `pandadock-gridbox` printed a `--grid-config` path for the user to copy that did
+  not exist when multiple sites were found with an explicit `--output` prefix; the
+  hint was built from the `--output-dir` default rather than the files it wrote
+
 Specialized docking:
 - `pandadock-tethered` did not dock. Its own comment described it as a
   simulation: pose centres were drawn from a Gaussian around the reference,

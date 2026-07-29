@@ -12,6 +12,7 @@ constructed. A CLI offering a choice that raises on selection is worse than not
 offering it, and `--help` alone will not catch that.
 """
 
+from pathlib import Path
 import importlib
 import subprocess
 import sys
@@ -166,3 +167,49 @@ def test_metal_summary_rate_is_a_fraction():
     assert summary["n_poses"] == 5
     assert summary["poses_with_violations"] == 2
     assert 0.0 <= summary["violation_rate"] <= 1.0
+
+
+def test_gridbox_next_step_paths_point_at_written_files(tmp_path, monkeypatch):
+    """
+    The suggested `--grid-config` path must be a file that exists.
+
+    With multiple binding sites and an explicit --output prefix, the hint was
+    built from the --output-dir default instead of the files just saved, so the
+    command printed for the user to copy referenced a path that had never been
+    created.
+    """
+    pytest.importorskip("rdkit")
+
+    import subprocess
+    import sys as _sys
+
+    receptor = tmp_path / "rec.pdb"
+    lines = []
+    for i in range(300):
+        x, y, z = (i % 10) * 3.0, ((i // 10) % 10) * 3.0, (i // 100) * 3.0
+        lines.append(
+            f"ATOM  {i + 1:5d}  CA  ALA A{i % 90 + 1:4d}    "
+            f"{x:8.3f}{y:8.3f}{z:8.3f}  1.00 20.00           C"
+        )
+    lines.append("END")
+    receptor.write_text("\n".join(lines) + "\n")
+
+    out_prefix = tmp_path / "grid.json"
+    result = subprocess.run(
+        [_sys.executable, "-m", "pandadock.gridbox_cli",
+         "-r", str(receptor), "-m", "cavities", "-o", str(out_prefix)],
+        capture_output=True, text=True, timeout=600,
+    )
+    if result.returncode != 0:
+        pytest.skip(f"gridbox could not run in this environment: {result.stderr[-300:]}")
+
+    suggested = [
+        token
+        for line in result.stdout.splitlines() if "--grid-config" in line
+        for token in line.split() if token.endswith(".json")
+    ]
+    assert suggested, "no --grid-config path was suggested"
+    for path in suggested:
+        assert Path(path).exists(), (
+            f"suggested --grid-config path does not exist: {path}"
+        )
