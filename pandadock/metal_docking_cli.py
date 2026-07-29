@@ -24,6 +24,7 @@ from .metal_docking.metal_core import MetalDockingEngine, MetalCoordinationGeome
 from .metal_docking.metal_parameters import MetalParameterManager
 from .metal_docking.metal_preparation import MetalLigandPreparator, MetalloproteinPreparator
 from .metal_docking.metal_scoring import MetalAwareScoring
+from . import __version__
 
 def show_metal_help():
     """Display professional help for metal docking"""
@@ -39,7 +40,7 @@ def show_metal_help():
                https://github.com/pritampanda15/PandaDock
 
 Author: Pritam Kumar Panda @ Stanford University
-Version: 1.0.0
+Version: {version}
 License: MIT
 
 PandaDock-Metal handles metal-containing ligands and metalloproteins
@@ -99,7 +100,7 @@ For detailed help on specific commands, use:
 
 #################################################################
 """
-    click.echo(help_text)
+    click.echo(help_text.replace("{version}", __version__))
 
 @click.group(invoke_without_command=True, add_help_option=False)
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')

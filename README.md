@@ -167,6 +167,18 @@ Removed:
   are deprecated aliases of `PandaCoreDocker`. Their distinctive code was either
   unreachable or non-functional; each module's docstring records the details.
 
+Specialized docking:
+- `pandadock-tethered` did not dock. Its own comment described it as a
+  simulation: pose centres were drawn from a Gaussian around the reference,
+  scores were `-8.0 - numpy.random.exponential(2.0)`, and coordinates were either
+  the reference jittered by 0.05 A or a synthetic benzene ring. Neither the
+  ligand nor the receptor was read, so every score and RMSD it reported was a
+  random number. It now runs the real search with a flat-bottom centroid
+  restraint applied inside the objective.
+- The tethered reference pose could only be read from PDB; SDF and MOL2 silently
+  yielded zero atoms and the run aborted with "No atoms found in reference pose"
+- Version banners across the CLIs were hardcoded to 1.0.0 and now track the release
+
 Reporting:
 - `pandadock-report plots` accepted only an algorithm-comparison directory. On a
   normal `pandadock dock` output it printed "No valid results found" and then a

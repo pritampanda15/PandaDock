@@ -22,6 +22,7 @@ import statistics
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 import logging
+from .. import __version__
 
 
 def generate_comprehensive_scoring_report(
@@ -271,7 +272,7 @@ def _write_report_header(f):
                https://github.com/pritampanda15/PandaDock
 
 Author: Pritam Kumar Panda @ Stanford University
-Version: 1.0.0
+Version: {version}
 License: MIT
 
 PandaDock is a high-performance molecular docking software with
@@ -286,7 +287,7 @@ energy calculations, and binding affinity estimations. Understanding these
 calculations is crucial for interpreting docking results and making informed
 decisions in structure-based drug design.
 
-"""
+""".replace("{version}", __version__)
     f.write(header)
 
 

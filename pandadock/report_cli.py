@@ -6,6 +6,7 @@ PandaDock Publication Report Generator CLI
 Creates publication-ready plots and analysis reports from PandaDock results
 """
 
+from . import __version__
 from .visualization.publication_plots import create_publication_plots_from_directory
 from .visualization.simple_publication_plots import create_simple_plots_from_directory
 from .visualization.pandamap.pandamap_integration import PandaMapIntegration
@@ -28,7 +29,7 @@ def show_report_help():
       https://github.com/pritampanda15/PandaDock
 
 Author: Pritam Kumar Panda @ Stanford University
-Version: 1.0.0
+Version: {version}
 
 USAGE:
     pandadock-report COMMAND [OPTIONS]
@@ -67,7 +68,7 @@ For detailed help on specific commands:
 
 #################################################################
 """
-    click.echo(help_text)
+    click.echo(help_text.replace("{version}", __version__))
 
 @click.group(invoke_without_command=True, add_help_option=False)
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')
@@ -476,11 +477,35 @@ def combined(input_dir, output_dir, title, simple, top_poses, with_3d, skip_3d, 
 
         # 1. Generate publication plots
         print("📊 Step 1: Generating publication plots...")
-        if simple:
+        from pathlib import Path as _Path
+
+        from .visualization.report import (
+            generate_report,
+            load_interaction_analyses,
+            load_result_from_dir,
+        )
+
+        # Prefer the docking-output path. This step previously called the
+        # algorithm-comparison plotters unconditionally, printed "Publication
+        # plots completed", and recorded a plots_dir in the summary that was
+        # never created.
+        _result = load_result_from_dir(_Path(input_dir))
+        if _result is not None:
+            generate_report(
+                _result, plots_dir,
+                interaction_analyses=load_interaction_analyses(_Path(input_dir)),
+                run_pandamap=False,
+            )
+        elif simple:
             create_simple_plots_from_directory(input_dir, str(plots_dir))
         else:
             create_publication_plots_from_directory(input_dir, str(plots_dir))
-        print("✅ Publication plots completed")
+
+        if plots_dir.exists() and any(plots_dir.iterdir()):
+            print(f"✅ Publication plots completed ({len(list(plots_dir.iterdir()))} files)")
+        else:
+            print("⚠️  No plots produced: expected a `pandadock dock` output "
+                  "directory or an algorithm-comparison directory")
 
         # 2. Generate PandaMap visualizations
         print("\n🔬 Step 2: Generating PandaMap visualizations...")

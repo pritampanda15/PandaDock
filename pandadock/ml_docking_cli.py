@@ -76,6 +76,7 @@ from .docking.core import DockingEngine, DockingResult, Pose
 from .docking.algorithms import GPU_AVAILABLE
 from .docking.scoring.physics_based import PhysicsBasedScoring
 from .docking.scoring.precision_score import PrecisionScoring
+from . import __version__
 
 # Configure logging
 logging.basicConfig(
@@ -97,7 +98,7 @@ def show_ml_help():
                https://github.com/pritampanda15/PandaDock
 
 Author: Pritam Kumar Panda @ Stanford University
-Version: 1.0.0 - ML Extension
+Version: {version} - ML Extension
 License: MIT
 
 PandaDock-ML combines machine learning with physics-based docking for
@@ -148,7 +149,7 @@ For detailed help on specific commands, use:
 
 #################################################################
 """
-    click.echo(help_text)
+    click.echo(help_text.replace("{version}", __version__))
 
 @click.group(invoke_without_command=True, add_help_option=False)
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')
