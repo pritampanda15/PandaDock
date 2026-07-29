@@ -27,7 +27,9 @@ Reference:
     Satorras et al. "E(n) Equivariant Graph Neural Networks" (2021)
 """
 
-__version__ = "1.0.0"
+# Re-exported rather than declared, so this cannot drift from the distribution
+# version the way pandadock.docking did.
+from .. import __version__  # noqa: F401
 
 # Lazy imports to avoid dependency issues
 def __getattr__(name):

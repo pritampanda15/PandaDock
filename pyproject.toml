@@ -1,0 +1,107 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pandadock"
+dynamic = ["version"]
+description = "Molecular docking with flexible-ligand conformational search and SE(3)-equivariant GNN scoring"
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+    { name = "Pritam Kumar Panda", email = "pritampanda15@gmail.com" },
+]
+keywords = [
+    "molecular-docking",
+    "drug-discovery",
+    "graph-neural-network",
+    "GNN",
+    "SE3-equivariant",
+    "binding-affinity",
+    "computational-chemistry",
+    "bioinformatics",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# RDKit is a hard runtime requirement but is deliberately not listed here: the
+# PyPI wheels lag the conda-forge builds, and installing it via pip alongside a
+# conda environment routinely produces two conflicting copies. Install it with
+#     conda install -c conda-forge rdkit
+dependencies = [
+    "click>=8.0.0",
+    "biopython>=1.80",
+    "propka>=3.5.1",
+    "numpy>=1.21.0",
+    "scipy>=1.7.0",
+    "scikit-learn>=1.0.0",
+    "matplotlib>=3.5.0",
+    "seaborn>=0.11.0",
+    "plotly>=5.0.0",
+]
+
+[project.optional-dependencies]
+torch = ["torch>=2.0.0"]
+ml = ["torch>=2.0.0", "h5py>=3.7.0"]
+gnn = [
+    "torch>=2.0.0",
+    "torch-geometric>=2.4.0",
+    "torch-scatter",
+    "torch-sparse",
+    "pandas>=1.3.0",
+]
+conda = ["openmm>=8.0.0", "pdbfixer>=1.9"]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/pritampanda15/PandaDock"
+Documentation = "https://pandadock.readthedocs.io/"
+"Bug Reports" = "https://github.com/pritampanda15/PandaDock/issues"
+Source = "https://github.com/pritampanda15/PandaDock"
+
+[project.scripts]
+pandadock = "pandadock.docking_cli:main"
+pandadock-prepare = "pandadock.cli:main"
+pandadock-gridbox = "pandadock.gridbox_cli:main"
+pandadock-flex = "pandadock.flex_docking_cli:main"
+pandadock-report = "pandadock.report_cli:main"
+pandadock-metal = "pandadock.metal_docking_cli:main"
+pandadock-tethered = "pandadock.tethered_cli:main"
+pandadock-ml = "pandadock.ml_docking_cli:main"
+pandadock-gnn = "pandadock.gnn.cli:main"
+
+[tool.setuptools.dynamic]
+# Single source of truth for the version. Keeping it only in the package avoids
+# the drift that previously left pandadock.docking pinned at 3.0.0 while the
+# distribution said 4.0.2.
+version = { attr = "pandadock.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["pandadock*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "gpu: marks tests as requiring GPU (deselect with '-m \"not gpu\"')",
+    "integration: marks tests as integration tests",
+]

@@ -122,9 +122,7 @@ config.local.json
 # Conda
 *.conda
 
-# Benchmark scripts and outputs (user-generated)
-benchmark_*.py
-run_benchmark.py
+# Benchmark outputs (user-generated, regenerable)
 *_benchmark*/
 benchmark_*/
 scripts/
@@ -147,4 +145,20 @@ BindingDB/
 # Publication figures (keep in separate release)
 publication_figures/
 Paper/
-benchmarking/
+
+# Benchmark harness code is tracked; only its data and results are not.
+# (This directory was previously ignored wholesale, which is why the scripts
+# documented in benchmarking/README.md were absent from the repository.)
+benchmarking/*
+!benchmarking/README.md
+!benchmarking/*.py
+!benchmarking/ULVSH/
+!benchmarking/PDBbind/
+benchmarking/**/results/
+benchmarking/**/*.csv
+benchmarking/**/*.json
+
+# Prepared benchmark inputs and results (regenerable from complexes/ + scripts)
+benchmark_prepared/
+benchmark_results/
+complexes/

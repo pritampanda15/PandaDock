@@ -1,19 +1,34 @@
 """
-PandaDock Docking Algorithms Module
+PandaDock docking algorithms.
 
-Primary Algorithm:
-- HierarchicalDocker: Multi-stage hierarchical search with coarse-to-fine refinement
-  (Best performing traditional algorithm, Pearson R ~0.12 on ULVSH dataset)
+Production algorithm:
+- PandaCoreDocker: flexible-ligand Monte Carlo search with local optimization over
+  translation, orientation and ligand torsions, scored against precomputed
+  affinity grids. Registered as ``pandadock``.
 
-For highest accuracy, use PandaDock-GNN (pandadock gnn) which achieves R > 0.8
+`HierarchicalDocker` is the name under which `PandaCoreDocker` is registered for
+the CLI. `MonteCarloDocker`, `GeneticAlgorithmDocker` and
+`EnhancedHierarchicalDocker` are deprecated aliases kept so existing imports keep
+working; each module's docstring records what was wrong with the implementation it
+replaced. `CrystalGuidedDocker` raises on construction, because it biased poses
+toward a reference structure.
 """
 
 from .hierarchical_cpu import HierarchicalDocker
+from .pandacore import PandaCoreDocker
 
-# For backwards compatibility, also expose under alternate names
+# Deprecated aliases -- all resolve to PandaCoreDocker.
+from .enhanced_hierarchical_cpu import EnhancedHierarchicalDocker
+from .genetic_algorithm_cpu import GeneticAlgorithmDocker
+from .monte_carlo_cpu import MonteCarloDocker
+
 PandaDockAlgorithm = HierarchicalDocker
 
 __all__ = [
-    'HierarchicalDocker',
-    'PandaDockAlgorithm',
+    "PandaCoreDocker",
+    "HierarchicalDocker",
+    "PandaDockAlgorithm",
+    "MonteCarloDocker",
+    "GeneticAlgorithmDocker",
+    "EnhancedHierarchicalDocker",
 ]

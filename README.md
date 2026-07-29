@@ -51,10 +51,23 @@
 
 ## Overview
 
-**PandaDock v4.0** features a novel SE(3)-equivariant Graph Neural Network (GNN) scoring function that achieves state-of-the-art correlation with experimental binding affinities (R=0.88 on PDBbind, R=0.82 on ULVSH, R=0.81 on BindingDB). The hybrid docking workflow combines traditional pose generation with GNN rescoring to deliver superior accuracy.
+**PandaDock v4.1** pairs a flexible-ligand conformational search with a novel
+SE(3)-equivariant Graph Neural Network (GNN) scoring function that achieves
+state-of-the-art correlation with experimental binding affinities (R=0.88 on
+PDBbind, R=0.82 on ULVSH, R=0.81 on BindingDB).
+
+**v4.1 replaces the pose search entirely.** Earlier releases did not search
+conformational space: they perturbed the input conformer slightly around the box
+centre, never varied ligand torsions, and ranked poses by proximity to a
+reference point rather than by interaction energy. See
+[Pose Prediction](#pose-prediction) for what changed and what it means for
+results produced with v4.0.x.
 
 ### Key Features
 
+- **PandaCore search**: flexible-ligand Monte Carlo search with quasi-Newton local
+  optimization over translation, orientation and ligand torsions, driven by
+  precomputed affinity grids with fully analytic gradients
 - **PandaDock-GNN**: SE(3)-equivariant scoring achieving **Pearson R = 0.88** on PDBbind
 - **Hybrid Docking**: Combined pose generation + GNN rescoring (recommended workflow)
 - **Universal Rescorer**: Rescore poses from ANY docking tool (Vina, Glide, GOLD, etc.)
@@ -62,6 +75,98 @@
 - **Multi-Task Learning**: Joint pKd/pEC50 regression + activity classification
 - **Heterogeneous Graphs**: Separate protein/ligand node types with interaction edges
 - **Specialized Modes**: Flexible, metal coordination, and tethered docking
+
+---
+
+## Pose Prediction
+
+The conformational search samples position uniformly over the docking box,
+orientation uniformly over SO(3), and every rotatable bond as an explicit degree of
+freedom. Each Monte Carlo step is followed by an L-BFGS relaxation using analytic
+gradients, and accepted or rejected by the Metropolis criterion. Distinct binding
+modes are returned after RMSD clustering.
+
+```bash
+# Exhaustiveness defaults to a value scaled by ligand flexibility (8-32).
+pandadock dock -r receptor.pdb -l ligand.sdf --center 10 12 8 --box 22 22 22
+
+# Reproducible run with an explicit budget
+pandadock dock -r receptor.pdb -l ligand.sdf -g grid.json -e 24 --seed 42
+```
+
+Sampling has to scale with the number of rotatable bonds. On a 13-DOF ligand,
+8 runs converged to a minimum 11 kcal/mol above the global one, while 24 runs found
+the global minimum; the default therefore grows with torsion count. Raise `-e`
+further for large, flexible ligands.
+
+### Measuring pose accuracy
+
+`benchmarking/redock_benchmark.py` redocks a set of complexes and reports
+symmetry-corrected heavy-atom RMSD, per protein family:
+
+```bash
+python benchmarking/redock_benchmark.py --input /data/pdbbind_core --output results/
+python benchmarking/redock_benchmark.py --manifest complexes.csv -j 8 --save-poses
+```
+
+RMSD is symmetry-corrected and computed without superposition. The harness reports
+top-1 and best-of-N success rates separately, because quoting best-of-N as though
+it were top-1 substantially overstates accuracy.
+
+> **Note on v4.0.2 and earlier.** The docking algorithms in previous releases did
+> not perform a conformational search. They placed the input conformer near the box
+> centre with a rotation drawn from a narrow Gaussian, never varied ligand torsions,
+> called the scoring function without the ligand (so Vina-style scores were
+> uniformly 0.0), and ranked poses by a bonus for proximity to a reference point --
+> including a hardcoded ligand coordinate that captured any box placed near it.
+> Pose-accuracy figures from those releases measure that bias and should not be
+> compared against this one. Affinity results from PandaDock-GNN are unaffected:
+> the GNN was trained and evaluated on crystal poses, independently of this code
+> path.
+
+---
+
+## Changelog
+
+### 4.1.0
+
+**Pose search rewritten.** `pandadock dock` now performs a real conformational
+search. Poses from this release are not comparable to poses from 4.0.x.
+
+Added:
+- `pandadock.docking.search` — torsion tree, precomputed Vina affinity grids,
+  analytic gradients (verified against finite differences at 2e-10 relative
+  error), and Monte Carlo search with L-BFGS local optimization
+- `PandaCoreDocker`, registered as the `pandadock` algorithm
+- `--exhaustiveness`, `--seed`, `--rigid-ligand` and `--grid-spacing` CLI options;
+  exhaustiveness defaults to a value that scales with ligand flexibility
+- `pandadock.analysis.rmsd` — symmetry-corrected RMSD without superposition
+- `pandadock.preprocessing.complex_splitter` — receptor/ligand splitting with
+  ligand identity resolved against the PDB Chemical Component Dictionary
+- `benchmarking/` — redocking benchmark, preparation, validation and reporting
+  scripts. These were previously absent from the repository because `.gitignore`
+  excluded the whole directory.
+- `pandadock.ml.vcell` — inspection for SAIR-trained cell-context checkpoints
+
+Fixed:
+- The Vina-style scoring function was called without the ligand throughout the
+  docking pipeline, so it returned 0.0 for every pose
+- A hardcoded ligand coordinate captured any docking box placed within 10 Å of it
+- `_rigid_minimization` read coordinates from the input conformer instead of the
+  pose it was given, discarding the pose being minimized
+- Sub-package versions drifted from the distribution version (`pandadock.docking`
+  reported 3.0.0 while the package shipped 4.0.2); the version is now single-sourced
+
+Removed:
+- `CrystalGuidedDocker` now raises on construction. It restricted sampling to the
+  neighbourhood of a reference pose and rewarded proximity to it, which
+  invalidates any benchmark it appears in.
+- `MonteCarloDocker`, `GeneticAlgorithmDocker` and `EnhancedHierarchicalDocker`
+  are deprecated aliases of `PandaCoreDocker`. Their distinctive code was either
+  unreachable or non-functional; each module's docstring records the details.
+
+Packaging:
+- Metadata moved to `pyproject.toml` (PEP 621); `setup.py` is now a shim
 
 ---
 
