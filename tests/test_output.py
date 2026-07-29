@@ -225,3 +225,70 @@ def test_entropy_penalty_scales_with_flexibility():
     flexible = ensemble._calculate_entropy_penalty(pose, n_rotatable_bonds=10)
 
     assert flexible > rigid, "entropy penalty does not depend on rotatable bonds"
+
+
+# ------------------------------------------------------------------ induced fit
+
+
+def test_refinement_cost_is_never_negative():
+    """
+    Induced-fit refinement cost must be a penalty.
+
+    The IFD score is `binding_energy + refinement_cost * refinement_penalty_weight`
+    with a positive weight, so a negative cost improves the score. The cost was
+    taken from a rotamer energy that combined a clash penalty with a contact
+    reward, and with no clashes it was purely the negative reward -- so a pose
+    demanding more side-chain rearrangement scored better than one needing none.
+    On a real kinase run this turned a -16.2 kcal/mol binding energy into a
+    -24.8 kcal/mol IFD score.
+    """
+    pytest.importorskip("rdkit")
+    from pandadock.flex_docking.phases import ReceptorRefiner
+
+    refiner = ReceptorRefiner()
+    try:
+        ligand = np.array([[0.0, 0.0, 0.0], [1.5, 0.0, 0.0]])
+        cases = {
+            "no contact": np.array([[10.0, 0.0, 0.0], [11.0, 0.0, 0.0]]),
+            "favourable": np.array([[3.0, 0.0, 0.0], [3.5, 1.0, 0.0]]),
+            "clashing": np.array([[0.3, 0.0, 0.0], [0.5, 0.0, 0.0]]),
+        }
+        strains = {}
+        for name, rotamer in cases.items():
+            _, strain = refiner._calculate_rotamer_energy(
+                rotamer, ligand, return_strain=True
+            )
+            assert strain >= 0.0, f"{name}: refinement strain is negative ({strain})"
+            strains[name] = strain
+
+        assert strains["clashing"] > strains["no contact"], (
+            "a clashing rotamer must carry more strain than a distant one"
+        )
+    finally:
+        refiner.cleanup()
+
+
+def test_rotamer_selection_still_prefers_favourable_contacts():
+    """
+    Separating strain from the selection energy must not change which rotamer
+    wins: ranking still uses clash penalty plus contact reward.
+    """
+    pytest.importorskip("rdkit")
+    from pandadock.flex_docking.phases import ReceptorRefiner
+
+    refiner = ReceptorRefiner()
+    try:
+        ligand = np.array([[0.0, 0.0, 0.0], [1.5, 0.0, 0.0]])
+        # 3.5 A from the nearest ligand atom: inside the favourable 2.5-4.0 A
+        # window rather than clashing with it.
+        distant, _ = refiner._calculate_rotamer_energy(
+            np.array([[20.0, 0.0, 0.0]]), ligand, return_strain=True
+        )
+        contacting, _ = refiner._calculate_rotamer_energy(
+            np.array([[1.5, 3.5, 0.0]]), ligand, return_strain=True
+        )
+        assert contacting < distant, (
+            "rotamer ranking no longer rewards favourable contacts"
+        )
+    finally:
+        refiner.cleanup()

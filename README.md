@@ -261,10 +261,12 @@ pandadock-tethered dock -r receptor.pdb -l ligand.sdf \
 Tethered docking applies a flat-bottom centroid restraint inside the objective:
 free movement within the radius, harmonic cost beyond it.
 
-Induced-fit docking redocks into every refined receptor and is substantially
-slower than rigid-receptor docking — budget hours rather than minutes for a
+Induced-fit docking redocks into every refined receptor, so cost scales with the
+number of poses carried into refinement: budget hours rather than minutes for a
 single ligand. Refined receptors are written to a temporary directory and removed
-when the run ends, including on failure.
+when the run ends, including on failure. The IFD score is the binding energy plus
+a weighted receptor-strain penalty, so a pose requiring more side-chain
+rearrangement scores worse than an equivalent one that requires none.
 
 Metal parameters fall back to built-in approximations when no AutoDock-format
 parameter file is supplied. Those are adequate for identifying coordination

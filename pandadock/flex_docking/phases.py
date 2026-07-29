@@ -345,24 +345,47 @@ class ReceptorRefiner:
 
     def _select_best_rotamer(self, rotamers: List[np.ndarray], pose: Pose,
                            structure: Structure) -> Tuple[Optional[np.ndarray], float]:
-        """Select best rotamer conformation based on energy"""
+        """
+        Choose the best rotamer, and report the strain it leaves behind.
 
+        Selection uses the full energy (clash penalty plus contact reward), but
+        the value returned as the refinement cost is the residual clash strain
+        alone, which is non-negative.
+
+        Returning the full energy conflated the two. With no clashes it is purely
+        a negative contact reward, and the IFD score adds
+        `refinement_cost * refinement_penalty_weight` -- so a negative cost
+        improved the score. A pose demanding more side-chain rearrangement scored
+        better than one needing none, inverting the purpose of an induced-fit
+        penalty.
+        """
         best_rotamer = None
         best_energy = float('inf')
+        best_strain = 0.0
 
         for rotamer in rotamers:
-            # Calculate simple clash score with ligand
-            energy = self._calculate_rotamer_energy(rotamer, pose.coordinates)
+            energy, strain = self._calculate_rotamer_energy(
+                rotamer, pose.coordinates, return_strain=True
+            )
 
             if energy < best_energy:
                 best_energy = energy
+                best_strain = strain
                 best_rotamer = rotamer
 
-        return best_rotamer, best_energy
+        return best_rotamer, best_strain
 
     def _calculate_rotamer_energy(self, rotamer_coords: np.ndarray,
-                                ligand_coords: np.ndarray) -> float:
-        """Calculate simplified energy for rotamer conformation"""
+                                ligand_coords: np.ndarray,
+                                return_strain: bool = False):
+        """
+        Simplified energy for a rotamer conformation.
+
+        Returns the combined energy used to rank rotamers. With
+        `return_strain=True` it also returns the clash component on its own,
+        which is the non-negative strain the receptor carries in that
+        conformation and the quantity an induced-fit penalty should use.
+        """
 
         # Simple distance-based scoring
         min_distances = []
@@ -377,6 +400,8 @@ class ReceptorRefiner:
         favorable_contacts = sum(1 for d in min_distances if 2.5 <= d <= 4.0)
         contact_reward = favorable_contacts * -0.5
 
+        if return_strain:
+            return clash_penalty + contact_reward, clash_penalty
         return clash_penalty + contact_reward
 
     def _update_residue_conformation(self, structure: Structure,
