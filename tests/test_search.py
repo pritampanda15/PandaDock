@@ -13,10 +13,18 @@ os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 import numpy as np
 import pytest
-from rdkit import Chem
-from rdkit.Chem import AllChem
 
-from pandadock.docking.search import (
+# RDKit and BioPython are required for docking but are not pip-installable
+# alongside conda in a way that works everywhere, so an environment can
+# legitimately lack them. Skip rather than let an ImportError at collection time
+# abort the entire suite, including tests that have nothing to do with docking.
+pytest.importorskip("rdkit", reason="RDKit is required for the docking tests")
+pytest.importorskip("Bio", reason="BioPython is required to parse receptors")
+
+from rdkit import Chem  # noqa: E402
+from rdkit.Chem import AllChem  # noqa: E402
+
+from pandadock.docking.search import (  # noqa: E402
     AffinityGrids,
     DockingObjective,
     MonteCarloSearch,

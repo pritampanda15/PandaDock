@@ -25,7 +25,9 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # Install CI-compatible dependencies (no PyMOL, RDKit, etc.)
+        # Lightweight install to verify the package builds on a bare interpreter.
+        # The conda environment set up below is what actually runs the tests,
+        # since RDKit is only reliably installable from conda-forge.
         if [ -f requirements-ci.txt ]; then pip install -r requirements-ci.txt; fi
         pip install -e .  # Install the package in development mode
 
@@ -39,8 +41,14 @@ jobs:
     - name: Install conda dependencies
       shell: bash -el {0}
       run: |
-        # Install core scientific packages via conda for better compatibility
-        conda install -c conda-forge numpy scipy matplotlib scikit-learn pandas pyyaml click tqdm -y
+        # Install core scientific packages via conda for better compatibility.
+        # RDKit and BioPython are included deliberately: they are hard runtime
+        # requirements for docking, and without them the entire search and
+        # preprocessing test suite skips, so CI would report green while never
+        # exercising the code that does the actual work.
+        conda install -c conda-forge -y \
+          numpy scipy matplotlib scikit-learn pandas pyyaml click tqdm \
+          rdkit biopython
         # Install additional deps that might not be in conda-forge
         python -m pip install psutil requests pytest pytest-cov flake8
         python -m pip install -e .
