@@ -1,7 +1,7 @@
 pandadock-flex - Flexible Docking Command
 ==========================================
 
-The ``pandadock-flex`` command performs induced-fit docking with receptor flexibility. It accounts for protein conformational changes upon ligand binding, similar to Schrödinger's Induced-Fit Docking (IFD).
+The ``pandadock-flex`` command performs induced-fit docking with receptor flexibility. It accounts for protein conformational changes upon ligand binding, similar to SchrÃ¶dinger's Induced-Fit Docking (IFD).
 
 Synopsis
 --------
@@ -152,7 +152,7 @@ Basic Flexible Docking
 
 This uses default settings:
 
-* 6Å side-chain flexibility
+* 6Ã… side-chain flexibility
 * 5 receptor conformers
 * OpenMM refinement
 
@@ -272,7 +272,7 @@ Performance Characteristics
 
 **Accuracy:**
 
-* RMSD: 0.2-0.6 Å (excellent for induced-fit cases)
+* RMSD: 0.2-0.6 Ã… (excellent for induced-fit cases)
 * Success rate: 92-96% for flexible binding sites
 
 Best Practices
@@ -287,7 +287,7 @@ When to Use Flexible Docking
 
  **Proteins with known conformational changes** upon binding
 
- **When rigid docking fails** to reproduce crystal pose (RMSD > 2Å)
+ **When rigid docking fails** to reproduce crystal pose (RMSD > 2Ã…)
 
  **Large, conformationally diverse ligands** (peptides, macrocycles)
 
@@ -320,7 +320,7 @@ Optimization Tips
 
 .. code-block:: bash
 
-   # Auto-select within 6Å (default)
+   # Auto-select within 6Ã… (default)
    --refine-distance 6.0
 
    # Larger binding site

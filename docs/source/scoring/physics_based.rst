@@ -36,7 +36,7 @@ Energy Components
 
    * Lennard-Jones 12-6 potential
    * Accounts for favorable dispersion interactions and steric clashes
-   * Distance-dependent with r{v attractive and r{¹² repulsive terms
+   * Distance-dependent with r{v attractive and r{Â¹Â² repulsive terms
 
 2. **Electrostatic Energy**
 
@@ -45,7 +45,7 @@ Energy Components
       E_{elec} = \\sum_{i,j} \\frac{q_i q_j}{4\\pi\\epsilon_0 \\epsilon_r r_{ij}}
 
    * Coulombic interactions between partial atomic charges
-   * Distance-dependent dielectric: µ(r) = 4r
+   * Distance-dependent dielectric: Âµ(r) = 4r
    * Accounts for charge-charge, charge-dipole interactions
 
 3. **Desolvation Energy**
@@ -177,8 +177,8 @@ Screening throughput:
 Success Rate
 ^^^^^^^^^^^^
 
-* **RMSD < 2Å:** 90-95% (with enhanced_hierarchical algorithm)
-* **Top pose RMSD < 2Å:** 75-85%
+* **RMSD < 2Ã…:** 90-95% (with enhanced_hierarchical algorithm)
+* **Top pose RMSD < 2Ã…:** 75-85%
 * **Correct binding mode identification:** 85-90%
 
 Strengths and Limitations

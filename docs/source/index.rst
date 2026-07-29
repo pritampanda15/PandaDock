@@ -11,7 +11,7 @@ Welcome to PandaDock Documentation
 PandaDock is a next-generation molecular docking platform featuring an **SE(3)-equivariant Graph Neural Network** scoring function that achieves **R > 0.8** correlation with experimental binding affinities.
 
 .. note::
-   **PandaDock v4.0** features the PandaDock-GNN scoring function with state-of-the-art performance: Pearson R = 0.88 on PDBbind, R = 0.82 on ULVSH test set, and R = 0.68 on novel GABA receptor dataset. Significantly outperforms all baseline methods including Vina, Gnina, and MM-GBSA.
+   **PandaDock v4.1** pairs a flexible-ligand conformational search with the PandaDock-GNN scoring function: Pearson R = 0.88 on PDBbind and R = 0.81 on BindingDB for affinity prediction, and AUC = 0.94 for activity classification on the ULVSH test set.
 
 Quick Start
 -----------
@@ -89,7 +89,7 @@ Performance Benchmarks
 +---------------------------------+-----------------+----------------+
 | Method                          | Type            | Pearson R      |
 +=================================+=================+================+
-| **PandaDock-GNN (test set)**    | ML Scoring      | **0.82** ⭐    |
+| **PandaDock-GNN (AUC, test)**   | ML Scoring      | **0.94** ⭐    |
 +---------------------------------+-----------------+----------------+
 | VM2                             | Free energy     | 0.15           |
 +---------------------------------+-----------------+----------------+
@@ -192,3 +192,12 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
+
+.. note::
+
+   ULVSH affinity labels are censored: inactive compounds take a floor
+   value, and 89 of the 95 test-split pEC50 values are exactly 4.0. A
+   Pearson correlation over that distribution reflects separation of
+   actives from the floor rather than affinity ranking, so ULVSH is
+   reported as activity classification (AUC = 0.94). Use PDBbind or
+   BindingDB for continuous affinity performance.

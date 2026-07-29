@@ -9,7 +9,7 @@ Version 4.0.0 (2026)
 * **State-of-the-Art Performance**: Improved GNN training achieves:
 
   - Pearson R = 0.88 on PDBbind (5,316 complexes)
-  - Pearson R = 0.82 on ULVSH held-out test set
+  - Activity classification AUC = 0.94 on the ULVSH held-out test set
   - Pearson R = 0.81 on BindingDB (8,891 complexes)
   - Pearson R = 0.68 on novel GABA receptor dataset (30 compounds)
 
@@ -109,3 +109,12 @@ Version 1.x
 -----------
 
 Initial release with basic docking functionality.
+
+.. note::
+
+   ULVSH affinity labels are censored: inactive compounds take a floor
+   value, and 89 of the 95 test-split pEC50 values are exactly 4.0. A
+   Pearson correlation over that distribution reflects separation of
+   actives from the floor rather than affinity ranking, so ULVSH is
+   reported as activity classification (AUC = 0.94). Use PDBbind or
+   BindingDB for continuous affinity performance.

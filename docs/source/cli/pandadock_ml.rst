@@ -81,7 +81,7 @@ ML Feature Options
 ``--include-interaction-features / --no-interaction-features``
     Include protein-ligand interaction features. Default: enabled
 
-    Interaction features: H-bonds, À-stacking, hydrophobic contacts
+    Interaction features: H-bonds, Ã€-stacking, hydrophobic contacts
 
 ``--include-pharmacophore / --no-pharmacophore``
     Include pharmacophore features. Default: enabled
@@ -108,7 +108,7 @@ Scoring Options
 ``--ml-weight FLOAT``
     Weight for ML score in combined mode. Default: 0.6
 
-    Final score = (1 - weight) × physics + weight × ML
+    Final score = (1 - weight) Ã— physics + weight Ã— ML
 
 ``--physics-weight FLOAT``
     Weight for physics score in combined mode. Default: 0.4

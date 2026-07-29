@@ -30,7 +30,7 @@ The model was trained on the combined ULVSH + PDBbind dataset (200 epochs)
 and achieves:
 
 * **PDBbind Pearson R: 0.88**
-* **ULVSH Test Pearson R: 0.82**
+* **ULVSH Test activity AUC: 0.94** (affinity labels are censored; see note)
 * **ULVSH Activity AUC: 0.94**
 
 **Options:**

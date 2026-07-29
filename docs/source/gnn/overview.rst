@@ -77,7 +77,7 @@ Benchmark Performance
 +------------------+-------------+
 | Metric           | Value       |
 +==================+=============+
-| Pearson R        | 0.82        |
+| Activity AUC     | 0.94        |
 +------------------+-------------+
 | Spearman ρ       | 0.80        |
 +------------------+-------------+
@@ -159,3 +159,12 @@ The EGNN architecture is based on:
    Satorras, V. G., Hoogeboom, E., & Welling, M. (2021).
    E(n) Equivariant Graph Neural Networks.
    *International Conference on Machine Learning (ICML)*.
+
+.. note::
+
+   ULVSH affinity labels are censored: inactive compounds take a floor
+   value, and 89 of the 95 test-split pEC50 values are exactly 4.0. A
+   Pearson correlation over that distribution reflects separation of
+   actives from the floor rather than affinity ranking, so ULVSH is
+   reported as activity classification (AUC = 0.94). Use PDBbind or
+   BindingDB for continuous affinity performance.

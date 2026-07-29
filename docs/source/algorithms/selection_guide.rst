@@ -27,33 +27,33 @@ Decision Tree
 
 **Step 1: GPU Available?**
 
-* **YES** ’ Use GPU algorithms for massive speedup:
+* **YES** â€™ Use GPU algorithms for massive speedup:
 
-  * High accuracy needed ’ ``enhanced_hierarchical_gpu``
-  * Fast screening ’ ``cuda_monte_carlo``
-  * Complex binding site ’ ``cuda_genetic_algorithm``
+  * High accuracy needed â€™ ``enhanced_hierarchical_gpu``
+  * Fast screening â€™ ``cuda_monte_carlo``
+  * Complex binding site â€™ ``cuda_genetic_algorithm``
 
-* **NO** ’ Continue to Step 2
+* **NO** â€™ Continue to Step 2
 
 **Step 2: What's Your Priority?**
 
-* **Maximum Accuracy** ’ ``enhanced_hierarchical_cpu``
-* **Maximum Speed** ’ ``monte_carlo_cpu``
-* **Balanced** ’ ``hierarchical_cpu``
-* **Validation/Reproduction** ’ ``crystal_guided_cpu``
+* **Maximum Accuracy** â€™ ``enhanced_hierarchical_cpu``
+* **Maximum Speed** â€™ ``monte_carlo_cpu``
+* **Balanced** â€™ ``hierarchical_cpu``
+* **Validation/Reproduction** â€™ ``crystal_guided_cpu``
 
 **Step 3: Consider Ligand Properties**
 
-* **Rigid ligand (0-3 rotatable bonds)** ’ ``hierarchical_cpu``
-* **Flexible ligand (4-8 bonds)** ’ ``enhanced_hierarchical_cpu``
-* **Highly flexible (>8 bonds)** ’ ``genetic_algorithm_cpu``
+* **Rigid ligand (0-3 rotatable bonds)** â€™ ``hierarchical_cpu``
+* **Flexible ligand (4-8 bonds)** â€™ ``enhanced_hierarchical_cpu``
+* **Highly flexible (>8 bonds)** â€™ ``genetic_algorithm_cpu``
 
 **Step 4: Special Cases?**
 
-* **Induced fit required** ’ Use ``pandadock-flex`` (flexible docking)
-* **Metalloprotein** ’ Use ``pandadock-metal`` (metal docking)
-* **ML scoring preferred** ’ Use ``pandadock-ml`` (ML docking)
-* **Constrained docking** ’ Use ``pandadock-tethered`` (tethered docking)
+* **Induced fit required** â€™ Use ``pandadock-flex`` (flexible docking)
+* **Metalloprotein** â€™ Use ``pandadock-metal`` (metal docking)
+* **ML scoring preferred** â€™ Use ``pandadock-ml`` (ML docking)
+* **Constrained docking** â€™ Use ``pandadock-tethered`` (tethered docking)
 
 By Use Case
 -----------
@@ -174,7 +174,7 @@ Small Rigid Ligands (<15 atoms, 0-3 rotatable bonds)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 * **Algorithm:** ``hierarchical_cpu`` or ``monte_carlo_cpu``
-* **Rationale:** Limited conformational space ’ faster algorithms sufficient
+* **Rationale:** Limited conformational space â€™ faster algorithms sufficient
 
 Medium Flexibility (15-30 atoms, 4-8 rotatable bonds)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -238,7 +238,7 @@ For Maximum Accuracy
                   --num-poses 100 \\
                   --ensemble
 
-Expected RMSD: <0.1 Å
+Expected RMSD: <0.1 Ã…
 
 For Balanced Performance
 ^^^^^^^^^^^^^^^^^^^^^^^^
@@ -250,7 +250,7 @@ For Balanced Performance
                   --gpu \\
                   --num-poses 20
 
-Expected: 720-1800 ligands/hour, RMSD ~0.08 Å
+Expected: 720-1800 ligands/hour, RMSD ~0.08 Ã…
 
 Algorithm Comparison Metrics
 -----------------------------
@@ -258,11 +258,11 @@ Algorithm Comparison Metrics
 Accuracy Ranking
 ^^^^^^^^^^^^^^^^
 
-1. ``crystal_guided_cpu`` (with reference): 0.05-0.2 Å
-2. ``enhanced_hierarchical_cpu/gpu``: 0.08 Å
-3. ``genetic_algorithm_cpu/cuda``: 0.3-0.8 Å
-4. ``hierarchical_cpu``: 0.5-1.0 Å
-5. ``monte_carlo_cpu/cuda``: 0.5-1.5 Å
+1. ``crystal_guided_cpu`` (with reference): 0.05-0.2 Ã…
+2. ``enhanced_hierarchical_cpu/gpu``: 0.08 Ã…
+3. ``genetic_algorithm_cpu/cuda``: 0.3-0.8 Ã…
+4. ``hierarchical_cpu``: 0.5-1.0 Ã…
+5. ``monte_carlo_cpu/cuda``: 0.5-1.5 Ã…
 
 Speed Ranking (CPU)
 ^^^^^^^^^^^^^^^^^^^
@@ -280,7 +280,7 @@ Speed Ranking (GPU)
 2. ``cuda_genetic_algorithm``: 1-3s (80-150x speedup)
 3. ``enhanced_hierarchical_gpu``: 2-5s (50-100x speedup)
 
-Success Rate (RMSD < 2Å)
+Success Rate (RMSD < 2Ã…)
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
 1. ``crystal_guided_cpu``: 98-100%
@@ -337,7 +337,7 @@ Recommended Validation Protocol
                      --algorithm enhanced_hierarchical_cpu \\
                      -o validation/
 
-   Success criterion: RMSD < 2.0 Å to crystal pose
+   Success criterion: RMSD < 2.0 Ã… to crystal pose
 
 2. **Compare Multiple Algorithms:**
 

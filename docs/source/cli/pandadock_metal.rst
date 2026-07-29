@@ -21,7 +21,7 @@ Performs molecular docking with metal coordination constraints:
 * Charge-transfer interactions
 * Chelation effects
 
-Supports Zn²z, Fe²z/³z, Mg²z, Ca²z, Mn²z, Cu²z, Ni²z, and Co²z.
+Supports ZnÂ²z, FeÂ²z/Â³z, MgÂ²z, CaÂ²z, MnÂ²z, CuÂ²z, NiÂ²z, and CoÂ²z.
 
 Required Options
 ----------------
@@ -54,11 +54,11 @@ Metal Coordination Options
 
     Options:
 
-    * ``tetrahedral`` - 4 coordination sites (109.5° angles)
-    * ``octahedral`` - 6 coordination sites (90° angles)
-    * ``square_planar`` - 4 coordination sites (90°/180° angles)
+    * ``tetrahedral`` - 4 coordination sites (109.5Â° angles)
+    * ``octahedral`` - 6 coordination sites (90Â° angles)
+    * ``square_planar`` - 4 coordination sites (90Â°/180Â° angles)
     * ``trigonal_bipyramidal`` - 5 coordination sites
-    * ``irregular`` - No strict geometry (Ca²z, flexible metals)
+    * ``irregular`` - No strict geometry (CaÂ²z, flexible metals)
 
 ``--coordination-number N``
     Number of coordination sites. Default: auto from geometry
@@ -72,10 +72,10 @@ Metal Coordination Options
     Maximum ligand-metal coordination bonds. Default: 3
 
 ``--coord-bond-length-min FLOAT``
-    Minimum metal-donor distance (Å). Default: 1.8
+    Minimum metal-donor distance (Ã…). Default: 1.8
 
 ``--coord-bond-length-max FLOAT``
-    Maximum metal-donor distance (Å). Default: 2.8
+    Maximum metal-donor distance (Ã…). Default: 2.8
 
 ``--coord-angle-tolerance FLOAT``
     Coordination angle tolerance (degrees). Default: 20.0
@@ -83,34 +83,34 @@ Metal Coordination Options
 Metal-Specific Parameters
 --------------------------
 
-**Zinc (Zn²z):**
+**Zinc (ZnÂ²z):**
 
 * Default geometry: ``tetrahedral``
-* Bond length range: 1.9-2.5 Å
+* Bond length range: 1.9-2.5 Ã…
 * Preferred donors: N (His), S (Cys), O (Asp, Glu, water)
 
-**Iron (Fe²z/Fe³z):**
+**Iron (FeÂ²z/FeÂ³z):**
 
 * Default geometry: ``octahedral``
-* Bond length range: 1.9-2.4 Å
+* Bond length range: 1.9-2.4 Ã…
 * Preferred donors: N (His), O (Asp, Glu, water), S (Cys)
 
-**Magnesium (Mg²z):**
+**Magnesium (MgÂ²z):**
 
 * Default geometry: ``octahedral``
-* Bond length range: 2.0-2.3 Å
+* Bond length range: 2.0-2.3 Ã…
 * Preferred donors: O (phosphate, carboxylate, water)
 
-**Calcium (Ca²z):**
+**Calcium (CaÂ²z):**
 
 * Default geometry: ``irregular``
-* Bond length range: 2.2-2.8 Å
+* Bond length range: 2.2-2.8 Ã…
 * Coordination number: 6-8 (flexible)
 
-**Copper (Cu²z):**
+**Copper (CuÂ²z):**
 
 * Default geometry: ``square_planar``
-* Bond length range: 1.9-2.3 Å
+* Bond length range: 1.9-2.3 Ã…
 * Preferred donors: N (His), S (Cys/Met), O
 
 Docking Algorithm
@@ -326,7 +326,7 @@ Performance Characteristics
 
 **Accuracy:**
 
-* RMSD: 0.15-0.4 Å for metal-coordinating ligands
+* RMSD: 0.15-0.4 Ã… for metal-coordinating ligands
 * Success rate: 95-98% for known metalloproteins
 * Coordination geometry accuracy: >95%
 
@@ -365,15 +365,15 @@ Coordination Geometry Selection
 +--------+-----------------+-------------+-----------------+
 | Metal  | Geometry        | Coord #     | Examples        |
 +========+=================+=============+=================+
-| Zn²z   | Tetrahedral     | 4           | MMPs, CA        |
+| ZnÂ²z   | Tetrahedral     | 4           | MMPs, CA        |
 +--------+-----------------+-------------+-----------------+
-| Fe²z/³z| Octahedral      | 6           | Heme proteins   |
+| FeÂ²z/Â³z| Octahedral      | 6           | Heme proteins   |
 +--------+-----------------+-------------+-----------------+
-| Mg²z   | Octahedral      | 6           | Kinases         |
+| MgÂ²z   | Octahedral      | 6           | Kinases         |
 +--------+-----------------+-------------+-----------------+
-| Cu²z   | Square planar   | 4           | Oxidases        |
+| CuÂ²z   | Square planar   | 4           | Oxidases        |
 +--------+-----------------+-------------+-----------------+
-| Ca²z   | Irregular       | 6-8         | Calmodulin      |
+| CaÂ²z   | Irregular       | 6-8         | Calmodulin      |
 +--------+-----------------+-------------+-----------------+
 
 Parameter Tuning
@@ -438,7 +438,7 @@ Validation
 **Validate metal docking results:**
 
 1. Visual inspection of coordination geometry
-2. Check metal-donor distances (1.8-2.8 Å typical)
+2. Check metal-donor distances (1.8-2.8 Ã… typical)
 3. Verify coordination angles match expected geometry
 4. Compare to known crystal structures if available
 
@@ -472,7 +472,7 @@ Carbonic Anhydrase
                    --coordination-geometry tetrahedral \\
                    --donor-atoms N,O
 
-Kinases (Mg²z-ATP Binding Site)
+Kinases (MgÂ²z-ATP Binding Site)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: bash
