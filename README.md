@@ -102,7 +102,9 @@ further for large, flexible ligands.
 ### Measuring pose accuracy
 
 `benchmarking/redock_benchmark.py` redocks a set of complexes and reports
-symmetry-corrected heavy-atom RMSD, per protein family:
+symmetry-corrected heavy-atom RMSD, per protein family. These scripts are
+development tooling and are not shipped in the PyPI package — clone the
+repository to use them:
 
 ```bash
 python benchmarking/redock_benchmark.py --input /data/pdbbind_core --output results/
