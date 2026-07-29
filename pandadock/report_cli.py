@@ -130,15 +130,60 @@ def plots(input_dir, output_dir, title, simple):
     print(f"Report title: {title}")
     print("")
 
+    from pathlib import Path
+
+    from .visualization.report import (
+        generate_report,
+        load_interaction_analyses,
+        load_result_from_dir,
+    )
+
+    out = Path(output_dir) if output_dir else Path(input_dir) / "publication_plots"
+
     try:
+        # A standard `pandadock dock` output directory is handled directly. This
+        # command previously accepted only an algorithm-comparison layout, so on
+        # ordinary docking output it printed "No valid results found" and then a
+        # success banner, having written nothing.
+        result = load_result_from_dir(Path(input_dir))
+
+        if result is not None:
+            images = generate_report(
+                result,
+                out,
+                ligand_mol=None,
+                interaction_analyses=load_interaction_analyses(Path(input_dir)),
+                run_pandamap=True,
+            )
+            if not images:
+                print("\n❌ No plots could be generated from this run.")
+                sys.exit(1)
+            for name in sorted(images):
+                print(f"   {name}: {Path(images[name]).name}")
+            report = out / "report.html"
+            if report.exists():
+                print(f"   report: {report}")
+            print(f"\n✅ Report written to {out}")
+            return
+
+        # Otherwise fall back to the algorithm-comparison plotters.
         if simple:
             create_simple_plots_from_directory(input_dir, output_dir)
-            print("\n✅ Simple publication report generated successfully!")
         else:
             create_publication_plots_from_directory(input_dir, output_dir)
-            print("\n✅ Comprehensive publication report generated successfully!")
-        print("📊 Ready for scientific publication and presentation")
 
+        produced = list(out.glob("*.png")) + list(out.glob("*.pdf")) if out.exists() else []
+        if not produced:
+            print("\n❌ No results found in this directory.")
+            print("   Expected either a `pandadock dock` output directory "
+                  "(containing *_summary.json and *_poses.json) or an "
+                  "algorithm-comparison directory.")
+            sys.exit(1)
+
+        print(f"\n✅ Wrote {len(produced)} files to {out}")
+
+    except SystemExit:
+        raise
     except Exception as e:
         print(f"\n❌ Error generating plots: {str(e)}")
         sys.exit(1)

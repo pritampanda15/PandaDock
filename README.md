@@ -168,6 +168,13 @@ Removed:
   unreachable or non-functional; each module's docstring records the details.
 
 Reporting:
+- `pandadock-report plots` accepted only an algorithm-comparison directory. On a
+  normal `pandadock dock` output it printed "No valid results found" and then a
+  success banner, having written nothing. It now reads standard docking output
+  directly, and exits non-zero when it finds nothing.
+- `pandadock hybrid` wrote 5 poses but only 3 complexes, produced no SDF, and
+  generated no plots. It now writes a complex per pose and the same report as
+  `pandadock dock`.
 - Every run now writes `report.html` bundling the plots and run parameters
 - New plots: pose scores with the rank-1/rank-2 gap, energy terms split into
   favourable and penalty contributions, a pose-pose RMSD matrix showing whether

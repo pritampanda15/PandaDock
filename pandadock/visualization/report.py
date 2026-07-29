@@ -383,8 +383,12 @@ def generate_report(result, output_dir: Path, ligand_mol=None,
 
 def _run_pandamap(output_dir: Path) -> Optional[Path]:
     """Generate a 2D interaction diagram for the top complex, if PandaMap is present."""
-    complex_pdb = output_dir / "complex1.pdb"
-    if not complex_pdb.exists():
+    # `dock` writes complex1.pdb while `hybrid` writes complex_1.pdb; accept both
+    # rather than silently skipping the diagram for one of them.
+    candidates = sorted(output_dir.glob("complex1.pdb")) or sorted(
+        output_dir.glob("complex_1.pdb")
+    )
+    if not candidates:
         return None
 
     from ..visualization.pandamap.pandamap_integration import PandaMapIntegration
@@ -399,3 +403,85 @@ def _run_pandamap(output_dir: Path) -> Optional[Path]:
     for candidate in sorted(output_dir.glob("pandamap_2d_*.png")):
         return candidate
     return None
+
+
+def load_result_from_dir(results_dir: Path):
+    """
+    Reconstruct a docking result from the JSON a run writes.
+
+    Lets the reporting commands operate on an ordinary `pandadock dock` output
+    directory. `pandadock-report plots` previously accepted only an
+    algorithm-comparison layout and reported "No valid results found" for a
+    normal run -- then printed a success banner and wrote nothing.
+
+    Returns None when the directory holds no docking output, so callers can fall
+    back to another loader rather than treating absence as failure.
+    """
+    from ..docking.core import DockingResult, Pose
+
+    results_dir = Path(results_dir)
+    summaries = sorted(results_dir.glob("*_summary.json"))
+    poses_files = sorted(results_dir.glob("*_poses.json"))
+    if not summaries or not poses_files:
+        return None
+
+    try:
+        summary = json.loads(summaries[0].read_text())
+        poses_blob = json.loads(poses_files[0].read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Could not read docking output in %s: %s", results_dir, exc)
+        return None
+
+    raw_poses = poses_blob.get("poses", poses_blob) if isinstance(poses_blob, dict) else poses_blob
+    if not raw_poses:
+        return None
+
+    poses = []
+    for entry in raw_poses:
+        try:
+            poses.append(
+                Pose(
+                    coordinates=np.asarray(entry["coordinates"], dtype=float),
+                    center=np.asarray(entry.get("center", [0, 0, 0]), dtype=float),
+                    rotation=np.asarray(entry.get("rotation", [0, 0, 0, 1]), dtype=float),
+                    conformer_id=int(entry.get("conformer_id", 0)),
+                    energy=float(entry.get("energy", 0.0)),
+                    energy_components=entry.get("energy_components") or {},
+                    internal_strain=float(entry.get("internal_strain", 0.0)),
+                    confidence=float(entry.get("confidence", 0.0)),
+                )
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.debug("Skipping malformed pose entry: %s", exc)
+
+    if not poses:
+        return None
+
+    result = DockingResult(
+        ligand_name=summary.get("ligand_name", "ligand"),
+        receptor_file=summary.get("receptor_file", ""),
+        grid_center=np.asarray(summary.get("grid_center", [0, 0, 0]), dtype=float),
+        grid_dimensions=np.asarray(summary.get("grid_dimensions", [0, 0, 0]), dtype=float),
+        algorithm_used=summary.get("algorithm_used", "pandadock"),
+        scoring_function=summary.get("scoring_function", "vina"),
+        poses=poses,
+        runtime_seconds=float(summary.get("runtime_seconds", 0.0)),
+        parameters=summary.get("parameters", {}),
+    )
+    result.ensemble_binding_energy = float(summary.get("ensemble_binding_energy", 0.0))
+    result.ensemble_confidence = float(summary.get("ensemble_confidence", 0.0))
+    return result
+
+
+def load_interaction_analyses(results_dir: Path) -> List[Dict]:
+    """Read per-pose interaction analyses if a run recorded them."""
+    path = Path(results_dir) / "interaction_analysis.json"
+    if not path.exists():
+        return []
+    try:
+        blob = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return []
+    if isinstance(blob, dict) and "all_poses" in blob:
+        return blob["all_poses"]
+    return [blob] if isinstance(blob, dict) else []

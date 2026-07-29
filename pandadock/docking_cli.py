@@ -638,16 +638,55 @@ def hybrid(receptor, ligand, grid_config, center, box, model, output_dir, num_po
 
     results_df.to_csv(output_path / 'hybrid_results.csv', index=False)
 
-    # Save top pose structures
+    # Save top pose structures. All of --top-k are written, for poses and
+    # complexes alike: the counts were previously capped at 5 and 3
+    # independently, so a run asking for 5 poses produced 3 complexes and the
+    # ranking table referred to files that did not exist.
     click.echo("\nSaving pose structures...")
-    for i, p in enumerate(top_poses[:5], 1):
+    for i, p in enumerate(top_poses, 1):
         pose_file = output_path / f"pose_{i}_pec50_{p['gnn_pec50']:.2f}.pdb"
         save_pose_to_pdb(p['pose'], pose_file, ligand_mol)
 
-    # Save complexes
-    for i, p in enumerate(top_poses[:3], 1):
         complex_file = output_path / f"complex_{i}.pdb"
         save_complex_to_pdb(receptor, p['pose'], complex_file, ligand_mol)
+
+    # Rebuild a DockingResult from the rescored ordering so the hybrid run
+    # produces the same SDF and report as `pandadock dock`. Pose energies carry
+    # the GNN score, which is what the poses are ranked by here.
+    try:
+        from .visualization.report import generate_report
+
+        rescored = DockingResult(
+            ligand_name=result.ligand_name,
+            receptor_file=receptor,
+            grid_center=result.grid_center,
+            grid_dimensions=result.grid_dimensions,
+            algorithm_used="hybrid",
+            scoring_function="pandadock_gnn",
+            poses=[],
+            runtime_seconds=time.time() - start_time,
+            parameters=dict(result.parameters or {}, rescoring="pandadock_gnn",
+                            model=str(model)),
+        )
+        for p in top_poses:
+            pose = p['pose']
+            pose.energy = p['gnn_energy']
+            pose.energy_components = {
+                'gnn_pec50': float(p['gnn_pec50']),
+                'gnn_energy': float(p['gnn_energy']),
+                'vina_energy': float(p['vina_energy']),
+            }
+            pose.confidence = float(p.get('activity_prob', 0.0))
+            rescored.poses.append(pose)
+
+        save_poses_sdf(rescored, output_path, ligand_mol)
+        generate_report(rescored, output_path, ligand_mol=ligand_mol,
+                        receptor_file=receptor, run_pandamap=True)
+        report_html = output_path / "report.html"
+        if report_html.exists():
+            click.echo(f"  report: {report_html}")
+    except Exception as e:
+        click.echo(f"Report generation failed: {e}")
 
     total_time = time.time() - start_time
     click.echo(f"\nTotal time: {total_time:.1f}s")
