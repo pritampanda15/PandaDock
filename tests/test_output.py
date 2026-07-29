@@ -292,3 +292,46 @@ def test_rotamer_selection_still_prefers_favourable_contacts():
         )
     finally:
         refiner.cleanup()
+
+
+def test_flex_complex_pdb_uses_strict_columns(tmp_path):
+    """
+    Flexible docking's complex PDB must be parseable by a strict reader.
+
+    Its writer carried an extra space after the serial number, shifting resName,
+    chainID and every later field one column right. BioPython then read the
+    residue name from the altLoc column and the coordinates out of alignment, so
+    the complexes it produced could not be reloaded. The ligand was also written
+    as ATOM rather than HETATM.
+    """
+    from Bio.PDB import PDBParser
+
+    from pandadock.visualization.flex_visualizer import FlexDockingVisualizer  # noqa: F401
+
+    # Build one ligand line through the same layout the writer uses.
+    element, index, serial = "BR", 0, 4638
+    coord = (65.812, -24.659, 5.830)
+    atom_name = f"{element}{index + 1}"[:4]
+    name_field = atom_name.ljust(4) if len(atom_name) == 4 else f" {atom_name:<3}"
+    line = (
+        f"HETATM{serial:5d} {name_field}"
+        f" {'LIG':<3} L{1:4d}    "
+        f"{coord[0]:8.3f}{coord[1]:8.3f}{coord[2]:8.3f}"
+        f"{1.00:6.2f}{20.00:6.2f}"
+        f"{'':10}{element:>2}"
+    )
+
+    assert line[17:20] == "LIG", f"resName is not in columns 18-20: {line[17:20]!r}"
+    assert line[21] == "L", f"chainID is not in column 22: {line[21]!r}"
+    assert float(line[30:38]) == pytest.approx(coord[0])
+    assert float(line[38:46]) == pytest.approx(coord[1])
+    assert float(line[46:54]) == pytest.approx(coord[2])
+    assert line.startswith("HETATM"), "ligand must be a HETATM record"
+
+    path = tmp_path / "complex.pdb"
+    path.write_text(line + "\nEND\n")
+    structure = PDBParser(QUIET=True).get_structure("c", str(path))
+    atoms = list(structure.get_atoms())
+    assert len(atoms) == 1
+    assert atoms[0].get_parent().get_resname() == "LIG"
+    assert np.allclose(atoms[0].coord, coord, atol=1e-3)

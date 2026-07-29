@@ -86,15 +86,30 @@ class FlexDockingVisualizer(DockingVisualizer):
         for i, coord in enumerate(pose_coords):
             if i < ligand_mol.GetNumAtoms():
                 rdkit_atom = ligand_mol.GetAtomWithIdx(i)
-                element = rdkit_atom.GetSymbol()
-                atom_name = f'{element}{i+1:02d}'
+                element = rdkit_atom.GetSymbol().upper()
+                atom_name = f'{element}{i + 1}'[:4]
             else:
                 element = 'C'
-                atom_name = f'C{i+1:02d}'
+                atom_name = f'C{i + 1}'[:4]
 
-            atom_line = (f"ATOM  {atom_serial:5d}  {atom_name:<4} LIG L   1    "
-                        f"{coord[0]:8.3f}{coord[1]:8.3f}{coord[2]:8.3f}  1.00 20.00"
-                        f"           {element:<2}\n")
+            # Strict PDB column layout. The previous format string carried an
+            # extra space after the serial number, which shifted resName, chainID
+            # and every subsequent field one column right. Strict parsers then
+            # read the residue name out of the altLoc column and the coordinates
+            # out of alignment, so the file could not be reloaded. The ligand is
+            # also a HETATM record, not ATOM.
+            #
+            #  1-6 record | 7-11 serial | 13-16 name | 17 altLoc | 18-20 resName
+            #  22 chain   | 23-26 resSeq | 31-38 x | 39-46 y | 47-54 z
+            #  55-60 occupancy | 61-66 bfactor | 77-78 element
+            name_field = atom_name.ljust(4) if len(atom_name) == 4 else f" {atom_name:<3}"
+            atom_line = (
+                f"HETATM{atom_serial:5d} {name_field}"
+                f" {'LIG':<3} L{1:4d}    "
+                f"{coord[0]:8.3f}{coord[1]:8.3f}{coord[2]:8.3f}"
+                f"{1.00:6.2f}{20.00:6.2f}"
+                f"{'':10}{element:>2}\n"
+            )
             ligand_lines.append(atom_line)
             atom_serial += 1
 
