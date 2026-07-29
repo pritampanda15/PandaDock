@@ -55,6 +55,9 @@
 
 ### Key Features
 
+- **PandaCore search**: flexible-ligand Monte Carlo search with quasi-Newton local
+  optimization over translation, orientation and ligand torsions, driven by
+  precomputed affinity grids with fully analytic gradients
 - **PandaDock-GNN**: SE(3)-equivariant scoring achieving **Pearson R = 0.88** on PDBbind
 - **Hybrid Docking**: Combined pose generation + GNN rescoring (recommended workflow)
 - **Universal Rescorer**: Rescore poses from ANY docking tool (Vina, Glide, GOLD, etc.)
@@ -62,6 +65,54 @@
 - **Multi-Task Learning**: Joint pKd/pEC50 regression + activity classification
 - **Heterogeneous Graphs**: Separate protein/ligand node types with interaction edges
 - **Specialized Modes**: Flexible, metal coordination, and tethered docking
+
+---
+
+## Pose Prediction
+
+The conformational search samples position uniformly over the docking box,
+orientation uniformly over SO(3), and every rotatable bond as an explicit degree of
+freedom. Each Monte Carlo step is followed by an L-BFGS relaxation using analytic
+gradients, and accepted or rejected by the Metropolis criterion. Distinct binding
+modes are returned after RMSD clustering.
+
+```bash
+# Exhaustiveness defaults to a value scaled by ligand flexibility (8-32).
+pandadock dock -r receptor.pdb -l ligand.sdf --center 10 12 8 --box 22 22 22
+
+# Reproducible run with an explicit budget
+pandadock dock -r receptor.pdb -l ligand.sdf -g grid.json -e 24 --seed 42
+```
+
+Sampling has to scale with the number of rotatable bonds. On a 13-DOF ligand,
+8 runs converged to a minimum 11 kcal/mol above the global one, while 24 runs found
+the global minimum; the default therefore grows with torsion count. Raise `-e`
+further for large, flexible ligands.
+
+### Measuring pose accuracy
+
+`benchmarking/redock_benchmark.py` redocks a set of complexes and reports
+symmetry-corrected heavy-atom RMSD, per protein family:
+
+```bash
+python benchmarking/redock_benchmark.py --input /data/pdbbind_core --output results/
+python benchmarking/redock_benchmark.py --manifest complexes.csv -j 8 --save-poses
+```
+
+RMSD is symmetry-corrected and computed without superposition. The harness reports
+top-1 and best-of-N success rates separately, because quoting best-of-N as though
+it were top-1 substantially overstates accuracy.
+
+> **Note on v4.0.2 and earlier.** The docking algorithms in previous releases did
+> not perform a conformational search. They placed the input conformer near the box
+> centre with a rotation drawn from a narrow Gaussian, never varied ligand torsions,
+> called the scoring function without the ligand (so Vina-style scores were
+> uniformly 0.0), and ranked poses by a bonus for proximity to a reference point --
+> including a hardcoded ligand coordinate that captured any box placed near it.
+> Pose-accuracy figures from those releases measure that bias and should not be
+> compared against this one. Affinity results from PandaDock-GNN are unaffected:
+> the GNN was trained and evaluated on crystal poses, independently of this code
+> path.
 
 ---
 

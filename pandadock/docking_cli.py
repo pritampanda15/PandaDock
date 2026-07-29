@@ -198,8 +198,18 @@ def main(ctx, verbose, version, help):
               help='Generate visualization plots')
 @click.option('--fast', is_flag=True, default=False,
               help='Use fast mode with reduced sampling for quick testing')
+@click.option('--exhaustiveness', '-e', type=int, default=None,
+              help='Independent search runs; higher is more thorough. '
+                   'Default scales with ligand flexibility (8-32).')
+@click.option('--seed', type=int, default=None,
+              help='Random seed for reproducible runs (default: random)')
+@click.option('--rigid-ligand', is_flag=True, default=False,
+              help='Disable torsional search and dock the ligand rigidly')
+@click.option('--grid-spacing', type=float, default=0.375,
+              help='Affinity grid spacing in Angstrom (default: 0.375)')
 def dock(receptor, ligand, grid_config, center, box, scoring,
-         output_dir, num_poses, ensemble, rescoring, visualize, fast):
+         output_dir, num_poses, ensemble, rescoring, visualize, fast,
+         exhaustiveness, seed, rigid_ligand, grid_spacing):
     """Perform molecular docking with Vina-style scoring"""
 
     click.echo("PandaDock Molecular Docking")
@@ -246,15 +256,24 @@ def dock(receptor, ligand, grid_config, center, box, scoring,
     click.echo(f"Output directory: {output_path}")
 
     # Set up docking parameters
-    dock_params = {}
+    dock_params = {
+        'exhaustiveness': exhaustiveness,
+        'seed': seed,
+        'rigid_ligand': rigid_ligand,
+        'grid_spacing': grid_spacing,
+    }
     if fast:
         click.echo("Fast mode enabled - reduced sampling for quick testing")
-        dock_params.update({
-            'fast': True,
-            'num_conformers': 3,
-            'num_poses_per_conformer': 10,
-            'max_attempts': 100,
-        })
+        click.echo("  WARNING: fast mode under-samples badly and its poses should "
+                   "not be reported as results.")
+        # Fast mode is for smoke-testing a setup, not for producing results.
+        dock_params['exhaustiveness'] = 2
+        dock_params['n_steps'] = 40
+
+    shown = dock_params['exhaustiveness']
+    click.echo(f"Exhaustiveness: {shown if shown is not None else 'auto (scales with flexibility)'}"
+               + (f" | seed: {seed}" if seed is not None else "")
+               + (" | rigid ligand" if rigid_ligand else ""))
 
     # Perform docking
     click.echo("Starting docking...")
