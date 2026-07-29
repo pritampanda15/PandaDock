@@ -263,7 +263,9 @@ free movement within the radius, harmonic cost beyond it.
 
 Induced-fit docking redocks into every refined receptor, so cost scales with the
 number of poses carried into refinement: budget hours rather than minutes for a
-single ligand. Refined receptors are written to a temporary directory and removed
+single ligand. Use `--initial-poses-to-retain` to control that trade-off. Output
+matches `dock`: `poses.sdf`, ligand poses, and complexes with the refined
+receptor. Refined receptors are written to a temporary directory and removed
 when the run ends, including on failure. The IFD score is the binding energy plus
 a weighted receptor-strain penalty, so a pose requiring more side-chain
 rearrangement scores worse than an equivalent one that requires none.

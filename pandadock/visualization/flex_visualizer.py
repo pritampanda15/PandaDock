@@ -43,6 +43,45 @@ class FlexDockingVisualizer(DockingVisualizer):
                 ligand_file = complexes_dir / f"flex_ligand_{i}.pdb"
                 self.save_pose_pdb(pose, ligand_file, ligand_mol)
 
+        # An SDF alongside the PDBs, matching what `pandadock dock` writes. PDB
+        # cannot carry bond orders or formal charges, so a ligand read back from
+        # one has its bonds inferred from distance, which routinely mis-assigns
+        # aromatic rings.
+        self._save_flex_poses_sdf(top_poses, ligand_mol, output_dir)
+
+    def _save_flex_poses_sdf(self, poses, ligand_mol: Chem.Mol, output_dir: Path) -> None:
+        """Write all flexible-docking poses to one SDF, annotated with IFD terms."""
+        if ligand_mol is None or not poses:
+            return
+        try:
+            writer = Chem.SDWriter(str(output_dir / "poses.sdf"))
+            try:
+                for rank, pose in enumerate(poses, 1):
+                    mol = Chem.Mol(ligand_mol)
+                    mol.RemoveAllConformers()
+                    conf = Chem.Conformer(mol.GetNumAtoms())
+                    n = min(mol.GetNumAtoms(), len(pose.coordinates))
+                    for i in range(n):
+                        conf.SetAtomPosition(i, pose.coordinates[i].tolist())
+                    mol.AddConformer(conf, assignId=True)
+
+                    mol.SetProp("_Name", f"flex_pose{rank}")
+                    mol.SetProp("rank", str(rank))
+                    for prop, value in (
+                        ("ifd_score", getattr(pose, "ifd_score", None)),
+                        ("binding_energy", getattr(pose, "binding_energy", None)),
+                        ("refinement_cost", getattr(pose, "refinement_cost", None)),
+                        ("receptor_rmsd", getattr(pose, "receptor_rmsd", None)),
+                    ):
+                        if value is not None:
+                            mol.SetProp(prop, f"{float(value):.3f}")
+                    writer.write(mol)
+            finally:
+                writer.close()
+            self.logger.info("Saved flexible docking poses to %s", output_dir / "poses.sdf")
+        except Exception as exc:
+            self.logger.error("Could not write poses.sdf: %s", exc)
+
     def _find_refined_receptor(self, pose: FlexiblePose, refined_complexes) -> Optional[str]:
         """Find the refined receptor corresponding to a pose"""
         # Simplified - in production you'd track pose-receptor relationships

@@ -127,6 +127,12 @@ class FlexibleDockingResult:
                 'receptor_rmsd': pose.receptor_rmsd,
                 'ligand_strain_energy': pose.ligand_strain_energy,
                 'center': pose.center.tolist(),
+                # Coordinates are included so the poses can be reconstructed from
+                # this file alone. Without them the JSON recorded scores for poses
+                # that could only be recovered by re-parsing the PDB output.
+                'coordinates': (
+                    pose.coordinates.tolist() if pose.coordinates is not None else None
+                ),
                 'energy': pose.energy,
                 'confidence': pose.confidence,
                 'flexible_residue_contacts': pose.flexible_residue_contacts,
