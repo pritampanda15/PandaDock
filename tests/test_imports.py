@@ -1,6 +1,9 @@
 """
 Test basic package imports
 """
+import importlib
+import re
+
 import pytest
 
 
@@ -14,16 +17,49 @@ def test_package_import():
 
 
 def test_version():
-    """Test that version is defined"""
+    """
+    The package version must be a well-formed release version.
+
+    Deliberately not pinned to a literal: a hardcoded assertion has to be edited
+    on every release, which makes it a chore that gets updated mechanically
+    rather than a check that catches anything.
+    """
     try:
         import pandadock
-        # Check if __version__ exists or skip
-        if hasattr(pandadock, '__version__'):
-            assert pandadock.__version__ == "4.0.2"
-        else:
-            pytest.skip("Version not defined in package")
     except ImportError:
         pytest.skip("PandaDock package not installed")
+
+    if not hasattr(pandadock, '__version__'):
+        pytest.fail("pandadock.__version__ is not defined")
+
+    assert re.fullmatch(
+        r"\d+\.\d+\.\d+(?:[.-]?(?:a|b|rc|dev)\d*)?", pandadock.__version__
+    ), f"malformed version: {pandadock.__version__!r}"
+
+
+def test_version_is_single_sourced():
+    """
+    Sub-packages must not declare their own version.
+
+    pandadock.docking previously exported __version__ = "3.0.0" while the
+    distribution shipped 4.0.2, so anything reading the sub-package version got a
+    number three major releases out of date.
+    """
+    import pandadock
+
+    for name in ("pandadock.docking", "pandadock.gnn"):
+        try:
+            module = importlib.import_module(name)
+        except ImportError:
+            continue
+        version = getattr(module, "__version__", None)
+        if version is None:
+            continue
+        assert version == pandadock.__version__, (
+            f"{name}.__version__ is {version!r} but the package is "
+            f"{pandadock.__version__!r}; sub-packages should re-export the "
+            f"package version rather than declaring their own"
+        )
 
 
 def test_cli_modules_exist():

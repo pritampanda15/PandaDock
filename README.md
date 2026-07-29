@@ -51,7 +51,17 @@
 
 ## Overview
 
-**PandaDock v4.0** features a novel SE(3)-equivariant Graph Neural Network (GNN) scoring function that achieves state-of-the-art correlation with experimental binding affinities (R=0.88 on PDBbind, R=0.82 on ULVSH, R=0.81 on BindingDB). The hybrid docking workflow combines traditional pose generation with GNN rescoring to deliver superior accuracy.
+**PandaDock v4.1** pairs a flexible-ligand conformational search with a novel
+SE(3)-equivariant Graph Neural Network (GNN) scoring function that achieves
+state-of-the-art correlation with experimental binding affinities (R=0.88 on
+PDBbind, R=0.82 on ULVSH, R=0.81 on BindingDB).
+
+**v4.1 replaces the pose search entirely.** Earlier releases did not search
+conformational space: they perturbed the input conformer slightly around the box
+centre, never varied ligand torsions, and ranked poses by proximity to a
+reference point rather than by interaction energy. See
+[Pose Prediction](#pose-prediction) for what changed and what it means for
+results produced with v4.0.x.
 
 ### Key Features
 
@@ -113,6 +123,50 @@ it were top-1 substantially overstates accuracy.
 > compared against this one. Affinity results from PandaDock-GNN are unaffected:
 > the GNN was trained and evaluated on crystal poses, independently of this code
 > path.
+
+---
+
+## Changelog
+
+### 4.1.0
+
+**Pose search rewritten.** `pandadock dock` now performs a real conformational
+search. Poses from this release are not comparable to poses from 4.0.x.
+
+Added:
+- `pandadock.docking.search` — torsion tree, precomputed Vina affinity grids,
+  analytic gradients (verified against finite differences at 2e-10 relative
+  error), and Monte Carlo search with L-BFGS local optimization
+- `PandaCoreDocker`, registered as the `pandadock` algorithm
+- `--exhaustiveness`, `--seed`, `--rigid-ligand` and `--grid-spacing` CLI options;
+  exhaustiveness defaults to a value that scales with ligand flexibility
+- `pandadock.analysis.rmsd` — symmetry-corrected RMSD without superposition
+- `pandadock.preprocessing.complex_splitter` — receptor/ligand splitting with
+  ligand identity resolved against the PDB Chemical Component Dictionary
+- `benchmarking/` — redocking benchmark, preparation, validation and reporting
+  scripts. These were previously absent from the repository because `.gitignore`
+  excluded the whole directory.
+- `pandadock.ml.vcell` — inspection for SAIR-trained cell-context checkpoints
+
+Fixed:
+- The Vina-style scoring function was called without the ligand throughout the
+  docking pipeline, so it returned 0.0 for every pose
+- A hardcoded ligand coordinate captured any docking box placed within 10 Å of it
+- `_rigid_minimization` read coordinates from the input conformer instead of the
+  pose it was given, discarding the pose being minimized
+- Sub-package versions drifted from the distribution version (`pandadock.docking`
+  reported 3.0.0 while the package shipped 4.0.2); the version is now single-sourced
+
+Removed:
+- `CrystalGuidedDocker` now raises on construction. It restricted sampling to the
+  neighbourhood of a reference pose and rewarded proximity to it, which
+  invalidates any benchmark it appears in.
+- `MonteCarloDocker`, `GeneticAlgorithmDocker` and `EnhancedHierarchicalDocker`
+  are deprecated aliases of `PandaCoreDocker`. Their distinctive code was either
+  unreachable or non-functional; each module's docstring records the details.
+
+Packaging:
+- Metadata moved to `pyproject.toml` (PEP 621); `setup.py` is now a shim
 
 ---
 

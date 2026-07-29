@@ -17,6 +17,8 @@ from typing import Optional
 import urllib.request
 import hashlib
 
+from .. import __version__
+
 try:
     import click
     CLICK_AVAILABLE = True
@@ -52,7 +54,7 @@ def check_dependencies():
 
 if CLICK_AVAILABLE:
     @click.group()
-    @click.version_option(version='1.0.0')
+    @click.version_option(version=__version__)
     def main():
         """PandaDock-GNN: SE(3)-Equivariant Scoring Function for Molecular Docking"""
         pass

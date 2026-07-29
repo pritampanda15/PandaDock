@@ -21,7 +21,10 @@ Advanced Features:
 - Professional visualization and reporting
 """
 
-__version__ = "3.0.0"
+# Sub-packages do not carry their own version: this one sat at 3.0.0 while the
+# distribution shipped 4.0.2. The package version is the single source of truth.
+from .. import __version__  # noqa: F401
+
 __author__ = "Pritam Kumar Panda @ Stanford University"
 
 from .core import DockingEngine, DockingResult

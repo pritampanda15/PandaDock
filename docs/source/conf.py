@@ -8,8 +8,12 @@ sys.path.insert(0, os.path.abspath('../../'))
 project = 'PandaDock'
 copyright = '2025-2026, Pritam Kumar Panda'
 author = 'Pritam Kumar Panda'
-release = '4.0.0'
-version = '4.0.0'
+# Read from the package so the docs cannot fall behind a release the way this
+# previously did, sitting at 4.0.0 while the distribution shipped 4.0.2.
+from pandadock import __version__ as _pandadock_version  # noqa: E402
+
+release = _pandadock_version
+version = '.'.join(_pandadock_version.split('.')[:2])
 
 # -- General configuration ---------------------------------------------------
 extensions = [
