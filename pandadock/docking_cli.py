@@ -88,7 +88,7 @@ def show_professional_help():
                https://github.com/pritampanda15/PandaDock
 
 Author: Pritam Kumar Panda @ Stanford University
-Version: 4.0.0
+Version: {version}
 License: MIT
 
 PandaDock is a high-performance molecular docking software featuring
@@ -145,7 +145,9 @@ For detailed help on specific commands, use:
 
 #################################################################
 """
-    click.echo(help_text)
+    from pandadock import __version__
+
+    click.echo(help_text.replace("{version}", __version__))
 
 
 @click.group(invoke_without_command=True, add_help_option=False)

@@ -88,3 +88,30 @@ def test_gnn_module_exists():
 def test_basic_functionality():
     """Basic sanity test"""
     assert 1 + 1 == 2
+
+
+def test_cli_banners_do_not_hardcode_a_version():
+    """
+    No CLI help banner may carry a literal version string.
+
+    v4.1.0 shipped with `pandadock --help` reporting "Version: 4.0.0": the
+    banner in docking_cli.py held a hardcoded literal that the release bump did
+    not touch. The existing consistency check compared __version__ across
+    sub-packages and so passed, because the stale value was prose in a help
+    string rather than a module attribute.
+    """
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parent.parent / "pandadock"
+    offenders = []
+    pattern = re.compile(r"Version:\s*\d+\.\d+")
+
+    for path in root.rglob("*.py"):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if pattern.search(line):
+                offenders.append(f"{path.relative_to(root)}:{number}: {line.strip()}")
+
+    assert not offenders, (
+        "hardcoded version strings in CLI output:\n  " + "\n  ".join(offenders)
+    )
