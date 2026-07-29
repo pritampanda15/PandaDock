@@ -136,12 +136,15 @@ def main(ctx, verbose, version, help):
               help='Grid center coordinates (Å)')
 @click.option('--box', nargs=3, type=float, metavar='X Y Z',
               help='Grid box dimensions (Å)')
-@click.option('--algorithm', default='enhanced_hierarchical_cpu',
+@click.option('--algorithm', default='pandadock',
               type=click.Choice([
-                  'monte_carlo_cpu', 'genetic_algorithm_cpu', 'hierarchical_cpu',
-                  'enhanced_hierarchical_cpu', 'crystal_guided_cpu'
+                  # The legacy names are retained for backwards compatibility but
+                  # all resolve to the same flexible-ligand search. 'crystal_guided_cpu'
+                  # was removed: it biased poses toward a reference structure.
+                  'pandadock', 'monte_carlo_cpu', 'genetic_algorithm_cpu',
+                  'hierarchical_cpu', 'enhanced_hierarchical_cpu',
               ]),
-              help='Docking algorithm [default: enhanced_hierarchical_cpu]')
+              help='Docking algorithm [default: pandadock]')
 @click.option('--scoring', default='metal_aware',
               type=click.Choice(['metal_aware', 'metal_constrained', 'physics_based']),
               help='Scoring function [default: metal_aware]')

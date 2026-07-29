@@ -418,8 +418,9 @@ def train(dataset, model_type, output_dir, epochs, batch_size, learning_rate,
 @click.option('--ml-proposals', type=int, default=100,
               help='Number of ML-generated pose proposals')
 @click.option('--physics-refinement', type=click.Choice([
-    'monte_carlo_cpu', 'enhanced_hierarchical_cpu', 'genetic_algorithm_cpu'
-]), default='enhanced_hierarchical_cpu', help='Physics algorithm for refinement')
+    # Legacy aliases, all resolving to the same flexible-ligand search.
+    'pandadock', 'monte_carlo_cpu', 'enhanced_hierarchical_cpu', 'genetic_algorithm_cpu'
+]), default='pandadock', help='Physics algorithm for refinement')
 @click.option('--ml-model-path', type=click.Path(exists=True),
               help='Path to trained ML model weights')
 @click.option('--output-dir', '-o', type=click.Path(), default='hybrid_docking_output',

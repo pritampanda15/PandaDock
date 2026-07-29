@@ -24,7 +24,15 @@ from .monte_carlo_cpu import MonteCarloDocker
 
 PandaDockAlgorithm = HierarchicalDocker
 
+# There is no GPU search path. The conformational search runs on CPU, and the
+# legacy CUDA modules were never wired into the engine: their chromosome encoded
+# only translation and orientation, so they could not vary ligand conformation.
+# The flag is kept because `pandadock-ml` imports it; that import previously
+# raised ImportError, which made the whole command unusable.
+GPU_AVAILABLE = False
+
 __all__ = [
+    "GPU_AVAILABLE",
     "PandaCoreDocker",
     "HierarchicalDocker",
     "PandaDockAlgorithm",
