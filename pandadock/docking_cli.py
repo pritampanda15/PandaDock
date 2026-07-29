@@ -341,20 +341,34 @@ def dock(receptor, ligand, grid_config, center, box, scoring,
 
     # Interaction Analysis
     click.echo("Performing interaction analysis...")
+    per_pose_interactions = []
     try:
         from Bio.PDB import PDBParser
         parser = PDBParser(QUIET=True)
         receptor_structure = parser.get_structure("receptor", receptor)
 
         analyzer = InteractionAnalyzer()
-        top_pose = result.get_top_poses(1)[0]
-        interactions = analyzer.analyze_pose_interactions(
-            top_pose.coordinates, receptor_structure=receptor_structure, ligand_mol=ligand_mol
-        )
 
+        # Analyse every returned mode, not only the top one: poses that score
+        # alike but contact different residues are a real ambiguity, and that is
+        # only visible across the set.
+        per_pose_interactions = []
+        for pose in result.get_top_poses(len(result.poses)):
+            per_pose_interactions.append(
+                analyzer.analyze_pose_interactions(
+                    pose.coordinates,
+                    receptor_structure=receptor_structure,
+                    ligand_mol=ligand_mol,
+                )
+            )
+
+        interactions = per_pose_interactions[0] if per_pose_interactions else {}
         interaction_file = output_path / "interaction_analysis.json"
         with open(interaction_file, 'w') as f:
-            json.dump(interactions, f, indent=2)
+            json.dump(
+                {"top_pose": interactions, "all_poses": per_pose_interactions},
+                f, indent=2, default=float,
+            )
         click.echo(f"Interaction analysis saved to: {interaction_file}")
     except Exception as e:
         click.echo(f"Interaction analysis failed: {e}")
@@ -362,6 +376,25 @@ def dock(receptor, ligand, grid_config, center, box, scoring,
     # Generate visualizations
     if visualize:
         click.echo("Generating visualizations...")
+        try:
+            from .visualization.report import generate_report
+
+            images = generate_report(
+                result,
+                output_path,
+                ligand_mol=ligand_mol,
+                receptor_file=receptor,
+                interaction_analyses=per_pose_interactions,
+                run_pandamap=True,
+            )
+            for name in sorted(images):
+                click.echo(f"  {name}: {Path(images[name]).name}")
+            report_html = output_path / "report.html"
+            if report_html.exists():
+                click.echo(f"  report: {report_html}")
+        except Exception as e:
+            click.echo(f"Report generation failed: {e}")
+
         try:
             plotter = AffinityPlotter()
             plotter.create_binding_affinity_plot(

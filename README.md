@@ -167,6 +167,16 @@ Removed:
   are deprecated aliases of `PandaCoreDocker`. Their distinctive code was either
   unreachable or non-functional; each module's docstring records the details.
 
+Reporting:
+- Every run now writes `report.html` bundling the plots and run parameters
+- New plots: pose scores with the rank-1/rank-2 gap, energy terms split into
+  favourable and penalty contributions, a pose-pose RMSD matrix showing whether
+  the returned set is one binding mode or several, and a residue interaction
+  fingerprint across poses
+- PandaMap 2D interaction diagrams are generated automatically when `pandamap` is
+  installed (`pip install pandamap`)
+- Interactions are analysed for every returned pose rather than only the top one
+
 Output correctness:
 - Ligands containing two-letter elements (Cl, Br, I) produced **no** pose or
   complex PDB files at all, while the CLI reported success. BioPython requires
