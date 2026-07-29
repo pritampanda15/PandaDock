@@ -171,7 +171,7 @@ class MetalAwareScoring:
 
     def score_metal_pose(self, ligand_coords: np.ndarray,
                         ligand_mol: Chem.Mol,
-                        receptor_coords: np.ndarray,
+                        receptor_structure,
                         receptor_atoms: List[str],
                         protein_metal_sites: List[Dict]) -> Dict[str, float]:
         """
@@ -180,7 +180,11 @@ class MetalAwareScoring:
         Args:
             ligand_coords: Ligand coordinates
             ligand_mol: RDKit molecule object
-            receptor_coords: Receptor coordinates
+            receptor_structure: BioPython receptor structure. This parameter was
+                previously named `receptor_coords` and callers passed an empty
+                array on the assumption it was unused, but it is forwarded
+                straight to the base scoring function, which needs a structure.
+                Passing an array raised AttributeError on every metal-aware score.
             receptor_atoms: Receptor atom types
             protein_metal_sites: Metal sites in protein
 
@@ -189,7 +193,7 @@ class MetalAwareScoring:
         """
         # Get base physics-based score
         base_score = self.base_scoring.calculate_binding_energy(
-            ligand_coords, receptor_coords, ligand_mol
+            ligand_coords, receptor_structure, ligand_mol
         )
 
         # Get ligand atom types
@@ -325,7 +329,7 @@ class MetalConstrainedScoring(MetalAwareScoring):
 
     def score_constrained_pose(self, ligand_coords: np.ndarray,
                              ligand_mol: Chem.Mol,
-                             receptor_coords: np.ndarray,
+                             receptor_structure,
                              receptor_atoms: List[str],
                              protein_metal_sites: List[Dict]) -> Dict[str, float]:
         """
@@ -343,7 +347,7 @@ class MetalConstrainedScoring(MetalAwareScoring):
         """
         # Get base metal-aware score
         scores = self.score_metal_pose(
-            ligand_coords, ligand_mol, receptor_coords,
+            ligand_coords, ligand_mol, receptor_structure,
             receptor_atoms, protein_metal_sites
         )
 

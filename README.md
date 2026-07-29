@@ -167,6 +167,20 @@ Removed:
   are deprecated aliases of `PandaCoreDocker`. Their distinctive code was either
   unreachable or non-functional; each module's docstring records the details.
 
+CLI and specialized docking:
+- `pandadock-ml` raised `ImportError: cannot import name 'GPU_AVAILABLE'` on every
+  invocation; the name had never been defined. There is no GPU search path, so it
+  is now defined as `False`.
+- `pandadock-metal` could not complete a run. Its engine called a method
+  `DockingEngine` does not expose, registered no algorithms, could not construct
+  its own result class, built `Pose` objects without required fields, passed an
+  empty array where a receptor structure was needed, and reported violation rates
+  above 100% because pose metadata was not truncated alongside the poses.
+- Metal parameters fall back to documented built-in values when no AutoDock-format
+  parameter file is present, instead of raising at construction. The file has
+  never shipped with the package.
+- `tests/test_cli.py` covers all nine entry points
+
 Packaging:
 - Metadata moved to `pyproject.toml` (PEP 621); `setup.py` is now a shim
 
@@ -283,13 +297,17 @@ pandadock hybrid -r protein.pdb -l ligand.sdf \
                  -o results/
 ```
 
-### Traditional Docking
+### Flexible-Ligand Docking
 
 ```bash
-# Simple docking with Vina-style scoring
+# Every rotatable bond is searched; exhaustiveness scales with flexibility
 pandadock dock -r protein.pdb -l ligand.sdf \
                --center 10 20 30 --box 20 20 20 \
                -o results/
+
+# Reproducible run with an explicit sampling budget
+pandadock dock -r protein.pdb -l ligand.sdf -g grid.json \
+               --exhaustiveness 24 --seed 42 -o results/
 ```
 
 ### GNN Prediction Only
@@ -329,8 +347,39 @@ pandadock gnn compare -m model.pt -d ULVSH/ -o comparison/
 
 | Command | Description |
 |---------|-------------|
-| `pandadock dock` | Traditional docking with Vina-style scoring |
+| `pandadock dock` | Flexible-ligand docking with Vina-style scoring |
 | `pandadock hybrid` | Hybrid docking with GNN rescoring (recommended) |
+
+#### `pandadock dock` options
+
+| Option | Default | Description |
+|---|---|---|
+| `-r, --receptor` | *required* | Receptor PDB file |
+| `-l, --ligand` | *required* | Ligand file (SDF/MOL2/PDB) |
+| `--center X Y Z` | — | Box centre in Å (or use `-g/--grid-config`) |
+| `--box X Y Z` | — | Box dimensions in Å |
+| `-s, --scoring` | `vina` | `vina` or `physics_based` |
+| `-n, --num-poses` | `20` | Binding modes to return, clustered at 2 Å RMSD |
+| `-e, --exhaustiveness` | *auto* | Independent search runs; see below |
+| `--seed` | *random* | Seed for reproducible runs |
+| `--rigid-ligand` | off | Disable torsional search |
+| `--grid-spacing` | `0.375` | Affinity grid spacing in Å |
+| `--rescoring` | `none` | `none` or `mmgbsa` |
+| `-o, --output-dir` | `docking_output` | Output directory |
+| `--fast` | off | Smoke-test only; under-samples badly |
+
+**Exhaustiveness scales with ligand flexibility** unless you set it explicitly,
+because a budget that is ample for a rigid fragment leaves a highly rotatable
+ligand's search space badly under-explored — and the failure is silent, returning
+a confident-looking pose from a local minimum well above the global one.
+
+| Rotatable bonds | 0 | 4 | 8 | 12+ |
+|---|---|---|---|---|
+| Independent runs | 8 | 16 | 24 | 32 |
+
+Two defaults worth knowing: runs are **not reproducible** unless you pass
+`--seed`, and `--fast` drops to exhaustiveness 2, so its poses should not be
+reported as results.
 
 ### GNN Commands
 
@@ -358,6 +407,30 @@ pandadock gnn compare -m model.pt -d ULVSH/ -o comparison/
 | `pandadock-prepare` | Prepare ligands (add H, generate 3D) |
 | `pandadock-gridbox` | Generate grid box configurations |
 | `pandadock-report` | Generate analysis reports |
+
+All nine entry points are covered by `tests/test_cli.py`, which checks that each
+imports, responds to `--help`, and only advertises algorithm names that can
+actually be constructed.
+
+### Algorithm names
+
+`pandadock` is the flexible-ligand search. The other names are retained so
+existing scripts keep working and **all resolve to the same algorithm**:
+
+| Name | Status |
+|---|---|
+| `pandadock` / `pandacore` | Current flexible-ligand Monte Carlo search |
+| `monte_carlo_cpu` | Deprecated alias |
+| `genetic_algorithm_cpu` | Deprecated alias |
+| `enhanced_hierarchical_cpu` | Deprecated alias |
+| `crystal_guided_cpu` | **Removed** — raises on use |
+
+`crystal_guided_cpu` restricted sampling to the neighbourhood of a reference pose
+and added an energy bonus for proximity to it. In a redocking benchmark the
+reference derives from the answer, so it reported a perturbed copy of the answer
+rather than a prediction. Use `pandadock-tethered` if you genuinely need a
+reference-constrained search, where the constraint is explicit and recorded in
+the output.
 
 ---
 
