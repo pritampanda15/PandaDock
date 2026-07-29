@@ -545,20 +545,20 @@ GPU Multi-Stage Screening Pipeline
 
 .. code-block:: bash
 
-   # Stage 1: Ultra-fast GPU precision (1M ’ 10k)
+   # Stage 1: Ultra-fast GPU precision (1M â€™ 10k)
    pandadock dock -r target.pdb -l library_1M.sdf \\
                   --scoring gpu_precision \\
                   --gpu --fast \\
                   -o stage1/
 
-   # Stage 2: GPU MM-GBSA (10k ’ 100)
+   # Stage 2: GPU MM-GBSA (10k â€™ 100)
    pandadock dock -r target.pdb -l top_10k.sdf \\
                   --scoring gpu_mmgbsa \\
                   --gpu \\
                   --num-poses 20 \\
                   -o stage2/
 
-   # Stage 3: CPU hybrid final ranking (100 ’ 20)
+   # Stage 3: CPU hybrid final ranking (100 â€™ 20)
    pandadock dock -r target.pdb -l top_100.sdf \\
                   --scoring hybrid \\
                   --rescoring mmgbsa \\

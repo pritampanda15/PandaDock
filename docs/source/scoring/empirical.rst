@@ -143,9 +143,9 @@ Screening throughput:
 Pose Prediction Accuracy
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
-* **RMSD < 2Å:** 80-85% (with monte_carlo algorithm)
-* **RMSD < 2Å:** 88-92% (with enhanced_hierarchical algorithm)
-* **Top pose RMSD < 2Å:** 65-75%
+* **RMSD < 2Ã…:** 80-85% (with monte_carlo algorithm)
+* **RMSD < 2Ã…:** 88-92% (with enhanced_hierarchical algorithm)
+* **Top pose RMSD < 2Ã…:** 65-75%
 
 Lower pose prediction accuracy than physics-based, but sufficient for filtering.
 
@@ -402,7 +402,7 @@ Two-Stage High-Throughput Screening
 
 .. code-block:: bash
 
-   # Stage 1: Rapid empirical filter (10,000 ’ 500)
+   # Stage 1: Rapid empirical filter (10,000 â€™ 500)
    pandadock dock -r target.pdb -l library_10k.sdf \\
                   --scoring empirical \\
                   --fast \\
@@ -411,7 +411,7 @@ Two-Stage High-Throughput Screening
 
    # Extract top 500 compounds by empirical score
 
-   # Stage 2: Detailed physics-based rescoring (500 ’ 50)
+   # Stage 2: Detailed physics-based rescoring (500 â€™ 50)
    pandadock dock -r target.pdb -l top_500.sdf \\
                   --scoring physics_based \\
                   --num-poses 20 \\
@@ -458,7 +458,7 @@ Pose Reproduction
 
 Tested on Astex Diverse Set (85 complexes):
 
-* **Success rate (RMSD < 2Å):** 80-85%
+* **Success rate (RMSD < 2Ã…):** 80-85%
 * **Top pose success:** 65-75%
 
 **Conclusion:** Adequate pose recognition for screening

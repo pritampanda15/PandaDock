@@ -367,14 +367,21 @@ These are PandaDock-GNN scoring results. For pose-prediction accuracy see
 
 ### ULVSH Dataset (942 compounds, 10 protein targets)
 
-| Method | Type | Pearson R | N |
-|--------|------|-----------|---|
-| **PandaDock-GNN (test)** | **ML Scoring** | **0.82** | 95 |
-| **PandaDock-GNN (full)** | **ML Scoring** | **0.67** | 942 |
-| VM2 | ULVSH Baseline | 0.15 | 942 |
-| PM6 | ULVSH Baseline | 0.08 | 939 |
-| Hyde | ULVSH Baseline | 0.02 | 942 |
-| Gnina | ULVSH Baseline | 0.01 | 941 |
+ULVSH is primarily an **activity classification** benchmark. Its affinity labels
+are heavily censored: inactive compounds are assigned a floor value, and in the
+95-compound test split 89 of 95 pEC50 values are exactly 4.0. A Pearson
+correlation computed over that distribution is dominated by separating actives
+from the constant floor rather than by ranking affinities, so it is reported here
+as classification performance.
+
+| Metric | Value | N |
+|--------|-------|---|
+| **Activity classification AUC** | **0.94** | 95 (test) |
+| Within-target affinity Pearson R (CASR) | 0.77 | 12 |
+
+CASR is the only test-split target with enough compounds at distinct affinities to
+support a within-target correlation. For continuous affinity prediction see the
+PDBbind and BindingDB results above and below, whose labels span a genuine range.
 
 ### BindingDB Dataset (8,891 protein-ligand complexes)
 
@@ -389,8 +396,7 @@ These are PandaDock-GNN scoring results. For pose-prediction accuracy see
 **Key Results:**
 - PandaDock-GNN achieves **R = 0.88** on PDBbind (5,316 complexes)
 - **R = 0.81** on BindingDB test set (889 complexes)
-- **5.5x improvement** over the best baseline (VM2) on ULVSH
-- Activity classification **AUC = 0.94** on ULVSH test set
+- **AUC = 0.94** for activity classification on the ULVSH test split
 
 ---
 

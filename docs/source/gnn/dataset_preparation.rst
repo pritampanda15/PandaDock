@@ -18,7 +18,7 @@ PandaDock-GNN can be trained on:
 +============+==================+==================+===================+
 | PDBbind    | 5,316            | pKd/pKi          | 0.88              |
 +------------+------------------+------------------+-------------------+
-| ULVSH      | 942              | pEC50            | 0.82              |
+| ULVSH      | 942              | pEC50 (censored) | AUC 0.94          |
 +------------+------------------+------------------+-------------------+
 | BindingDB  | 8,891+           | pK (various)     | 0.81              |
 +------------+------------------+------------------+-------------------+
@@ -509,3 +509,12 @@ Here's a complete example of preparing data and training a model:
    # 5. Use for prediction
    pandadock gnn predict -m my_model/best_model.pt \
        -p new_protein.mol2 -l new_ligand.mol2
+
+.. note::
+
+   ULVSH affinity labels are censored: inactive compounds take a floor
+   value, and 89 of the 95 test-split pEC50 values are exactly 4.0. A
+   Pearson correlation over that distribution reflects separation of
+   actives from the floor rather than affinity ranking, so ULVSH is
+   reported as activity classification (AUC = 0.94). Use PDBbind or
+   BindingDB for continuous affinity performance.

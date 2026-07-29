@@ -420,7 +420,7 @@ Validation Report Sections
 1. **Pose Reproduction**
 
    * RMSD to crystal structure
-   * Success rate (RMSD < 2Å)
+   * Success rate (RMSD < 2Ã…)
    * Per-target breakdown
 
 2. **Scoring Performance**
@@ -455,7 +455,7 @@ Automatically Generated Plots
 
 **Interaction Plots:**
 
-* Interaction heatmap (residue × ligand)
+* Interaction heatmap (residue Ã— ligand)
 * 2D interaction diagrams
 * 3D binding mode visualization
 

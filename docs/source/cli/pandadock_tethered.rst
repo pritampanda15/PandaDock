@@ -189,7 +189,7 @@ Reproducing Crystal Structure
                       --center 10 20 30 --box 20 20 20 \\
                       -o crystal_reproduction/
 
-Expected RMSD: <0.5 Å
+Expected RMSD: <0.5 Ã…
 
 Fragment Growing
 ^^^^^^^^^^^^^^^^
@@ -358,7 +358,7 @@ Performance Characteristics
 
 **Accuracy:**
 
-* RMSD to reference: 0.1-0.3 Å (excellent)
+* RMSD to reference: 0.1-0.3 Ã… (excellent)
 * Constraint satisfaction: >99%
 * Success rate: 95-98% (for reasonable constraints)
 
@@ -388,14 +388,14 @@ Choosing Tether Radius
 +-------------------+------------------+-------------------------+
 | Use Case          | Tether Radius    | Description             |
 +===================+==================+=========================+
-| Crystal           | 0.5-1.0 Å        | Tight constraint        |
+| Crystal           | 0.5-1.0 Ã…        | Tight constraint        |
 | reproduction      |                  |                         |
 +-------------------+------------------+-------------------------+
-| Fragment growing  | 1.0-2.0 Å        | Moderate constraint     |
+| Fragment growing  | 1.0-2.0 Ã…        | Moderate constraint     |
 +-------------------+------------------+-------------------------+
-| Scaffold hopping  | 2.0-4.0 Å        | Loose constraint        |
+| Scaffold hopping  | 2.0-4.0 Ã…        | Loose constraint        |
 +-------------------+------------------+-------------------------+
-| Biased search     | 3.0-5.0 Å        | Soft guidance           |
+| Biased search     | 3.0-5.0 Ã…        | Soft guidance           |
 +-------------------+------------------+-------------------------+
 
 **General rule:** Smaller radius = stricter constraint
@@ -492,7 +492,7 @@ Reproducing PDB Structures
                       -o validation_1hsg/
 
    # Check RMSD in results
-   # Success criterion: RMSD < 2.0 Å
+   # Success criterion: RMSD < 2.0 Ã…
 
 Cross-Docking Validation
 ^^^^^^^^^^^^^^^^^^^^^^^^^
