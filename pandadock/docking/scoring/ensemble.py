@@ -87,15 +87,20 @@ class BoltzmannEnsemble:
             entropy_penalty = self._calculate_entropy_penalty(selected_poses[0])
             ensemble_free_energy_raw += entropy_penalty
 
-        # Apply calibration if available
+        # Apply calibration only if one has actually been fitted.
+        #
+        # There used to be a "default calibration" here: a hand-written piecewise
+        # remap, clamped to [-15, 10], applied whenever no calibration existed. It
+        # was not fitted to anything, and it moved the reported ensemble energy
+        # outside the range of the pose scores it summarises -- a run whose poses
+        # spanned -16.3 to -14.5 kcal/mol reported an ensemble dG of -8.3. Without
+        # a fitted calibration the raw Boltzmann free energy is returned, which is
+        # on the same scale as the pose scores and is interpretable as such.
         if self.is_calibrated:
             ensemble_free_energy = (self.calibration_slope * ensemble_free_energy_raw +
                                   self.calibration_intercept)
         else:
-            # Apply default calibration to convert to realistic binding energies
-            # Typical docking energies are in range of -15 to +5 kcal/mol for binding
-            # Convert from internal scoring to experimental-like values
-            ensemble_free_energy = self._apply_default_calibration(ensemble_free_energy_raw)
+            ensemble_free_energy = ensemble_free_energy_raw
 
         self.logger.debug(f"Raw ensemble energy: {ensemble_free_energy_raw:.3f} kcal/mol")
         self.logger.debug(f"Calibrated ensemble energy: {ensemble_free_energy:.3f} kcal/mol")
@@ -247,30 +252,33 @@ class BoltzmannEnsemble:
 
         return selected_poses
 
-    def _calculate_entropy_penalty(self, representative_pose: Pose) -> float:
+    def _calculate_entropy_penalty(self, representative_pose: Pose,
+                                   n_rotatable_bonds: Optional[int] = None) -> float:
         """
-        Calculate entropy penalty for ligand binding
+        Entropy penalty for ligand binding.
 
-        Simplified model based on rotatable bonds and molecular size
+        The rotatable bond count is taken from the pose when available. It was
+        previously hardcoded to 5 with a "Placeholder" comment, so every ligand
+        received an identical +5.0 kcal/mol correction regardless of its actual
+        flexibility -- which defeats the purpose of a flexibility-dependent term.
         """
-        # This is a simplified model - in practice, you'd need more sophisticated
-        # entropy calculations based on ligand flexibility and binding site constraints
+        if n_rotatable_bonds is None:
+            torsions = getattr(representative_pose, 'torsion_angles', None)
+            n_rotatable_bonds = len(torsions) if torsions is not None else 0
 
-        # Estimate rotatable bonds (simplified)
-        # In a full implementation, this would come from the ligand molecule
-        estimated_rotatable_bonds = 5  # Placeholder
-
-        # Entropy penalty per rotatable bond (kcal/mol)
         entropy_per_bond = 0.5
 
-        # Translational and rotational entropy loss (typical values)
-        translational_entropy = 1.5  # kcal/mol
-        rotational_entropy = 1.0     # kcal/mol
+        # Translational and rotational entropy loss on binding.
+        translational_entropy = 1.5
+        rotational_entropy = 1.0
 
-        total_entropy_penalty = (estimated_rotatable_bonds * entropy_per_bond +
-                               translational_entropy + rotational_entropy)
+        total_entropy_penalty = (n_rotatable_bonds * entropy_per_bond +
+                                 translational_entropy + rotational_entropy)
 
-        self.logger.debug(f"Entropy penalty: {total_entropy_penalty:.3f} kcal/mol")
+        self.logger.debug(
+            f"Entropy penalty: {total_entropy_penalty:.3f} kcal/mol "
+            f"({n_rotatable_bonds} rotatable bonds)"
+        )
 
         return total_entropy_penalty
 

@@ -122,39 +122,66 @@ class InteractionAnalyzer:
                 'interaction_summary': "Analysis requires receptor structure and ligand molecule"
             }
 
-        # Basic interaction analysis
-        interactions = {
-            'hydrogen_bonds': 0,
-            'hydrophobic_contacts': 0,
-            'electrostatic_interactions': 0,
-            'van_der_waals_contacts': 0
+        receptor_atoms = list(receptor_structure.get_atoms())
+        if not receptor_atoms:
+            return {
+                'total_interactions': 0,
+                'interaction_types': {},
+                'interaction_summary': "Receptor structure contains no atoms",
+            }
+
+        # Use the chemistry-aware detectors rather than raw distance counting.
+        #
+        # This previously took each ligand atom's distance to its single nearest
+        # receptor atom and thresholded it three times. That counted a carbon
+        # near a carbon as a hydrogen bond, never checked donor/acceptor identity
+        # or hydrophobicity, left electrostatics permanently at zero, and summed
+        # three nested subsets of the same array into a "total" that
+        # double-counted every close contact. The detectors below were already
+        # present in this module and simply were not being called.
+        detected = {
+            'hydrogen_bonds': self._find_hydrogen_bonds(
+                ligand_coords, receptor_atoms, ligand_mol),
+            'hydrophobic_contacts': self._find_hydrophobic_contacts(
+                ligand_coords, receptor_atoms, ligand_mol),
+            'electrostatic_interactions': self._find_electrostatic_interactions(
+                ligand_coords, receptor_atoms, ligand_mol),
+            'van_der_waals_contacts': self._find_vdw_contacts(
+                ligand_coords, receptor_atoms, ligand_mol),
+            'pi_stacking': self._find_pi_stacking(
+                ligand_coords, receptor_atoms, ligand_mol),
+            'pi_cation': self._find_pi_cation_interactions(
+                ligand_coords, receptor_atoms, ligand_mol),
+            'metal_coordination': self._find_metal_coordination(
+                ligand_coords, receptor_atoms, ligand_mol),
         }
 
-        # Simple distance-based analysis
-        receptor_atoms = list(receptor_structure.get_atoms())
-        if len(receptor_atoms) > 0:
-            receptor_coords = np.array([atom.coord for atom in receptor_atoms])
-
-            # Calculate minimum distances
-            from scipy.spatial.distance import cdist
-            distances = cdist(ligand_coords, receptor_coords)
-            min_distances = np.min(distances, axis=1)
-
-            # Count interactions based on distance cutoffs - convert numpy types to Python types
-            interactions['van_der_waals_contacts'] = int(np.sum(min_distances < self.cutoffs['van_der_waals']))
-            interactions['hydrogen_bonds'] = int(np.sum(min_distances < self.cutoffs['hydrogen_bond']))
-            interactions['hydrophobic_contacts'] = int(np.sum(min_distances < self.cutoffs['hydrophobic']))
+        interactions = {}
+        for name, found in detected.items():
+            try:
+                interactions[name] = int(len(found))
+            except TypeError:
+                interactions[name] = 0
 
         total_interactions = sum(interactions.values())
 
-        # Calculate a more realistic binding affinity estimate based on interactions
-        affinity_estimate = self._estimate_binding_affinity(interactions, total_interactions)
-
+        # No fabricated affinity is reported here. The previous
+        # 'binding_affinity_estimate' applied invented per-interaction weights to
+        # the miscounted totals above and clamped the result to [-15, 5], so it
+        # saturated at -15.0 for most ligands and sat next to the real docking
+        # score in the same output directory, inviting confusion between the two.
+        # Use the score in the poses/summary files for binding energy.
         return {
             'total_interactions': int(total_interactions),
             'interaction_types': interactions,
-            'binding_affinity_estimate': float(affinity_estimate),
-            'interaction_summary': f"Found {total_interactions} total interactions"
+            'interaction_details': {
+                name: found for name, found in detected.items() if found
+            },
+            'interaction_summary': (
+                f"Found {total_interactions} interactions: "
+                + ", ".join(f"{n.replace('_', ' ')}={c}"
+                            for n, c in interactions.items() if c)
+            ),
         }
 
     def analyze_single_pose(self, pose: Pose, ligand_mol: Chem.Mol,
@@ -256,8 +283,7 @@ class InteractionAnalyzer:
 
                 if distance <= self.cutoffs['hydrogen_bond']:
                     # Check if donor-acceptor pair
-                    if ((lig_type == 'donor' and rec_info['type'] == 'acceptor') or
-                        (lig_type == 'acceptor' and rec_info['type'] == 'donor')):
+                    if self._hb_pair_is_complementary(lig_type, rec_info['type']):
 
                         residue = receptor_atoms[rec_idx].get_parent()
                         hbond = {
@@ -651,22 +677,71 @@ class InteractionAnalyzer:
 
         return hb_atoms
 
+    # Residue-specific hydrogen bonding sidechain atoms.
+    # 'both' covers hydroxyls and imidazole nitrogens, which donate and accept
+    # depending on rotamer and tautomer; at the resolution of a distance-based
+    # analysis it is wrong to commit them to one role.
+    SIDECHAIN_HB_ATOMS = {
+        ('SER', 'OG'): 'both',
+        ('THR', 'OG1'): 'both',
+        ('TYR', 'OH'): 'both',
+        ('CYS', 'SG'): 'both',
+        ('ASN', 'ND2'): 'donor',
+        ('ASN', 'OD1'): 'acceptor',
+        ('GLN', 'NE2'): 'donor',
+        ('GLN', 'OE1'): 'acceptor',
+        ('HIS', 'ND1'): 'both',
+        ('HIS', 'NE2'): 'both',
+        ('LYS', 'NZ'): 'donor',
+        ('ARG', 'NE'): 'donor',
+        ('ARG', 'NH1'): 'donor',
+        ('ARG', 'NH2'): 'donor',
+        ('TRP', 'NE1'): 'donor',
+        ('ASP', 'OD1'): 'acceptor',
+        ('ASP', 'OD2'): 'acceptor',
+        ('GLU', 'OE1'): 'acceptor',
+        ('GLU', 'OE2'): 'acceptor',
+    }
+
+    # Backbone amide NH donates; backbone carbonyl O accepts.
+    BACKBONE_HB_ATOMS = {'N': 'donor', 'O': 'acceptor', 'OXT': 'acceptor'}
+
     def _get_receptor_hb_atoms(self, receptor_atoms: List) -> Dict[int, Dict]:
-        """Get hydrogen bond atoms in receptor"""
+        """
+        Hydrogen bond donors and acceptors in the receptor.
+
+        Includes the backbone. The previous version matched only a short list of
+        sidechain atom names and ignored backbone N and O entirely, so it could
+        not detect main-chain hydrogen bonds at all. That is not a minor gap:
+        kinase hinge binding is predominantly backbone-mediated, so a correctly
+        docked kinase inhibitor reported zero hydrogen bonds.
+        """
         hb_atoms = {}
 
         for i, atom in enumerate(receptor_atoms):
-            residue_name = atom.get_parent().get_resname()
-            atom_name = atom.get_name()
+            element = (atom.element or '').strip().upper()
+            if element not in ('N', 'O', 'S'):
+                continue
 
-            if atom_name in ['OG', 'OH', 'NE2'] and atom.element in ['O', 'N']:
-                hb_atoms[i] = {'type': 'donor', 'residue': residue_name}
-            elif atom_name in ['OD1', 'OD2', 'OE1', 'OE2', 'ND1'] and atom.element in ['O', 'N']:
-                hb_atoms[i] = {'type': 'acceptor', 'residue': residue_name}
-            elif residue_name == 'TRP' and atom_name == 'NE1':
-                hb_atoms[i] = {'type': 'donor', 'residue': residue_name}
+            residue_name = atom.get_parent().get_resname()
+            atom_name = atom.get_name().strip()
+
+            role = self.SIDECHAIN_HB_ATOMS.get((residue_name, atom_name))
+            if role is None:
+                role = self.BACKBONE_HB_ATOMS.get(atom_name)
+            if role is None:
+                continue
+
+            hb_atoms[i] = {'type': role, 'residue': residue_name}
 
         return hb_atoms
+
+    @staticmethod
+    def _hb_pair_is_complementary(ligand_role: str, receptor_role: str) -> bool:
+        """A donor must meet an acceptor; 'both' satisfies either side."""
+        if ligand_role == 'both' or receptor_role == 'both':
+            return True
+        return ligand_role != receptor_role
 
     def _get_hydrophobic_ligand_atoms(self, mol: Chem.Mol) -> List[int]:
         """Get hydrophobic atoms in ligand"""

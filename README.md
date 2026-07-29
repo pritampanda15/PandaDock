@@ -167,6 +167,27 @@ Removed:
   are deprecated aliases of `PandaCoreDocker`. Their distinctive code was either
   unreachable or non-functional; each module's docstring records the details.
 
+Output correctness:
+- Ligands containing two-letter elements (Cl, Br, I) produced **no** pose or
+  complex PDB files at all, while the CLI reported success. BioPython requires
+  upper-case element symbols and RDKit supplies capitalised ones.
+- `poses.sdf` is now written alongside the PDBs, preserving bond orders and
+  formal charges that PDB cannot represent
+- Interaction analysis performed no chemistry: it thresholded each ligand atom's
+  distance to its nearest receptor atom three times, counting a carbon near a
+  carbon as a hydrogen bond, leaving electrostatics permanently zero, and summing
+  nested subsets into a double-counted total. It now uses the chemistry-aware
+  detectors that were already present in the module but never called.
+- Receptor hydrogen-bond typing omitted the protein backbone, so backbone-mediated
+  binding — the dominant mode for kinase hinge binders — reported zero hydrogen
+  bonds
+- Removed the fabricated `binding_affinity_estimate`, which applied invented
+  weights to those miscounts and clamped the result to [-15, 5]
+- The Boltzmann ensemble applied an unfitted "default calibration" that moved the
+  reported dG outside the range of the pose scores it summarises (poses spanning
+  -16.3 to -14.5 kcal/mol reported -8.3). The entropy penalty also used a
+  hardcoded rotatable bond count of 5 for every ligand.
+
 CLI and specialized docking:
 - `pandadock-ml` raised `ImportError: cannot import name 'GPU_AVAILABLE'` on every
   invocation; the name had never been defined. There is no GPU search path, so it

@@ -1643,13 +1643,25 @@ def save_complex_pdbs(result: DockingResult, receptor_file: str, output_dir: Pat
         visualizer = DockingVisualizer()
         top_poses = result.get_top_poses(10)
 
+        written = 0
         for i, pose in enumerate(top_poses, 1):
             complex_file = output_dir / f"complex{i}.pdb"
             visualizer.save_complex_pdb(
                 receptor_file, pose, complex_file, ligand_mol
             )
+            if complex_file.exists():
+                written += 1
 
-        logging.info(f"Saved {len(top_poses)} complex PDB files")
+        # Count files that actually landed on disk. The writer catches its own
+        # exceptions, so reporting len(top_poses) claimed success even when every
+        # single write had failed and no file existed.
+        if written < len(top_poses):
+            logging.warning(
+                "Saved %d of %d complex PDB files; %d failed to write",
+                written, len(top_poses), len(top_poses) - written,
+            )
+        else:
+            logging.info(f"Saved {written} complex PDB files")
 
     except Exception as e:
         logging.error(f"Error saving complex PDBs: {e}")
@@ -1661,14 +1673,60 @@ def save_pose_pdbs(result: DockingResult, output_dir: Path, ligand_mol=None):
         visualizer = DockingVisualizer()
         top_poses = result.get_top_poses(10)
 
+        written = 0
         for i, pose in enumerate(top_poses, 1):
             pose_file = output_dir / f"pose{i}.pdb"
             visualizer.save_pose_pdb(pose, pose_file, ligand_mol)
+            if pose_file.exists():
+                written += 1
 
-        logging.info(f"Saved {len(top_poses)} pose PDB files")
+        if written < len(top_poses):
+            logging.warning(
+                "Saved %d of %d pose PDB files; %d failed to write",
+                written, len(top_poses), len(top_poses) - written,
+            )
+        else:
+            logging.info(f"Saved {written} pose PDB files")
+
+        # An SDF alongside the PDBs preserves bond orders and formal charges,
+        # which PDB cannot represent. Viewers and downstream tools infer bonds
+        # from distance when given a ligand PDB, which routinely mis-assigns
+        # aromatic rings.
+        save_poses_sdf(result, output_dir, ligand_mol)
 
     except Exception as e:
         logging.error(f"Error saving pose PDBs: {e}")
+
+
+def save_poses_sdf(result: DockingResult, output_dir: Path, ligand_mol=None):
+    """Write all poses to a single SDF, annotated with rank and score."""
+    if ligand_mol is None:
+        return
+    try:
+        sdf_path = output_dir / "poses.sdf"
+        writer = Chem.SDWriter(str(sdf_path))
+        try:
+            for rank, pose in enumerate(result.get_top_poses(len(result.poses)), 1):
+                mol = Chem.Mol(ligand_mol)
+                mol.RemoveAllConformers()
+                conf = Chem.Conformer(mol.GetNumAtoms())
+                n = min(mol.GetNumAtoms(), len(pose.coordinates))
+                for i in range(n):
+                    conf.SetAtomPosition(i, pose.coordinates[i].tolist())
+                mol.AddConformer(conf, assignId=True)
+
+                mol.SetProp("_Name", f"{result.ligand_name}_pose{rank}")
+                mol.SetProp("rank", str(rank))
+                mol.SetProp("score_kcal_per_mol", f"{pose.energy:.3f}")
+                mol.SetProp("confidence", f"{pose.confidence:.3f}")
+                for key, value in (pose.energy_components or {}).items():
+                    mol.SetProp(f"energy_{key}", f"{value:.3f}")
+                writer.write(mol)
+        finally:
+            writer.close()
+        logging.info(f"Saved poses to {sdf_path}")
+    except Exception as e:
+        logging.error(f"Error saving poses SDF: {e}")
 
 
 def save_pose_to_pdb(pose: Pose, filepath: Path, ligand_mol: Chem.Mol):
