@@ -263,7 +263,8 @@ free movement within the radius, harmonic cost beyond it.
 
 Induced-fit docking redocks into every refined receptor and is substantially
 slower than rigid-receptor docking — budget hours rather than minutes for a
-single ligand.
+single ligand. Refined receptors are written to a temporary directory and removed
+when the run ends, including on failure.
 
 Metal parameters fall back to built-in approximations when no AutoDock-format
 parameter file is supplied. Those are adequate for identifying coordination

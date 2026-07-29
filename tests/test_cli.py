@@ -213,3 +213,65 @@ def test_gridbox_next_step_paths_point_at_written_files(tmp_path, monkeypatch):
         assert Path(path).exists(), (
             f"suggested --grid-config path does not exist: {path}"
         )
+
+
+def test_flex_refiner_uses_a_private_temp_directory():
+    """
+    Refined receptors must not be written to the working directory.
+
+    They were named `temp_refined_receptor_{id(pose)}.pdb` in the CWD, at roughly
+    375 KB each with one per pose. Cleanup ran only on the CLI's success path, so
+    an interrupted run left them all behind in whatever directory it was started
+    from -- typically the repository.
+    """
+    pytest.importorskip("rdkit")
+    import os
+
+    from pandadock.flex_docking.phases import ReceptorRefiner
+
+    refiner = ReceptorRefiner()
+    temp_dir = refiner._ensure_temp_dir()
+    try:
+        assert os.path.isdir(temp_dir)
+        assert not os.path.samefile(
+            os.path.dirname(temp_dir) or ".", os.getcwd()
+        ), "refined receptors are being written beside the working directory"
+    finally:
+        refiner.cleanup()
+
+    assert not os.path.isdir(temp_dir), "cleanup did not remove the temp directory"
+    refiner.cleanup()  # idempotent, and safe after a failure
+
+
+def test_flex_refined_receptor_names_are_unique():
+    """
+    Names must not derive from id(), which CPython reuses after collection.
+
+    Two poses could otherwise receive the same filename and the second would
+    overwrite the first, so the final redocking phase would dock into the wrong
+    refined receptor.
+    """
+    pytest.importorskip("rdkit")
+    import inspect
+
+    from pandadock.flex_docking.phases import ReceptorRefiner
+
+    # Strip comments so the check tests code rather than prose about the fix.
+    source = inspect.getsource(ReceptorRefiner)
+    code = "\n".join(
+        line.split("#")[0] for line in source.splitlines()
+    )
+    assert "id(pose)" not in code, (
+        "refined receptor filenames are derived from id(pose), which is reused "
+        "after garbage collection and can collide"
+    )
+
+    refiner = ReceptorRefiner()
+    try:
+        names = set()
+        for _ in range(50):
+            names.add(f"refined_receptor_{refiner._refined_counter:04d}.pdb")
+            refiner._refined_counter += 1
+        assert len(names) == 50
+    finally:
+        refiner.cleanup()

@@ -3,6 +3,9 @@ Four-phase induced-fit docking implementation
 """
 
 import numpy as np
+import os
+import shutil
+import tempfile
 import logging
 from typing import List, Dict, Tuple, Optional, Any
 from pathlib import Path
@@ -91,6 +94,13 @@ class ReceptorRefiner:
         self.cpu_workers = cpu_workers
         self.max_memory_gb = max_memory_gb
         self.logger = logging.getLogger("pandadock.flex.phase2")
+
+        # Refined receptors are written to a private temporary directory rather
+        # than the working directory. Writing them to the CWD left multi-megabyte
+        # files behind whenever a run was interrupted, and made two concurrent
+        # runs in one directory delete each other's files during cleanup.
+        self._temp_dir: Optional[str] = None
+        self._refined_counter = 0
 
         # Refinement configuration
         self.refinement_method = 'minimization'
@@ -239,8 +249,16 @@ class ReceptorRefiner:
             self.logger.error(f"Unknown refinement method: {self.refinement_method}")
             return None
 
-        # Save refined receptor to temporary file
-        refined_pdb_path = f"temp_refined_receptor_{id(pose)}.pdb"
+        # Save refined receptor to a temporary file.
+        #
+        # The name is a per-instance counter, not id(pose). CPython reuses id()
+        # values once an object is collected, so two poses could receive the same
+        # filename and the second would overwrite the first -- meaning the final
+        # redocking phase could dock into the wrong refined receptor.
+        refined_pdb_path = os.path.join(
+            self._ensure_temp_dir(), f"refined_receptor_{self._refined_counter:04d}.pdb"
+        )
+        self._refined_counter += 1
         io = PDBIO()
         io.set_structure(refined_structure)
         io.save(refined_pdb_path)
@@ -395,6 +413,33 @@ class ReceptorRefiner:
         # Simplified RMSD calculation
         # In production: use proper structural alignment
         return 1.5  # Placeholder value
+
+
+    def _ensure_temp_dir(self) -> str:
+        """Create this refiner's temporary directory on first use."""
+        if self._temp_dir is None:
+            self._temp_dir = tempfile.mkdtemp(prefix="pandadock_flex_")
+            self.logger.debug("Refined receptors will be written to %s", self._temp_dir)
+        return self._temp_dir
+
+    def cleanup(self) -> None:
+        """
+        Remove the temporary refined receptors.
+
+        Safe to call more than once, and safe to call after a failure. Cleanup
+        used to run only on the success path of the CLI, so an interrupted or
+        failed run left every refined receptor behind -- roughly 375 KB each.
+        """
+        if self._temp_dir and os.path.isdir(self._temp_dir):
+            shutil.rmtree(self._temp_dir, ignore_errors=True)
+            self.logger.debug("Removed temporary directory %s", self._temp_dir)
+        self._temp_dir = None
+
+    def __del__(self):
+        try:
+            self.cleanup()
+        except Exception:
+            pass
 
 
 class FinalRedocker:
