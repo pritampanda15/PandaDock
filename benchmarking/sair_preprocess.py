@@ -26,8 +26,9 @@ import argparse
 import logging
 import os
 import sys
+import threading
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
 
@@ -43,17 +44,23 @@ RDLogger.DisableLog("rdApp.*")
 
 logger = logging.getLogger("pandadock.sair.preprocess")
 
-_BUILDER = None
+_LOCAL = threading.local()
 
 
 def _builder():
-    """One graph builder per worker process."""
-    global _BUILDER
-    if _BUILDER is None:
+    """
+    One graph builder per worker thread.
+
+    Threads rather than processes: the job waits ~279 ms on S3 per structure, so
+    it is I/O bound and threads reach the same throughput. Processes each load
+    their own copy of torch and RDKit, which at 64 workers exhausted memory and
+    the run was OOM-killed partway through.
+    """
+    if not hasattr(_LOCAL, "builder"):
         from pandadock.gnn.data.graph_builder import HeterogeneousGraphBuilder
 
-        _BUILDER = HeterogeneousGraphBuilder()
-    return _BUILDER
+        _LOCAL.builder = HeterogeneousGraphBuilder()
+    return _LOCAL.builder
 
 
 def cache_path(cache_dir: Path, entry_id: int) -> Path:
@@ -130,28 +137,42 @@ def main(argv=None) -> int:
     tasks = [
         (e.entry_id, e.cif_path, e.smiles, e.pic50, str(cache_dir)) for e in entries
     ]
-    print(f"{len(tasks):,} complexes, {args.workers} workers", flush=True)
+    # The entry objects hold every SMILES and sequence string; the task tuples
+    # carry what is still needed, so release them before the run.
+    del entries
+
+    print(f"{len(tasks):,} complexes, {args.workers} worker threads", flush=True)
 
     counts = {"built": 0, "cached": 0, "empty": 0, "error": 0}
     start = time.time()
 
-    with ProcessPoolExecutor(max_workers=args.workers) as pool:
-        futures = [pool.submit(process_one, task) for task in tasks]
-        for done, future in enumerate(as_completed(futures), 1):
-            _, status = future.result()
-            counts[status if status in counts else "error"] += 1
+    # Submit in bounded waves rather than queueing every task up front. With
+    # ~900k tasks the pending futures alone are a meaningful amount of memory,
+    # and nothing is gained by scheduling work that cannot start for an hour.
+    done = 0
+    chunk = max(args.workers * 32, 1024)
 
-            if done % 1000 == 0 or done == len(tasks):
-                elapsed = time.time() - start
-                rate = done / elapsed
-                remaining = (len(tasks) - done) / rate if rate else 0
-                print(
-                    f"  {done:,}/{len(tasks):,}  {rate:.0f}/s  "
-                    f"eta {remaining/3600:.1f} h  "
-                    f"built {counts['built']:,} cached {counts['cached']:,} "
-                    f"empty {counts['empty']:,} error {counts['error']:,}",
-                    flush=True,
-                )
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        for offset in range(0, len(tasks), chunk):
+            wave = tasks[offset:offset + chunk]
+            futures = [pool.submit(process_one, task) for task in wave]
+
+            for future in as_completed(futures):
+                _, status = future.result()
+                counts[status if status in counts else "error"] += 1
+                done += 1
+
+                if done % 1000 == 0 or done == len(tasks):
+                    elapsed = time.time() - start
+                    rate = done / elapsed
+                    remaining = (len(tasks) - done) / rate if rate else 0
+                    print(
+                        f"  {done:,}/{len(tasks):,}  {rate:.0f}/s  "
+                        f"eta {remaining/3600:.1f} h  "
+                        f"built {counts['built']:,} cached {counts['cached']:,} "
+                        f"empty {counts['empty']:,} error {counts['error']:,}",
+                        flush=True,
+                    )
 
     elapsed = time.time() - start
     print(f"\nDone in {elapsed/3600:.2f} h")
