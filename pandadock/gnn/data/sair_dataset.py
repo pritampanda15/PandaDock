@@ -59,6 +59,45 @@ class SAIREntry:
     n_measurements: int = 1
 
 
+
+def _open_cif(path: str):
+    """
+    Open a CIF from local disk or S3.
+
+    S3 paths are streamed rather than synced. Each CIF is read exactly once, to
+    build its graph; training thereafter reads only the cache. Syncing the full
+    set would cost roughly 432 GB of local disk for data touched once.
+    """
+    import io
+
+    if not str(path).startswith("s3://"):
+        return open(path, "r", errors="ignore")
+
+    import boto3
+
+    bucket, key = str(path)[5:].split("/", 1)
+    client = _s3_client()
+    body = client.get_object(Bucket=bucket, Key=key)["Body"].read()
+    return io.StringIO(body.decode("utf-8", errors="ignore"))
+
+
+_S3_CLIENT = None
+
+
+def _s3_client():
+    """One boto3 client per process; creating one per file dominates runtime."""
+    global _S3_CLIENT
+    if _S3_CLIENT is None:
+        import boto3
+        from botocore.config import Config
+
+        _S3_CLIENT = boto3.client(
+            "s3",
+            config=Config(max_pool_connections=64, retries={"max_attempts": 5}),
+        )
+    return _S3_CLIENT
+
+
 # --------------------------------------------------------------------- CIF read
 
 
@@ -77,7 +116,7 @@ def parse_sair_cif(cif_path: str) -> Tuple[List[dict], List[dict]]:
     in_atom_site = False
     header: List[str] = []
 
-    with open(cif_path, "r", errors="ignore") as handle:
+    with _open_cif(cif_path) as handle:
         for line in handle:
             stripped = line.strip()
 
@@ -282,7 +321,11 @@ def load_entries(
         entries.append(
             SAIREntry(
                 entry_id=eid,
-                cif_path=os.path.join(cif_root, os.path.basename(available[eid])),
+                cif_path=(
+                    f"{cif_root.rstrip('/')}/{os.path.basename(available[eid])}"
+                    if str(cif_root).startswith("s3://")
+                    else os.path.join(cif_root, os.path.basename(available[eid]))
+                ),
                 # Median across replicate measurements: a structure has one
                 # geometry, so it must carry one label.
                 pic50=float(np.median(record["values"])),
