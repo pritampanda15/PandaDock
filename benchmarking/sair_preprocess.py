@@ -63,40 +63,21 @@ def _builder():
     return _LOCAL.builder
 
 
-def cache_path(cache_dir: Path, entry_id: int) -> Path:
-    """Shard by id so no directory holds a million files."""
-    return cache_dir / f"{entry_id % 1000:03d}" / f"{entry_id}.pt"
-
-
 def process_one(task) -> tuple:
-    """Build and cache one complex. Returns (entry_id, status)."""
-    entry_id, cif_path, smiles, pic50, cache_dir = task
-    import torch
+    """Parse one complex into a cache record. Returns (entry_id, status, record)."""
+    entry_id, cif_path, smiles, pic50, sequence = task
 
-    from pandadock.gnn.data.sair_dataset import build_complex_graph
-
-    target = cache_path(Path(cache_dir), entry_id)
-    if target.exists():
-        return entry_id, "cached"
+    from pandadock.gnn.data.sair_dataset import complex_to_record
 
     try:
-        graph = build_complex_graph(cif_path, smiles, _builder())
-        if graph is None:
-            return entry_id, "empty"
-
-        graph.y = torch.tensor([pic50], dtype=torch.float)
-        graph.entry_id = entry_id
-
-        target.parent.mkdir(parents=True, exist_ok=True)
-        # Write to a temporary name first: a worker killed mid-write would
-        # otherwise leave a truncated file that the resume logic counts as done.
-        tmp = target.with_suffix(".tmp")
-        torch.save(graph, tmp)
-        tmp.replace(target)
-        return entry_id, "built"
+        record = complex_to_record(entry_id, cif_path, smiles, pic50)
+        if record is None:
+            return entry_id, "empty", None
+        # Kept so the dataset can split by target without re-reading the parquet.
+        record["sequence"] = sequence
+        return entry_id, "built", record
     except Exception as exc:
-        logger.debug("entry %s failed: %s", entry_id, exc)
-        return entry_id, f"error:{type(exc).__name__}"
+        return entry_id, f"error:{type(exc).__name__}: {exc}", None
 
 
 def main(argv=None) -> int:
@@ -114,13 +95,17 @@ def main(argv=None) -> int:
                         help="Only build one split; default builds everything")
     parser.add_argument("--keep-floor", action="store_true",
                         help="Keep pIC50 == 4.0 censored measurements")
+    parser.add_argument("--rebuild", action="store_true",
+                        help="Rebuild shards that already exist")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
                         format="%(levelname)s: %(message)s")
 
-    from pandadock.gnn.data.sair_dataset import load_entries, split_by_sequence
+    from pandadock.gnn.data.sair_dataset import (
+        SHARD_SIZE, load_entries, load_shard, save_shard, shard_path, split_by_sequence,
+    )
 
     print("Indexing...", flush=True)
     entries = load_entries(args.parquet, args.cif_index, args.cif_root,
@@ -135,44 +120,73 @@ def main(argv=None) -> int:
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     tasks = [
-        (e.entry_id, e.cif_path, e.smiles, e.pic50, str(cache_dir)) for e in entries
+        (e.entry_id, e.cif_path, e.smiles, e.pic50, e.sequence) for e in entries
     ]
-    # The entry objects hold every SMILES and sequence string; the task tuples
-    # carry what is still needed, so release them before the run.
     del entries
 
     print(f"{len(tasks):,} complexes, {args.workers} worker threads", flush=True)
 
     counts = {"built": 0, "cached": 0, "empty": 0, "error": 0}
+    error_samples: dict = {}
     start = time.time()
-
-    # Submit in bounded waves rather than queueing every task up front. With
-    # ~900k tasks the pending futures alone are a meaningful amount of memory,
-    # and nothing is gained by scheduling work that cannot start for an hour.
     done = 0
-    chunk = max(args.workers * 32, 1024)
 
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        for offset in range(0, len(tasks), chunk):
-            wave = tasks[offset:offset + chunk]
-            futures = [pool.submit(process_one, task) for task in wave]
+    # One shard per SHARD_SIZE complexes. Writing a file per complex produced
+    # ~195 KB each -- a materialised graph carries ~600 site atoms of 56-dim
+    # float features -- which is 172 GB over the full set. Caching parsed atoms
+    # in gzipped shards is roughly 5 KB each, and featurising at load time costs
+    # little once the CIF has been parsed.
+    for shard_id in range(0, (len(tasks) + SHARD_SIZE - 1) // SHARD_SIZE):
+        if shard_path(cache_dir, shard_id).exists() and not args.rebuild:
+            existing = load_shard(cache_dir, shard_id)
+            counts["cached"] += len(existing)
+            done += len(existing)
+            continue
 
-            for future in as_completed(futures):
-                _, status = future.result()
-                counts[status if status in counts else "error"] += 1
+        wave = tasks[shard_id * SHARD_SIZE:(shard_id + 1) * SHARD_SIZE]
+        records = {}
+
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            for future in as_completed([pool.submit(process_one, t) for t in wave]):
+                entry_id, status, record = future.result()
                 done += 1
+                if status == "built":
+                    counts["built"] += 1
+                    records[entry_id] = record
+                elif status == "empty":
+                    counts["empty"] += 1
+                else:
+                    counts["error"] += 1
+                    key = status.split(":", 1)[-1].strip()[:90]
+                    error_samples[key] = error_samples.get(key, 0) + 1
 
-                if done % 1000 == 0 or done == len(tasks):
-                    elapsed = time.time() - start
-                    rate = done / elapsed
-                    remaining = (len(tasks) - done) / rate if rate else 0
-                    print(
-                        f"  {done:,}/{len(tasks):,}  {rate:.0f}/s  "
-                        f"eta {remaining/3600:.1f} h  "
-                        f"built {counts['built']:,} cached {counts['cached']:,} "
-                        f"empty {counts['empty']:,} error {counts['error']:,}",
-                        flush=True,
-                    )
+        if records:
+            save_shard(cache_dir, shard_id, records)
+
+        elapsed = time.time() - start
+        rate = done / elapsed if elapsed else 0
+        remaining = (len(tasks) - done) / rate if rate else 0
+        print(
+            f"  shard {shard_id:04d}  {done:,}/{len(tasks):,}  {rate:.0f}/s  "
+            f"eta {remaining/3600:.1f} h  built {counts['built']:,} "
+            f"cached {counts['cached']:,} empty {counts['empty']:,} "
+            f"error {counts['error']:,}",
+            flush=True,
+        )
+
+        # A run where everything fails should stop in seconds, not hours. An
+        # expired AWS token previously produced 22,422 identical failures over
+        # eleven minutes before anyone saw the cause.
+        if counts["error"] >= 200 and counts["built"] == 0:
+            print("\nEvery attempt has failed. Most common:", flush=True)
+            for message, count in sorted(error_samples.items(), key=lambda kv: -kv[1])[:3]:
+                print(f"  {count:>6,}  {message}", flush=True)
+            return 1
+
+    if error_samples:
+        print("\nMost common failures:")
+        for message, count in sorted(error_samples.items(), key=lambda kv: -kv[1])[:5]:
+            print(f"  {count:>7,}  {message}")
 
     elapsed = time.time() - start
     print(f"\nDone in {elapsed/3600:.2f} h")

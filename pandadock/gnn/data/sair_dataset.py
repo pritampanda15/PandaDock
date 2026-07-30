@@ -464,3 +464,200 @@ class SAIRDataset:
 
     def get_entry(self, index: int) -> SAIREntry:
         return self.entries[index]
+
+
+# ------------------------------------------------------------- compact caching
+
+# Caching built graphs costs ~195 KB per complex, because a materialised
+# HeteroData carries ~600 site atoms of 56-dimensional float features. Caching
+# the parsed atoms instead and featurising at load time costs roughly 5 KB, which
+# is the difference between 172 GB and 5 GB over the full set. Featurisation is
+# cheap once the CIF has been parsed, so nothing is lost by deferring it.
+
+SHARD_SIZE = 1000
+
+
+def complex_to_record(
+    entry_id: int,
+    cif_path: str,
+    smiles: str,
+    pic50: float,
+    site_radius: float = 10.0,
+) -> Optional[dict]:
+    """
+    Parse one complex into the compact form that gets cached.
+
+    Coordinates are float32 and atom types are interned strings; the graph is
+    rebuilt from this at load time.
+    """
+    protein_atoms, ligand_atoms = parse_sair_cif(cif_path)
+    if not protein_atoms or not ligand_atoms:
+        return None
+
+    ligand, matched = ligand_to_parsed(ligand_atoms, smiles)
+    protein = protein_to_parsed(protein_atoms)
+
+    ligand_xyz = np.array([[a.x, a.y, a.z] for a in ligand.atoms], dtype=np.float32)
+    centroid = ligand_xyz.mean(axis=0)
+
+    # Cut the site here rather than at load time: it is the whole reason the
+    # record is small, and the radius is not something training should vary.
+    keep = [
+        a for a in protein.atoms
+        if (a.x - centroid[0]) ** 2 + (a.y - centroid[1]) ** 2
+        + (a.z - centroid[2]) ** 2 <= site_radius ** 2
+    ]
+    if not keep:
+        return None
+
+    return {
+        "entry_id": entry_id,
+        "pic50": float(pic50),
+        "smiles_matched": bool(matched),
+        "site_xyz": np.array([[a.x, a.y, a.z] for a in keep], dtype=np.float32),
+        "site_types": [a.atom_type for a in keep],
+        "site_names": [a.name for a in keep],
+        "site_resnames": [a.residue_name for a in keep],
+        "site_resids": np.array([a.residue_id for a in keep], dtype=np.int32),
+        "lig_xyz": ligand_xyz,
+        "lig_types": [a.atom_type for a in ligand.atoms],
+        "lig_names": [a.name for a in ligand.atoms],
+    }
+
+
+def record_to_molecules(record: dict):
+    """Rebuild the site and ligand ParsedMolecules from a cached record."""
+    from .mol2_parser import Atom, ParsedMolecule
+
+    def build(prefix: str, resnames, resids, name: str):
+        xyz = record[f"{prefix}_xyz"]
+        types = record[f"{prefix}_types"]
+        names = record[f"{prefix}_names"]
+        atoms = [
+            Atom(
+                id=i + 1,
+                name=names[i],
+                x=float(xyz[i][0]), y=float(xyz[i][1]), z=float(xyz[i][2]),
+                atom_type=types[i],
+                charge=0.0,
+                residue_name=resnames[i] if resnames is not None else LIGAND_COMP_ID,
+                residue_id=int(resids[i]) if resids is not None else 1,
+            )
+            for i in range(len(types))
+        ]
+        molecule = ParsedMolecule(name=name, atoms=atoms, bonds=[])
+        molecule.num_atoms = len(atoms)
+        return molecule
+
+    site = build("site", record["site_resnames"], record["site_resids"], "site")
+    ligand = build("lig", None, None, "ligand")
+    return site, ligand
+
+
+def shard_path(cache_dir, shard_id: int) -> Path:
+    return Path(cache_dir) / f"shard_{shard_id:04d}.pkl.gz"
+
+
+def save_shard(cache_dir, shard_id: int, records: dict) -> Path:
+    """Write one shard of records. Gzipped: these are mostly repeated strings."""
+    import gzip
+    import pickle
+
+    path = shard_path(cache_dir, shard_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    with gzip.open(tmp, "wb", compresslevel=4) as handle:
+        pickle.dump(records, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    tmp.replace(path)
+    return path
+
+
+def load_shard(cache_dir, shard_id: int) -> dict:
+    import gzip
+    import pickle
+
+    path = shard_path(cache_dir, shard_id)
+    if not path.exists():
+        return {}
+    with gzip.open(path, "rb") as handle:
+        return pickle.load(handle)
+
+
+class SAIRCachedDataset:
+    """
+    Dataset over the sharded record cache.
+
+    Shards are loaded lazily and the most recently used ones kept, so sequential
+    access touches each file once. Shuffle at the sampler level rather than
+    across shards if throughput matters.
+    """
+
+    def __init__(
+        self,
+        cache_dir: str,
+        split: str = "train",
+        split_ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
+        seed: int = 42,
+        graph_config=None,
+        max_open_shards: int = 4,
+    ):
+        import glob
+
+        from .graph_builder import HeterogeneousGraphBuilder
+
+        self.cache_dir = Path(cache_dir)
+        self.graph_builder = HeterogeneousGraphBuilder(graph_config)
+        self.max_open_shards = max_open_shards
+        self._open: Dict[int, dict] = {}
+
+        shards = sorted(glob.glob(str(self.cache_dir / "shard_*.pkl.gz")))
+        if not shards:
+            raise FileNotFoundError(f"No shards under {cache_dir}")
+
+        # Build the index once: which shard holds each entry, and its sequence
+        # so the split stays target-disjoint.
+        self.index: List[Tuple[int, int]] = []
+        sequences: Dict[int, str] = {}
+        for path in shards:
+            shard_id = int(Path(path).name.split("_")[1].split(".")[0])
+            for entry_id, record in load_shard(self.cache_dir, shard_id).items():
+                self.index.append((shard_id, entry_id))
+                sequences[entry_id] = record.get("sequence", str(entry_id))
+
+        rng = np.random.default_rng(seed)
+        unique = sorted(set(sequences.values()))
+        rng.shuffle(unique)
+        n_train = int(len(unique) * split_ratios[0])
+        n_val = int(len(unique) * split_ratios[1])
+        assigned = {
+            "train": set(unique[:n_train]),
+            "val": set(unique[n_train:n_train + n_val]),
+            "test": set(unique[n_train + n_val:]),
+        }[split]
+
+        self.index = [
+            (s, e) for s, e in self.index if sequences[e] in assigned
+        ]
+        logger.info("%s: %d complexes from %d shards", split, len(self.index), len(shards))
+
+    def __len__(self) -> int:
+        return len(self.index)
+
+    def _records(self, shard_id: int) -> dict:
+        if shard_id not in self._open:
+            if len(self._open) >= self.max_open_shards:
+                self._open.pop(next(iter(self._open)))
+            self._open[shard_id] = load_shard(self.cache_dir, shard_id)
+        return self._open[shard_id]
+
+    def __getitem__(self, index: int):
+        import torch
+
+        shard_id, entry_id = self.index[index]
+        record = self._records(shard_id)[entry_id]
+
+        site, ligand = record_to_molecules(record)
+        graph = self.graph_builder.build_graph(site, ligand)
+        graph.y = torch.tensor([record["pic50"]], dtype=torch.float)
+        graph.entry_id = entry_id
+        return graph
