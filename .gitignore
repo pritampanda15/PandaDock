@@ -162,3 +162,12 @@ benchmarking/**/*.json
 benchmark_prepared/
 benchmark_results/
 complexes/
+
+# SAIR training data and derived caches. sair.parquet is 635 MB and graph_cache
+# reaches tens of GB over the full set; both live in S3 and are regenerable.
+# A blob this size cannot be removed from history later without a force-push.
+sair.parquet
+cif_index.json
+graph_cache/
+*.cif
+preprocess.log
