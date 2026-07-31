@@ -800,19 +800,28 @@ def create_sair_dataloaders(
         for split in ("train", "val", "test")
     }
 
+    # Featurising a complex costs ~1.3 ms, so a worker sustains roughly 800
+    # samples/s and the GPU is fed by however many workers are running. Pinned
+    # memory and a deeper prefetch queue keep the transfer off the critical path.
+    common = dict(
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
+        pin_memory=True,
+    )
+    if num_workers > 0:
+        common["prefetch_factor"] = 4
+
     train_sampler = ShardBlockSampler(datasets["train"], block_shards, seed)
     loaders = {
         "train": PyGDataLoader(
-            datasets["train"], batch_size=batch_size, sampler=train_sampler,
-            num_workers=num_workers, persistent_workers=num_workers > 0,
+            datasets["train"], batch_size=batch_size, sampler=train_sampler, **common
         )
     }
     # Validation and test run in shard order: no shuffle needed, and sequential
     # access is the cheapest way through the cache.
     for split in ("val", "test"):
         loaders[split] = PyGDataLoader(
-            datasets[split], batch_size=batch_size, shuffle=False,
-            num_workers=num_workers, persistent_workers=num_workers > 0,
+            datasets[split], batch_size=batch_size, shuffle=False, **common
         )
 
     return loaders["train"], loaders["val"], loaders["test"]

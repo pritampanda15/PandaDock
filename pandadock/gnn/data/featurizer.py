@@ -96,6 +96,9 @@ class AtomFeaturizer:
         self.include_residue = include_residue
         self.normalize_charge = normalize_charge
 
+        # Memo for the discrete part of the feature vector; see featurize_atom.
+        self._discrete_cache: Dict[tuple, Tuple[np.ndarray, np.ndarray]] = {}
+
         # Calculate feature dimensions
         self.element_dim = len(ELEMENTS)  # 10
         self.sybyl_dim = len(SYBYL_TYPES)  # 26 -> use embedding
@@ -119,6 +122,17 @@ class AtomFeaturizer:
         """
         Generate features for a single atom.
 
+        Every feature except partial charge is a pure function of a handful of
+        discrete attributes, and a dataset contains only a few hundred distinct
+        combinations of them -- so the discrete part is computed once per
+        combination and reused. This is the dominant cost in the dataloader
+        (~205 atoms per complex, each rebuilding six small arrays), and caching
+        it is exact rather than approximate: the key covers every attribute the
+        computation reads.
+
+        Charge stays outside the cache because it is continuous; caching on it
+        would grow without bound and never hit.
+
         Args:
             atom: Atom object from parser
             is_protein: Whether this atom belongs to protein
@@ -126,29 +140,71 @@ class AtomFeaturizer:
         Returns:
             Feature vector of shape (feature_dim,)
         """
+        key = (
+            atom.element.upper(),
+            atom.atom_type,
+            atom.hybridization,
+            'H' in atom.name,
+            atom.residue_name[:3].upper() if is_protein else None,
+            is_protein,
+        )
+
+        cached = self._discrete_cache.get(key)
+        if cached is None:
+            cached = self._discrete_features(*key)
+            # Bounded so a pathological input cannot grow this without limit.
+            # Real datasets settle in the low hundreds of keys.
+            if len(self._discrete_cache) < 8192:
+                self._discrete_cache[key] = cached
+        head, tail = cached
+
+        if not self.include_charge:
+            return np.concatenate([head, tail]) if tail.size else head.copy()
+
+        charge = atom.charge
+        if self.normalize_charge:
+            # Comparisons rather than np.clip: this is a scalar, and going
+            # through numpy's dispatch for it cost more than every other feature
+            # in this function combined. Written as two branches rather than
+            # min/max so a NaN charge passes through unchanged, as np.clip does.
+            if charge < -1.0:
+                charge = -1.0
+            elif charge > 1.0:
+                charge = 1.0
+        return np.concatenate([head, np.array([charge], dtype=np.float32), tail])
+
+    def _discrete_features(
+        self,
+        element: str,
+        atom_type: str,
+        hybridization,
+        name_has_h: bool,
+        residue_name: Optional[str],
+        is_protein: bool,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        The charge-independent halves of the feature vector.
+
+        Returned as (before charge, after charge) so featurize_atom can splice
+        the charge into the position it has always occupied.
+        """
         features = []
 
         # 1. Element one-hot (10 dims)
-        element = atom.element.upper()
-        if element == 'CL':
-            element = 'CL'
-        elif element == 'BR':
-            element = 'BR'
-        elif element not in ELEMENT_TO_IDX:
+        if element not in ELEMENT_TO_IDX:
             element = 'OTHER'
         element_vec = np.zeros(self.element_dim, dtype=np.float32)
         element_vec[ELEMENT_TO_IDX.get(element, ELEMENT_TO_IDX['OTHER'])] = 1.0
         features.append(element_vec)
 
         # 2. SYBYL type embedding (16 dims via hashing)
-        sybyl_vec = self._sybyl_embedding(atom.atom_type)
+        sybyl_vec = self._sybyl_embedding(atom_type)
         features.append(sybyl_vec)
 
         # 3. Hybridization one-hot (4 dims)
         hyb_vec = np.zeros(self.hybridization_dim, dtype=np.float32)
-        hyb = atom.hybridization
-        if hyb in HYBRIDIZATION_MAP:
-            hyb_vec[HYBRIDIZATION_MAP[hyb]] = 1.0
+        if hybridization in HYBRIDIZATION_MAP:
+            hyb_vec[HYBRIDIZATION_MAP[hybridization]] = 1.0
         else:
             hyb_vec[2] = 1.0  # Default to sp3
         features.append(hyb_vec)
@@ -156,40 +212,39 @@ class AtomFeaturizer:
         # 4. H-bond donor/acceptor (2 dims)
         hbond_vec = np.zeros(self.hbond_dim, dtype=np.float32)
         # Donor: N-H, O-H patterns
-        if atom.element.upper() in ['N', 'O'] and 'H' not in atom.name:
+        if element in ['N', 'O'] and not name_has_h:
             hbond_vec[1] = 1.0  # Acceptor
-        if atom.element.upper() == 'N' and atom.atom_type in ['N.3', 'N.4', 'N.am', 'N.pl3']:
+        if element == 'N' and atom_type in ['N.3', 'N.4', 'N.am', 'N.pl3']:
             hbond_vec[0] = 1.0  # Donor
-        if atom.element.upper() == 'O' and atom.atom_type == 'O.3':
+        if element == 'O' and atom_type == 'O.3':
             hbond_vec[0] = 1.0  # Donor (hydroxyl)
         features.append(hbond_vec)
 
         # 5. Aromaticity and ring (2 dims)
         other_vec = np.zeros(self.other_dim, dtype=np.float32)
-        if 'ar' in atom.atom_type.lower():
+        if 'ar' in atom_type.lower():
             other_vec[0] = 1.0  # Aromatic
         # Ring membership approximated from atom type
-        if atom.atom_type in ['C.ar', 'N.ar', 'C.2', 'N.2']:
+        if atom_type in ['C.ar', 'N.ar', 'C.2', 'N.2']:
             other_vec[1] = 1.0  # Likely in ring
         features.append(other_vec)
 
-        # 6. Partial charge (1 dim)
-        if self.include_charge:
-            charge = atom.charge
-            if self.normalize_charge:
-                charge = np.clip(charge, -1.0, 1.0)
-            features.append(np.array([charge], dtype=np.float32))
+        head = np.concatenate(features)
+
+        # 6. Partial charge (1 dim) is spliced in by featurize_atom, between
+        #    these two halves.
 
         # 7. Residue type (21 dims) - only for protein atoms
         if self.include_residue:
             res_vec = np.zeros(len(AMINO_ACIDS), dtype=np.float32)
             if is_protein:
-                res_name = atom.residue_name[:3].upper()
-                res_idx = AA_TO_IDX.get(res_name, AA_TO_IDX['UNK'])
+                res_idx = AA_TO_IDX.get(residue_name, AA_TO_IDX['UNK'])
                 res_vec[res_idx] = 1.0
-            features.append(res_vec)
+            tail = res_vec
+        else:
+            tail = np.zeros(0, dtype=np.float32)
 
-        return np.concatenate(features)
+        return head, tail
 
     def _sybyl_embedding(self, sybyl_type: str, dim: int = 16) -> np.ndarray:
         """
