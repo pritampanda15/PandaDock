@@ -173,14 +173,20 @@ if CLICK_AVAILABLE:
     @click.option('--num-layers', default=6, type=int, help='Number of EGNN layers')
     @click.option('--dropout', default=0.1, type=float, help='Dropout rate')
     @click.option('--patience', default=10, type=int, help='Early stopping patience')
-    @click.option('--num-workers', default=4, type=int,
+    @click.option('--scheduler',
+                  type=click.Choice(['cosine_anneal', 'cosine', 'plateau', 'none']),
+                  default='cosine_anneal',
+                  help='LR schedule; cosine_anneal decays once over --epochs, '
+                       'cosine restarts every 10 epochs then 20, then 40')
+    @click.option('--num-workers', default=6, type=int,
                   help='Dataloader worker processes')
     @click.option('--block-shards', default=16, type=int,
                   help='Shards shuffled together; larger mixes more but uses more memory')
     @click.option('--gpu/--cpu', default=True, help='Use GPU if available')
     @click.option('--seed', default=42, type=int, help='Random seed')
     def train_sair(cache, output, epochs, batch_size, lr, hidden_dim, num_layers,
-                   dropout, patience, num_workers, block_shards, gpu, seed):
+                   dropout, patience, scheduler, num_workers, block_shards,
+                   gpu, seed):
         """
         Train PandaDock-GNN on the SAIR shard cache.
 
@@ -211,6 +217,7 @@ if CLICK_AVAILABLE:
         print(f"Output: {output}")
         print(f"Epochs: {epochs}, Batch size: {batch_size}")
         print(f"Hidden dim: {hidden_dim}, Layers: {num_layers}")
+        print(f"LR: {lr} ({scheduler})")
         print(f"Device: {device}")
         print("=" * 60)
 
@@ -246,6 +253,7 @@ if CLICK_AVAILABLE:
             epochs=epochs,
             batch_size=batch_size,
             patience=patience,
+            scheduler=scheduler,
             checkpoint_dir=str(output_dir),
             device=device,
         )

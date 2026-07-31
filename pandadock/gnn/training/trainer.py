@@ -22,6 +22,7 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW, Adam, SGD
 from torch.optim.lr_scheduler import (
+    CosineAnnealingLR,
     CosineAnnealingWarmRestarts,
     ReduceLROnPlateau,
     OneCycleLR
@@ -38,7 +39,11 @@ class TrainingConfig:
     learning_rate: float = 1e-4
     weight_decay: float = 1e-4
     optimizer: str = 'adamw'  # 'adamw', 'adam', 'sgd'
-    scheduler: str = 'cosine'  # 'cosine', 'plateau', 'onecycle', 'none'
+    scheduler: str = 'cosine'  # 'cosine', 'cosine_anneal', 'plateau', 'onecycle', 'none'
+    # Warm-restart geometry, used only by scheduler == 'cosine'. The defaults
+    # reproduce the values these were previously hardcoded to.
+    scheduler_t0: int = 10
+    scheduler_t_mult: int = 2
 
     # Training
     epochs: int = 100
@@ -208,11 +213,19 @@ class GNNTrainer:
     def _create_scheduler(self, num_training_steps: int):
         """Create learning rate scheduler."""
         if self.config.scheduler == 'cosine':
+            # Warm restarts: the LR anneals to near zero over T_0 epochs, jumps
+            # back to the initial value, and repeats over a window T_mult times
+            # longer. Cycle boundaries are visible as a sharp rise in loss.
             return CosineAnnealingWarmRestarts(
                 self.optimizer,
-                T_0=10,
-                T_mult=2
+                T_0=self.config.scheduler_t0,
+                T_mult=self.config.scheduler_t_mult
             )
+        elif self.config.scheduler == 'cosine_anneal':
+            # A single anneal across the whole run, so training ends at the
+            # minimum LR rather than wherever the restart cycle happens to be.
+            # Prefer this when the epoch budget is fixed in advance.
+            return CosineAnnealingLR(self.optimizer, T_max=self.config.epochs)
         elif self.config.scheduler == 'plateau':
             return ReduceLROnPlateau(
                 self.optimizer,
