@@ -470,6 +470,18 @@ class GNNTrainer:
         if hasattr(batch, 'y_active'):
             targets['activity'] = batch.y_active.view(-1)
 
+        # A batch with no recognised target produces no loss terms, so the total
+        # stays the float 0.0 it was initialised to. That surfaces much later as
+        # "'float' object has no attribute 'backward'", or -- with AMP off and a
+        # tensor total -- as an epoch of training on nothing. Name the cause here.
+        if not targets:
+            raise ValueError(
+                "Batch carries no training target: expected y_affinity and/or "
+                "y_active, found "
+                f"{sorted(k for k in batch.keys() if k.startswith('y'))!r}. "
+                "Datasets must set y_affinity; setting only `y` is not enough."
+            )
+
         return targets
 
     def _log_epoch(
@@ -507,7 +519,11 @@ class GNNTrainer:
 
     def _load_checkpoint(self, path: Path) -> None:
         """Load model checkpoint."""
-        checkpoint = torch.load(path, map_location=self.device)
+        # weights_only=False because the checkpoint embeds the ModelConfig
+        # dataclass, which torch 2.6 refuses to unpickle under the new default.
+        # This file was written by _save_checkpoint moments earlier in this same
+        # run, so there is no untrusted input involved.
+        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
 
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.current_epoch = checkpoint.get('epoch', 0)

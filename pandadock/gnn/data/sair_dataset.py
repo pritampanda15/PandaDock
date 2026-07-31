@@ -458,7 +458,10 @@ class SAIRDataset:
             if cache_path is not None:
                 torch.save(graph, cache_path)
 
-        graph.y = torch.tensor([entry.pic50], dtype=torch.float)
+        # y_affinity is the name the trainer reads; `y` alone yields no loss
+        # terms at all, which surfaces as a total loss of 0.0 rather than an error.
+        graph.y_affinity = torch.tensor([entry.pic50], dtype=torch.float32)
+        graph.y = graph.y_affinity
         graph.entry_id = entry.entry_id
         return graph
 
@@ -583,13 +586,72 @@ def load_shard(cache_dir, shard_id: int) -> dict:
         return pickle.load(handle)
 
 
+INDEX_NAME = "index.pkl.gz"
+
+
+def build_index(cache_dir, rebuild: bool = False) -> dict:
+    """
+    Index the shard cache: which shard each entry lives in, and its target
+    sequence so splits can be made target-disjoint.
+
+    Persisted, because building it means decompressing every shard -- several
+    minutes over the full 920k set, and it would otherwise be paid three times
+    per run, once for each of train/val/test.
+
+    Sequences are stored once in a table and referenced by position; the same
+    target recurs across thousands of complexes, so storing the string per entry
+    would make the index larger than it needs to be by two orders of magnitude.
+    """
+    import glob
+    import gzip
+    import pickle
+
+    cache_dir = Path(cache_dir)
+    path = cache_dir / INDEX_NAME
+
+    if path.exists() and not rebuild:
+        with gzip.open(path, "rb") as handle:
+            return pickle.load(handle)
+
+    shards = sorted(glob.glob(str(cache_dir / "shard_*.pkl.gz")))
+    if not shards:
+        raise FileNotFoundError(f"No shards under {cache_dir}")
+
+    entries: List[Tuple[int, int, int]] = []
+    sequence_ids: Dict[str, int] = {}
+    logger.info("Indexing %d shards (one-off, result is cached)", len(shards))
+
+    for shard_file in shards:
+        shard_id = int(Path(shard_file).name.split("_")[1].split(".")[0])
+        for entry_id, record in load_shard(cache_dir, shard_id).items():
+            sequence = record.get("sequence") or str(entry_id)
+            seq_id = sequence_ids.setdefault(sequence, len(sequence_ids))
+            entries.append((shard_id, entry_id, seq_id))
+
+    index = {
+        "entries": entries,
+        "n_sequences": len(sequence_ids),
+        "n_shards": len(shards),
+    }
+
+    tmp = path.with_suffix(".tmp")
+    with gzip.open(tmp, "wb", compresslevel=4) as handle:
+        pickle.dump(index, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    tmp.replace(path)
+
+    logger.info("Indexed %d complexes over %d targets",
+                len(entries), len(sequence_ids))
+    return index
+
+
 class SAIRCachedDataset:
     """
     Dataset over the sharded record cache.
 
-    Shards are loaded lazily and the most recently used ones kept, so sequential
-    access touches each file once. Shuffle at the sampler level rather than
-    across shards if throughput matters.
+    Shards are loaded lazily and the most recently used ones kept, so access in
+    shard order touches each file once. Random access across 920 shards would
+    decompress a shard per sample, so shuffle with ShardBlockSampler rather than
+    with DataLoader(shuffle=True).
     """
 
     def __init__(
@@ -600,9 +662,8 @@ class SAIRCachedDataset:
         seed: int = 42,
         graph_config=None,
         max_open_shards: int = 4,
+        index: Optional[dict] = None,
     ):
-        import glob
-
         from .graph_builder import HeterogeneousGraphBuilder
 
         self.cache_dir = Path(cache_dir)
@@ -610,35 +671,30 @@ class SAIRCachedDataset:
         self.max_open_shards = max_open_shards
         self._open: Dict[int, dict] = {}
 
-        shards = sorted(glob.glob(str(self.cache_dir / "shard_*.pkl.gz")))
-        if not shards:
-            raise FileNotFoundError(f"No shards under {cache_dir}")
+        if index is None:
+            index = build_index(self.cache_dir)
 
-        # Build the index once: which shard holds each entry, and its sequence
-        # so the split stays target-disjoint.
-        self.index: List[Tuple[int, int]] = []
-        sequences: Dict[int, str] = {}
-        for path in shards:
-            shard_id = int(Path(path).name.split("_")[1].split(".")[0])
-            for entry_id, record in load_shard(self.cache_dir, shard_id).items():
-                self.index.append((shard_id, entry_id))
-                sequences[entry_id] = record.get("sequence", str(entry_id))
-
+        # Split on targets, not complexes: SAIR carries many ligands against the
+        # same protein, so a random split would put near-identical complexes on
+        # both sides and report a score the model has not earned.
         rng = np.random.default_rng(seed)
-        unique = sorted(set(sequences.values()))
-        rng.shuffle(unique)
-        n_train = int(len(unique) * split_ratios[0])
-        n_val = int(len(unique) * split_ratios[1])
+        order = rng.permutation(index["n_sequences"])
+        n_train = int(index["n_sequences"] * split_ratios[0])
+        n_val = int(index["n_sequences"] * split_ratios[1])
         assigned = {
-            "train": set(unique[:n_train]),
-            "val": set(unique[n_train:n_train + n_val]),
-            "test": set(unique[n_train + n_val:]),
+            "train": set(order[:n_train].tolist()),
+            "val": set(order[n_train:n_train + n_val].tolist()),
+            "test": set(order[n_train + n_val:].tolist()),
         }[split]
 
-        self.index = [
-            (s, e) for s, e in self.index if sequences[e] in assigned
+        # Sorted by shard so the default sequential order is also the cheapest.
+        self.index: List[Tuple[int, int]] = [
+            (shard_id, entry_id)
+            for shard_id, entry_id, seq_id in index["entries"]
+            if seq_id in assigned
         ]
-        logger.info("%s: %d complexes from %d shards", split, len(self.index), len(shards))
+        logger.info("%s: %d complexes from %d shards",
+                    split, len(self.index), index["n_shards"])
 
     def __len__(self) -> int:
         return len(self.index)
@@ -658,6 +714,105 @@ class SAIRCachedDataset:
 
         site, ligand = record_to_molecules(record)
         graph = self.graph_builder.build_graph(site, ligand)
-        graph.y = torch.tensor([record["pic50"]], dtype=torch.float)
+        # See the note in SAIRDataset.__getitem__: the trainer reads y_affinity.
+        graph.y_affinity = torch.tensor([record["pic50"]], dtype=torch.float32)
+        graph.y = graph.y_affinity
         graph.entry_id = entry_id
         return graph
+
+    @property
+    def shard_ids(self) -> List[int]:
+        return [shard_id for shard_id, _ in self.index]
+
+
+class ShardBlockSampler:
+    """
+    Shuffle within a sliding block of shards instead of across the whole set.
+
+    DataLoader(shuffle=True) draws uniformly over 920k samples, so consecutive
+    samples land in different shards and each one costs a gzip decompression --
+    the cache holds four shards and thrashes immediately. Shuffling shard order,
+    then shuffling within a block of `block_shards` at a time, keeps every
+    decompressed shard in use for its whole block.
+
+    With the default block of 16 shards the shuffle pool is 16k complexes, which
+    is well past the point where batch composition correlates with shard order.
+    Reshuffled every epoch.
+    """
+
+    def __init__(self, dataset: "SAIRCachedDataset", block_shards: int = 16, seed: int = 42):
+        self.block_shards = block_shards
+        self.seed = seed
+        self.epoch = 0
+
+        self.by_shard: Dict[int, List[int]] = {}
+        for position, (shard_id, _) in enumerate(dataset.index):
+            self.by_shard.setdefault(shard_id, []).append(position)
+        self.n = len(dataset.index)
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = epoch
+
+    def __len__(self) -> int:
+        return self.n
+
+    def __iter__(self):
+        rng = np.random.default_rng(self.seed + self.epoch)
+        shards = list(self.by_shard)
+        rng.shuffle(shards)
+
+        for start in range(0, len(shards), self.block_shards):
+            block: List[int] = []
+            for shard_id in shards[start:start + self.block_shards]:
+                block.extend(self.by_shard[shard_id])
+            rng.shuffle(block)
+            yield from block
+
+
+def create_sair_dataloaders(
+    cache_dir: str,
+    batch_size: int = 32,
+    split_ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
+    seed: int = 42,
+    num_workers: int = 0,
+    block_shards: int = 16,
+    graph_config=None,
+):
+    """
+    Build train/val/test loaders over the shard cache.
+
+    The index is built once and shared, rather than rebuilt per split.
+    """
+    from torch_geometric.loader import DataLoader as PyGDataLoader
+
+    index = build_index(cache_dir)
+
+    # Enough open shards to cover a block, plus room for the loader to read
+    # ahead. Each shard is ~3 MB decompressed, so a block of 16 costs ~50 MB per
+    # worker -- negligible against a 23 GB card, and it removes the thrashing.
+    max_open = block_shards + 2
+
+    datasets = {
+        split: SAIRCachedDataset(
+            cache_dir, split=split, split_ratios=split_ratios, seed=seed,
+            graph_config=graph_config, max_open_shards=max_open, index=index,
+        )
+        for split in ("train", "val", "test")
+    }
+
+    train_sampler = ShardBlockSampler(datasets["train"], block_shards, seed)
+    loaders = {
+        "train": PyGDataLoader(
+            datasets["train"], batch_size=batch_size, sampler=train_sampler,
+            num_workers=num_workers, persistent_workers=num_workers > 0,
+        )
+    }
+    # Validation and test run in shard order: no shuffle needed, and sequential
+    # access is the cheapest way through the cache.
+    for split in ("val", "test"):
+        loaders[split] = PyGDataLoader(
+            datasets[split], batch_size=batch_size, shuffle=False,
+            num_workers=num_workers, persistent_workers=num_workers > 0,
+        )
+
+    return loaders["train"], loaders["val"], loaders["test"]

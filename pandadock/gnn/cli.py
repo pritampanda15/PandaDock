@@ -161,6 +161,117 @@ if CLICK_AVAILABLE:
         print(f"\nResults saved to {results_file}")
         print("\nTraining complete!")
 
+    @main.command('train-sair')
+    @click.option('--cache', '-c', required=True, type=click.Path(exists=True),
+                  help='Shard cache directory built by benchmarking/sair_preprocess.py')
+    @click.option('--output', '-o', required=True, type=click.Path(),
+                  help='Output directory for checkpoints and logs')
+    @click.option('--epochs', default=50, type=int, help='Number of training epochs')
+    @click.option('--batch-size', default=64, type=int, help='Batch size')
+    @click.option('--lr', default=1e-4, type=float, help='Learning rate')
+    @click.option('--hidden-dim', default=256, type=int, help='Hidden dimension')
+    @click.option('--num-layers', default=6, type=int, help='Number of EGNN layers')
+    @click.option('--dropout', default=0.1, type=float, help='Dropout rate')
+    @click.option('--patience', default=10, type=int, help='Early stopping patience')
+    @click.option('--num-workers', default=4, type=int,
+                  help='Dataloader worker processes')
+    @click.option('--block-shards', default=16, type=int,
+                  help='Shards shuffled together; larger mixes more but uses more memory')
+    @click.option('--gpu/--cpu', default=True, help='Use GPU if available')
+    @click.option('--seed', default=42, type=int, help='Random seed')
+    def train_sair(cache, output, epochs, batch_size, lr, hidden_dim, num_layers,
+                   dropout, patience, num_workers, block_shards, gpu, seed):
+        """
+        Train PandaDock-GNN on the SAIR shard cache.
+
+        Splits are target-disjoint: SAIR holds many ligands per protein, so a
+        random split would place near-identical complexes on both sides.
+        """
+        check_dependencies()
+
+        import random
+
+        import numpy as np
+        import torch
+
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        random.seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+
+        output_dir = Path(output)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        device = 'cuda' if gpu and torch.cuda.is_available() else 'cpu'
+        print("=" * 60)
+        print("PandaDock-GNN Training (SAIR)")
+        print("=" * 60)
+        print(f"Cache: {cache}")
+        print(f"Output: {output}")
+        print(f"Epochs: {epochs}, Batch size: {batch_size}")
+        print(f"Hidden dim: {hidden_dim}, Layers: {num_layers}")
+        print(f"Device: {device}")
+        print("=" * 60)
+
+        from .data.sair_dataset import create_sair_dataloaders
+
+        print("\nLoading dataset (first run indexes the shards, which takes a few minutes)...")
+        train_loader, val_loader, test_loader = create_sair_dataloaders(
+            cache_dir=cache,
+            batch_size=batch_size,
+            seed=seed,
+            num_workers=num_workers,
+            block_shards=block_shards,
+        )
+        print(f"  train {len(train_loader.dataset):,}  "
+              f"val {len(val_loader.dataset):,}  "
+              f"test {len(test_loader.dataset):,}")
+
+        from .models.pandadock_gnn import PandaDockGNN, ModelConfig
+
+        config = ModelConfig(
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+            dropout=dropout,
+            predict_activity=False,
+        )
+        model = PandaDockGNN(config)
+        print(f"\nModel parameters: {model.count_parameters():,}")
+
+        from .training.trainer import GNNTrainer, TrainingConfig
+
+        train_config = TrainingConfig(
+            learning_rate=lr,
+            epochs=epochs,
+            batch_size=batch_size,
+            patience=patience,
+            checkpoint_dir=str(output_dir),
+            device=device,
+        )
+        trainer = GNNTrainer(model, train_config)
+
+        print("\nStarting training...")
+        results = trainer.train(train_loader, val_loader, test_loader)
+
+        results_file = output_dir / 'training_results.json'
+        with open(results_file, 'w') as f:
+            json_results = {
+                'best_metrics': {k: float(v) for k, v in results['best_metrics'].items()},
+                'elapsed_time': results['elapsed_time'],
+                'n_train': len(train_loader.dataset),
+                'n_val': len(val_loader.dataset),
+                'n_test': len(test_loader.dataset),
+            }
+            if results['test_metrics']:
+                json_results['test_metrics'] = {
+                    k: float(v) for k, v in results['test_metrics'].items()
+                }
+            json.dump(json_results, f, indent=2)
+
+        print(f"\nResults saved to {results_file}")
+        print("\nTraining complete!")
+
     @main.command()
     @click.option('--model', '-m', required=True, type=click.Path(exists=True),
                   help='Path to trained model checkpoint')
