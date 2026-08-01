@@ -122,9 +122,12 @@ def main(argv=None) -> int:
             value = output["affinity"] if isinstance(output, dict) else output
             predictions.append(value.detach().float().view(-1).cpu().numpy())
             truths.append(batch.y_affinity.detach().float().view(-1).cpu().numpy())
-            entry_ids.extend(
-                int(e) for e in np.atleast_1d(np.asarray(batch.entry_id))
-            )
+            # entry_id is collated into a tensor and moved to the device with
+            # the rest of the batch, so it has to come back before numpy sees it.
+            ids = batch.entry_id
+            if torch.is_tensor(ids):
+                ids = ids.detach().cpu().numpy()
+            entry_ids.extend(int(e) for e in np.atleast_1d(np.asarray(ids)))
             if n % 50 == 0:
                 print(f"  {n * args.batch_size:,} scored", flush=True)
 
