@@ -588,6 +588,11 @@ def load_shard(cache_dir, shard_id: int) -> dict:
 
 INDEX_NAME = "index.pkl.gz"
 
+# Bumped when the stored structure changes; a stale index rebuilds itself rather
+# than failing on a missing key. v2 added the label array, so target means can be
+# computed without decompressing every shard again.
+INDEX_VERSION = 2
+
 
 def build_index(cache_dir, rebuild: bool = False) -> dict:
     """
@@ -611,13 +616,18 @@ def build_index(cache_dir, rebuild: bool = False) -> dict:
 
     if path.exists() and not rebuild:
         with gzip.open(path, "rb") as handle:
-            return pickle.load(handle)
+            index = pickle.load(handle)
+        if index.get("version") == INDEX_VERSION:
+            return index
+        logger.info("Index is version %s, rebuilding at version %s",
+                    index.get("version", 1), INDEX_VERSION)
 
     shards = sorted(glob.glob(str(cache_dir / "shard_*.pkl.gz")))
     if not shards:
         raise FileNotFoundError(f"No shards under {cache_dir}")
 
     entries: List[Tuple[int, int, int]] = []
+    labels: List[float] = []
     sequence_ids: Dict[str, int] = {}
     logger.info("Indexing %d shards (one-off, result is cached)", len(shards))
 
@@ -627,9 +637,14 @@ def build_index(cache_dir, rebuild: bool = False) -> dict:
             sequence = record.get("sequence") or str(entry_id)
             seq_id = sequence_ids.setdefault(sequence, len(sequence_ids))
             entries.append((shard_id, entry_id, seq_id))
+            labels.append(float(record["pic50"]))
 
     index = {
+        "version": INDEX_VERSION,
         "entries": entries,
+        # Parallel to entries. Carried here so target means are available
+        # without decompressing the shards a second time.
+        "labels": np.asarray(labels, dtype=np.float32),
         "n_sequences": len(sequence_ids),
         "n_shards": len(shards),
     }
@@ -642,6 +657,29 @@ def build_index(cache_dir, rebuild: bool = False) -> dict:
     logger.info("Indexed %d complexes over %d targets",
                 len(entries), len(sequence_ids))
     return index
+
+
+def target_means(index: dict, entries: Sequence[Tuple[int, int]]) -> Dict[int, float]:
+    """
+    Mean label per target, over the given entries only.
+
+    Used for target-centred training. Each split computes means over its own
+    entries and never sees another split's, which matters because the splits are
+    target-disjoint: there is no shared target whose mean could carry
+    information across the boundary.
+    """
+    wanted = {entry_id for _, entry_id in entries}
+    sums: Dict[int, float] = {}
+    counts: Dict[int, int] = {}
+    labels = index["labels"]
+
+    for position, (_, entry_id, seq_id) in enumerate(index["entries"]):
+        if entry_id not in wanted:
+            continue
+        sums[seq_id] = sums.get(seq_id, 0.0) + float(labels[position])
+        counts[seq_id] = counts.get(seq_id, 0) + 1
+
+    return {seq_id: sums[seq_id] / counts[seq_id] for seq_id in sums}
 
 
 class SAIRCachedDataset:
@@ -663,6 +701,7 @@ class SAIRCachedDataset:
         graph_config=None,
         max_open_shards: int = 4,
         index: Optional[dict] = None,
+        center_targets: bool = False,
     ):
         from .graph_builder import HeterogeneousGraphBuilder
 
@@ -693,8 +732,35 @@ class SAIRCachedDataset:
             for shard_id, entry_id, seq_id in index["entries"]
             if seq_id in assigned
         ]
-        logger.info("%s: %d complexes from %d shards",
-                    split, len(self.index), index["n_shards"])
+        # Target centring: predict a ligand's affinity relative to its target's
+        # mean rather than in absolute terms.
+        #
+        # 29% of SAIR's label variance sits between targets, so plain MSE spends
+        # most of its gradient on target-level offsets -- the easy part -- while
+        # within-target ranking, the ability a scoring function exists to
+        # provide, is optimised only incidentally. Subtracting the target mean
+        # removes that component from the objective entirely.
+        #
+        # Means come from each split's own entries. Splits here are
+        # target-disjoint, so a test target's mean cannot be derived from
+        # training data and none is used during training. At evaluation the mean
+        # is a property of the grouping, not an input to the model: within a
+        # fixed target it is a constant, so it shifts the labels without
+        # changing their order or any within-target correlation.
+        #
+        # The consequence is that a centred model predicts a residual and cannot
+        # emit an absolute pIC50 for an unseen target, because that would need
+        # the target's mean, which is exactly the unknown. Centred models are
+        # ligand rankers.
+        self.centered = center_targets
+        self.target_mean = target_means(index, self.index) if center_targets else {}
+        self.entry_target = {
+            entry_id: seq_id for _, entry_id, seq_id in index["entries"]
+        }
+
+        logger.info("%s: %d complexes from %d shards%s",
+                    split, len(self.index), index["n_shards"],
+                    " (target-centred)" if center_targets else "")
 
     def __len__(self) -> int:
         return len(self.index)
@@ -714,10 +780,16 @@ class SAIRCachedDataset:
 
         site, ligand = record_to_molecules(record)
         graph = self.graph_builder.build_graph(site, ligand)
+        label = record["pic50"]
+        if self.centered:
+            label = label - self.target_mean[self.entry_target[entry_id]]
+
         # See the note in SAIRDataset.__getitem__: the trainer reads y_affinity.
-        graph.y_affinity = torch.tensor([record["pic50"]], dtype=torch.float32)
+        graph.y_affinity = torch.tensor([label], dtype=torch.float32)
         graph.y = graph.y_affinity
         graph.entry_id = entry_id
+        # Carried so the within-target loss can group a batch by protein.
+        graph.target_id = self.entry_target[entry_id]
         return graph
 
     @property
@@ -777,6 +849,7 @@ def create_sair_dataloaders(
     num_workers: int = 0,
     block_shards: int = 16,
     graph_config=None,
+    center_targets: bool = False,
 ):
     """
     Build train/val/test loaders over the shard cache.
@@ -796,6 +869,7 @@ def create_sair_dataloaders(
         split: SAIRCachedDataset(
             cache_dir, split=split, split_ratios=split_ratios, seed=seed,
             graph_config=graph_config, max_open_shards=max_open, index=index,
+            center_targets=center_targets,
         )
         for split in ("train", "val", "test")
     }

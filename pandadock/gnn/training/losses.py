@@ -314,3 +314,51 @@ if __name__ == "__main__":
     mt_loss_learnable = MultiTaskLoss(learnable_weights=True)
     losses = mt_loss_learnable(predictions, targets)
     print(f"Learnable weights: {mt_loss_learnable.get_weights()}")
+
+
+def within_target_loss(predictions, targets, groups):
+    """
+    Squared error after removing each target's mean, within a batch.
+
+    Plain MSE on absolute affinity is dominated by between-target variance --
+    29% of the total on SAIR, and by far the easier part to fit. A model can
+    drive that loss down by learning which protein binds tightly in general
+    while barely discriminating between ligands against it, which is what
+    PandaDock-GNN did: pooled r 0.43 against a median within-target r of 0.21.
+
+    This term removes the per-target mean from both sides, so the only thing it
+    can reward is ordering ligands against a fixed protein. Added alongside the
+    absolute loss rather than replacing it, because a model trained on residuals
+    alone cannot emit an absolute pIC50 for an unseen target: the target's mean
+    is precisely what is unknown at inference.
+
+    Means are taken over the batch, not the dataset, so no label outside the
+    current batch is involved and there is nothing to leak. Targets represented
+    by a single complex in a batch carry no ordering information and are
+    dropped.
+
+    Returns None when no target has two or more complexes in the batch, which
+    the caller must treat as "no contribution" rather than as zero loss.
+    """
+    predictions = predictions.view(-1)
+    targets = targets.view(-1)
+    groups = groups.view(-1)
+
+    unique, inverse = torch.unique(groups, return_inverse=True)
+    ones = torch.ones_like(predictions)
+
+    counts = torch.zeros(unique.numel(), device=predictions.device, dtype=predictions.dtype)
+    counts = counts.index_add(0, inverse, ones)
+
+    pred_sum = torch.zeros_like(counts).index_add(0, inverse, predictions)
+    true_sum = torch.zeros_like(counts).index_add(0, inverse, targets)
+
+    usable = counts >= 2
+    if not bool(usable.any()):
+        return None
+
+    keep = usable[inverse]
+    centred_pred = predictions - (pred_sum / counts)[inverse]
+    centred_true = targets - (true_sum / counts)[inverse]
+
+    return ((centred_pred - centred_true)[keep] ** 2).mean()

@@ -178,6 +178,14 @@ if CLICK_AVAILABLE:
                   default='cosine_anneal',
                   help='LR schedule; cosine_anneal decays once over --epochs, '
                        'cosine restarts every 10 epochs then 20, then 40')
+    @click.option('--rank-weight', default=0.0, type=float,
+                  help='Weight on the within-target ranking loss. Keeps the '
+                       'absolute affinity output while rewarding correct '
+                       'ordering of ligands against the same protein. Try 1.0')
+    @click.option('--target-centered', is_flag=True,
+                  help='Train on affinity relative to each target mean. Produces '
+                       'a ligand ranker that CANNOT emit an absolute pIC50 for an '
+                       'unseen target; use --rank-weight instead if you need IC50')
     @click.option('--num-workers', default=6, type=int,
                   help='Dataloader worker processes')
     @click.option('--block-shards', default=16, type=int,
@@ -185,8 +193,8 @@ if CLICK_AVAILABLE:
     @click.option('--gpu/--cpu', default=True, help='Use GPU if available')
     @click.option('--seed', default=42, type=int, help='Random seed')
     def train_sair(cache, output, epochs, batch_size, lr, hidden_dim, num_layers,
-                   dropout, patience, scheduler, num_workers, block_shards,
-                   gpu, seed):
+                   dropout, patience, scheduler, rank_weight, target_centered,
+                   num_workers, block_shards, gpu, seed):
         """
         Train PandaDock-GNN on the SAIR shard cache.
 
@@ -218,6 +226,9 @@ if CLICK_AVAILABLE:
         print(f"Epochs: {epochs}, Batch size: {batch_size}")
         print(f"Hidden dim: {hidden_dim}, Layers: {num_layers}")
         print(f"LR: {lr} ({scheduler})")
+        print(f"Rank loss weight: {rank_weight}"
+              + ("   TARGET-CENTRED (predicts residuals, not absolute pIC50)"
+                 if target_centered else ""))
         print(f"Device: {device}")
         print("=" * 60)
 
@@ -230,6 +241,7 @@ if CLICK_AVAILABLE:
             seed=seed,
             num_workers=num_workers,
             block_shards=block_shards,
+            center_targets=target_centered,
         )
         print(f"  train {len(train_loader.dataset):,}  "
               f"val {len(val_loader.dataset):,}  "
@@ -254,6 +266,7 @@ if CLICK_AVAILABLE:
             batch_size=batch_size,
             patience=patience,
             scheduler=scheduler,
+            w_rank=rank_weight,
             checkpoint_dir=str(output_dir),
             device=device,
         )

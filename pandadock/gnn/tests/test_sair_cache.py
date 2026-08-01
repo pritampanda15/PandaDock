@@ -65,7 +65,13 @@ def test_index_is_persisted_and_stable(cache):
     assert first["n_sequences"] == N_TARGETS
     assert first["n_shards"] == N_SHARDS
 
-    assert build_index(cache) == first
+    # Compared field by field: the index holds a numpy array, so dict equality
+    # raises rather than returning False.
+    second = build_index(cache)
+    assert second["entries"] == first["entries"]
+    assert second["n_sequences"] == first["n_sequences"]
+    assert second["n_shards"] == first["n_shards"]
+    assert np.array_equal(second["labels"], first["labels"])
 
 
 def test_splits_are_target_disjoint(cache):
@@ -159,3 +165,103 @@ def test_missing_target_raises_instead_of_training_on_nothing():
 
     with pytest.raises(ValueError, match="no training target"):
         GNNTrainer._get_targets(object.__new__(GNNTrainer), batch)
+
+
+def test_target_centering_removes_between_target_variance(cache):
+    """
+    Centred labels must have zero mean within every target.
+
+    That is the entire point: what remains is the ligand-to-ligand variation,
+    which is what the model should be spending its capacity on.
+    """
+    from collections import defaultdict
+
+    plain = SAIRCachedDataset(str(cache), split="train")
+    centered = SAIRCachedDataset(str(cache), split="train", center_targets=True)
+
+    assert plain.index == centered.index
+
+    groups = defaultdict(list)
+    for position in range(len(centered)):
+        _, entry_id = centered.index[position]
+        groups[centered.entry_target[entry_id]].append(
+            float(centered[position].y_affinity)
+        )
+
+    for target, values in groups.items():
+        assert abs(float(np.mean(values))) < 1e-4, (
+            f"target {target} has non-zero mean after centring"
+        )
+
+    # And the ordering within a target is untouched by the shift.
+    first = centered.index[0][1]
+    offset = centered.target_mean[centered.entry_target[first]]
+    assert float(plain[0].y_affinity) - offset == pytest.approx(
+        float(centered[0].y_affinity), abs=1e-5
+    )
+
+
+def test_target_means_use_only_the_given_entries(cache):
+    """
+    A split's means must come from that split alone.
+
+    Splits are target-disjoint, so this cannot leak in practice -- but the
+    function must not quietly average over the whole cache, because that would
+    make the guarantee accidental rather than enforced.
+    """
+    from pandadock.gnn.data.sair_dataset import build_index, target_means
+
+    index = build_index(str(cache))
+    train = SAIRCachedDataset(str(cache), split="train")
+    test = SAIRCachedDataset(str(cache), split="test")
+
+    train_means = target_means(index, train.index)
+    test_means = target_means(index, test.index)
+
+    assert set(train_means) & set(test_means) == set()
+    assert len(train_means) + len(test_means) < index["n_sequences"] + 1
+
+
+def test_index_rebuilds_when_the_version_changes(cache, monkeypatch):
+    """A cache indexed by an older version must rebuild, not fail on a key."""
+    import gzip
+    import pickle
+
+    from pandadock.gnn.data import sair_dataset
+
+    index = sair_dataset.build_index(str(cache))
+    assert "labels" in index
+
+    stale = {k: v for k, v in index.items() if k != "labels"}
+    stale["version"] = 1
+    with gzip.open(cache / sair_dataset.INDEX_NAME, "wb") as handle:
+        pickle.dump(stale, handle)
+
+    rebuilt = sair_dataset.build_index(str(cache))
+    assert rebuilt["version"] == sair_dataset.INDEX_VERSION
+    assert "labels" in rebuilt
+
+
+def test_within_target_loss_ignores_absolute_error():
+    """
+    The ranking term must respond to ordering, not to absolute offset.
+
+    A prediction that is wrong by a constant per target but perfectly ordered
+    within it scores zero; a prediction with the right mean but reversed order
+    does not.
+    """
+    import torch
+
+    from pandadock.gnn.training.losses import within_target_loss
+
+    truth = torch.tensor([2.0, 4.0, 6.0])
+    group = torch.tensor([1, 1, 1])
+
+    shifted = torch.tensor([102.0, 104.0, 106.0])
+    assert float(within_target_loss(shifted, truth, group)) == pytest.approx(0.0, abs=1e-6)
+
+    reversed_order = torch.tensor([6.0, 4.0, 2.0])
+    assert float(within_target_loss(reversed_order, truth, group)) > 1.0
+
+    # Singletons carry no ordering information and must not contribute.
+    assert within_target_loss(truth, truth, torch.tensor([1, 2, 3])) is None

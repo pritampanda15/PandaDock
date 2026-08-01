@@ -88,6 +88,7 @@ pandadock-metal = "pandadock.metal_docking_cli:main"
 pandadock-tethered = "pandadock.tethered_cli:main"
 pandadock-ml = "pandadock.ml_docking_cli:main"
 pandadock-gnn = "pandadock.gnn.cli:main"
+pandadock-gui-server = "pandadock.gui_server.server:main"
 
 [tool.setuptools.dynamic]
 # Single source of truth for the version. Keeping it only in the package avoids

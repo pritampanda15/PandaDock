@@ -28,7 +28,7 @@ from torch.optim.lr_scheduler import (
     OneCycleLR
 )
 
-from .losses import MultiTaskLoss
+from .losses import MultiTaskLoss, within_target_loss
 from .metrics import compute_metrics, MetricTracker
 
 
@@ -53,6 +53,9 @@ class TrainingConfig:
     # Loss weights
     w_affinity: float = 1.0
     w_activity: float = 0.5
+    # Weight on the within-target ranking term. Zero reproduces plain absolute
+    # MSE; see within_target_loss for why it exists.
+    w_rank: float = 0.0
     learnable_weights: bool = False
 
     # Early stopping
@@ -185,6 +188,47 @@ class GNNTrainer:
         self.current_epoch = 0
         self.global_step = 0
         self.best_metric = None
+
+    def _add_rank_loss(self, losses, predictions, targets):
+        """
+        Fold the within-target ranking term into the total.
+
+        Left out entirely when the weight is zero, when the batch carries no
+        target grouping, or when no target appears twice in the batch -- in the
+        last case there is no ordering to learn from, and treating that as a
+        zero loss would silently dilute the gradient.
+        """
+        if self.config.w_rank <= 0:
+            return losses
+        if 'target_id' not in targets or 'affinity' not in predictions:
+            return losses
+
+        # The term only bites when a batch holds several ligands against the
+        # same protein. How often that happens depends on how the sampler
+        # interleaves shards, so report it once rather than leaving a silently
+        # inert loss term.
+        if not getattr(self, '_rank_coverage_logged', False):
+            self._rank_coverage_logged = True
+            group = targets['target_id'].view(-1)
+            _, counts = torch.unique(group, return_counts=True)
+            usable = int(counts[counts >= 2].sum())
+            print(f"  within-target loss: {usable}/{group.numel()} of the first "
+                  f"batch is in a target with >= 2 complexes "
+                  f"({100 * usable / max(group.numel(), 1):.0f}%)", flush=True)
+            if usable < 0.1 * group.numel():
+                print("  WARNING: almost no same-target pairs per batch, so this "
+                      "term will\n           contribute little. Lower "
+                      "--block-shards to concentrate targets.", flush=True)
+
+        rank = within_target_loss(
+            predictions['affinity'], targets['affinity'], targets['target_id']
+        )
+        if rank is None:
+            return losses
+
+        losses['rank'] = rank
+        losses['total'] = losses['total'] + self.config.w_rank * rank
+        return losses
 
     def _create_optimizer(self):
         """Create optimizer based on config."""
@@ -379,7 +423,8 @@ class GNNTrainer:
                 with torch.amp.autocast('cuda'):
                     predictions = self.model(batch)
                     targets = self._get_targets(batch)
-                    losses = self.loss_fn(predictions, targets)
+                    losses = self._add_rank_loss(
+                        self.loss_fn(predictions, targets), predictions, targets)
                     loss = losses['total']
 
                 # Backward pass with scaling
@@ -397,7 +442,8 @@ class GNNTrainer:
             else:
                 predictions = self.model(batch)
                 targets = self._get_targets(batch)
-                losses = self.loss_fn(predictions, targets)
+                losses = self._add_rank_loss(
+                    self.loss_fn(predictions, targets), predictions, targets)
                 loss = losses['total']
 
                 # Backward pass
@@ -453,7 +499,8 @@ class GNNTrainer:
 
                 predictions = self.model(batch)
                 targets = self._get_targets(batch)
-                losses = self.loss_fn(predictions, targets)
+                losses = self._add_rank_loss(
+                    self.loss_fn(predictions, targets), predictions, targets)
 
                 all_losses.append(losses['total'].item())
 
@@ -482,12 +529,14 @@ class GNNTrainer:
             targets['affinity'] = batch.y_affinity.view(-1)
         if hasattr(batch, 'y_active'):
             targets['activity'] = batch.y_active.view(-1)
+        if hasattr(batch, 'target_id'):
+            targets['target_id'] = batch.target_id.view(-1)
 
         # A batch with no recognised target produces no loss terms, so the total
         # stays the float 0.0 it was initialised to. That surfaces much later as
         # "'float' object has no attribute 'backward'", or -- with AMP off and a
         # tensor total -- as an epoch of training on nothing. Name the cause here.
-        if not targets:
+        if not any(k in targets for k in ('affinity', 'activity')):
             raise ValueError(
                 "Batch carries no training target: expected y_affinity and/or "
                 "y_active, found "
