@@ -82,6 +82,53 @@ def describe(name: str, values: np.ndarray, targets: list) -> None:
                   "r alongside the pooled value.")
 
 
+def variance_decomposition(name: str, values, targets) -> None:
+    """
+    Split label variance into between-target and within-target parts.
+
+    This bounds what a model can score without ranking ligands at all. A
+    predictor that outputs each target's mean affinity -- ignoring which ligand
+    is bound -- achieves r = sqrt(between-target fraction). If a model's pooled
+    r is at or below that, the pooled number is evidence it has learned to read
+    the protein, not to discriminate between ligands against it, and the
+    interesting quantity is the within-target correlation instead.
+
+    Test targets are disjoint from training here, so a model cannot have
+    memorised these means; it would have to infer them from the binding site.
+    That is a legitimate capability, but it is a different claim from affinity
+    prediction, and pooled r does not separate the two.
+    """
+    values = np.asarray(values, dtype=np.float64)
+    targets = np.asarray(targets)
+
+    print(f"\nvariance decomposition ({name})")
+    print("-" * 62)
+
+    grand_mean = values.mean()
+    total = ((values - grand_mean) ** 2).sum()
+
+    between = 0.0
+    sizes = []
+    for target in np.unique(targets):
+        mask = targets == target
+        group = values[mask]
+        sizes.append(group.size)
+        between += group.size * (group.mean() - grand_mean) ** 2
+
+    fraction = between / total if total else 0.0
+    sizes = np.asarray(sizes)
+
+    print(f"  between-target variance: {100 * fraction:5.2f}%")
+    print(f"  within-target variance:  {100 * (1 - fraction):5.2f}%")
+    print(f"  ligands per target: median {int(np.median(sizes))}, "
+          f"min {sizes.min()}, max {sizes.max()}")
+    print(f"\n  a target-mean predictor -- one that ignores the ligand entirely --")
+    print(f"  would score r = {np.sqrt(fraction):.3f} on this split.")
+    print("\n  Compare your pooled test r against that number. At or below it,")
+    print("  report the median within-target r as the headline instead: that is")
+    print("  the quantity that says whether the model ranks ligands.")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -132,6 +179,8 @@ def main(argv=None) -> int:
     for name in ("train", "val", "test"):
         values, targets = splits[name]
         describe(name, np.asarray(values, dtype=np.float64), targets)
+
+    variance_decomposition("test", *splits["test"])
 
     print("\n" + "=" * 62)
     print("A constant predictor scores r = 0 by definition, so a non-zero r is")
