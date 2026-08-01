@@ -265,3 +265,29 @@ def test_within_target_loss_ignores_absolute_error():
 
     # Singletons carry no ordering information and must not contribute.
     assert within_target_loss(truth, truth, torch.tensor([1, 2, 3])) is None
+
+
+@pytest.mark.parametrize("dtype", ["float16", "bfloat16", "float32"])
+def test_within_target_loss_handles_mixed_precision(dtype):
+    """
+    Predictions arrive as half under AMP while labels stay float32.
+
+    The index_add accumulations require one dtype, so a run with mixed
+    precision enabled crashed on the first batch -- a path CPU smoke tests
+    never reach, because autocast is disabled without CUDA.
+    """
+    import torch
+
+    from pandadock.gnn.training.losses import within_target_loss
+
+    truth = torch.tensor([2.0, 4.0, 6.0, 1.0, 2.0])
+    group = torch.tensor([7, 7, 7, 9, 9])
+    values = [1.0, 2.0, 3.0, 10.0, 12.0]
+
+    reference = float(within_target_loss(torch.tensor(values), truth, group))
+    loss = within_target_loss(
+        torch.tensor(values, dtype=getattr(torch, dtype)), truth, group
+    )
+
+    assert loss.dtype == torch.float32
+    assert float(loss) == pytest.approx(reference, abs=1e-3)

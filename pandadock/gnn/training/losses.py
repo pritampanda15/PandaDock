@@ -340,8 +340,14 @@ def within_target_loss(predictions, targets, groups):
     Returns None when no target has two or more complexes in the batch, which
     the caller must treat as "no contribution" rather than as zero loss.
     """
-    predictions = predictions.view(-1)
-    targets = targets.view(-1)
+    # Forced to float32: under autocast the predictions arrive as half while the
+    # labels stay float, and the accumulations below require a single dtype.
+    # Reductions in half would also lose precision -- these are sums over a
+    # batch, and computing losses in float32 under AMP is the normal practice.
+    # The cast is differentiable, so gradients still reach half-precision
+    # parameters.
+    predictions = predictions.view(-1).float()
+    targets = targets.view(-1).float()
     groups = groups.view(-1)
 
     unique, inverse = torch.unique(groups, return_inverse=True)
