@@ -100,27 +100,37 @@ def main(argv=None) -> int:
 
     crosses_zero = low <= 0 <= high
 
+    # The signed-rank test is the decision. It uses every paired difference,
+    # whereas the bootstrap interval describes the median alone -- a noisier
+    # statistic that can straddle zero while the paired differences are
+    # consistently one-sided. Requiring both to agree, as this once did, calls a
+    # real effect noise: p = 0.004 with a median CI of [-0.002, +0.098] is a
+    # reliable difference whose *size* is uncertain, not an absent one.
+    pvalue = None
     try:
         from scipy import stats
 
-        result = stats.wilcoxon(b, a)
-        print(f"\n  Wilcoxon signed-rank p = {result.pvalue:.4g}")
-        significant = result.pvalue < 0.05
+        pvalue = float(stats.wilcoxon(b, a).pvalue)
+        print(f"\n  Wilcoxon signed-rank p = {pvalue:.4g}")
     except ImportError:
-        print("\n  (scipy not installed; skipping the signed-rank test)")
-        significant = not crosses_zero
+        print("\n  (scipy not installed; falling back to the bootstrap interval)")
+
+    significant = (pvalue < 0.05) if pvalue is not None else not crosses_zero
 
     print("\n" + "-" * 62)
-    if crosses_zero or not significant:
+    if not significant:
         print("  The change is not distinguishable from noise. Whatever the")
         print("  summary medians suggest, this run did not measurably improve")
         print("  per-target ranking -- report the runs as equivalent.")
     else:
-        direction = "improves" if np.median(delta) > 0 else "degrades"
-        print(f"  The candidate {direction} per-target ranking, consistently")
-        print("  enough across targets to be distinguishable from noise.")
-        print("  Note that a reliable difference can still be a small one:")
-        print(f"  the median change is {np.median(delta):+.4f}.")
+        direction = "improves on" if np.median(delta) > 0 else "degrades"
+        print(f"  The candidate {direction} the baseline, consistently enough")
+        print("  across targets to be distinguishable from noise.")
+        print(f"  Median change {np.median(delta):+.4f}, mean {delta.mean():+.4f}.")
+        if crosses_zero:
+            print("\n  The interval on the median still spans zero, so the")
+            print("  difference is reliable in direction but small and imprecise")
+            print("  in size. Report the effect, not just the p-value.")
 
     return 0
 

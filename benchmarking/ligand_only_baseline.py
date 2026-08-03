@@ -233,11 +233,15 @@ def main(argv=None) -> int:
               f"   IQR [{np.percentile(within, 25):+.4f}, "
               f"{np.percentile(within, 75):+.4f}]")
 
-    print("\n  Ranked descriptor weights (standardised, so comparable):")
+    print("\n  Largest descriptor weights (standardised):")
     for name, weight in sorted(
         zip(FEATURE_NAMES, weights[:-1]), key=lambda kv: -abs(kv[1])
     )[:6]:
         print(f"    {name:<18} {weight:+.4f}")
+    print("    NOTE: these features are strongly collinear -- heavy-atom count,")
+    print("    molecular weight and carbon count measure nearly the same thing.")
+    print("    Ridge splits a shared effect across them with arbitrary signs, so")
+    print("    read this as which *group* matters, not which single descriptor.")
 
     print(f"\nPredictions written to {args.out}")
     print("\nCompare against the GNN, paired by target:")
