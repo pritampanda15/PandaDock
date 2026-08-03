@@ -105,6 +105,11 @@ def main(argv=None) -> int:
     parser.add_argument("--displacements", default="0,1,2,3,5",
                         help="Angstrom offsets for the pose-sensitivity test")
     parser.add_argument("--csv", default=None)
+    parser.add_argument("--pack", default=None, metavar="ARCHIVE.tar.gz",
+                        help="Write only the complexes that have an affinity to "
+                             "an archive and exit, without scoring. The full "
+                             "prepared set is 425 MB and gitignored; the matched "
+                             "subset is about 100 MB and is all this needs")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args(argv)
 
@@ -115,6 +120,21 @@ def main(argv=None) -> int:
         extract_binding_site, parse_molecule_file,
     )
     from pandadock.gnn.models.pandadock_gnn import PandaDockGNN
+
+    for label, path in (("--prepared", args.prepared), ("--affinity", args.affinity)):
+        if not os.path.exists(path):
+            print(f"{label} not found: {path}\n")
+            print("These inputs are gitignored, so they exist only where they were")
+            print("built. Either run this where the benchmark data lives, or move")
+            print("the matched subset across:\n")
+            print("  # on the machine holding benchmark_prepared/")
+            print("  python benchmarking/gnn_affinity_check.py --model any \\")
+            print("      --pack affinity_subset.tar.gz\n")
+            print("  # then copy affinity_subset.tar.gz over and unpack it here")
+            print("  tar xzf affinity_subset.tar.gz\n")
+            print("Moving the checkpoint to the data is often smaller than moving")
+            print("the data to the checkpoint.")
+            return 1
 
     structures = find_complexes(args.prepared)
     affinities = load_affinities(args.affinity)
@@ -127,6 +147,21 @@ def main(argv=None) -> int:
     if not shared:
         print("Nothing to score.")
         return 1
+
+    if args.pack:
+        import tarfile
+
+        with tarfile.open(args.pack, "w:gz") as archive:
+            archive.add(args.affinity, arcname=args.affinity)
+            for pdb_id in shared:
+                receptor, ligand, _ = structures[pdb_id]
+                archive.add(receptor, arcname=receptor)
+                archive.add(ligand, arcname=ligand)
+        size = os.path.getsize(args.pack) / 1e6
+        print(f"\nWrote {args.pack} ({size:.0f} MB) with {len(shared)} complexes.")
+        print("Copy it across, `tar xzf` it at the repository root, and rerun "
+              "without --pack.")
+        return 0
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = PandaDockGNN.load(args.model, map_location=str(device))
