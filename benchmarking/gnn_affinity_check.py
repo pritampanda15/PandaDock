@@ -214,7 +214,11 @@ def main(argv=None) -> int:
                 direction = rng.normal(size=3)
                 direction /= np.linalg.norm(direction)
                 moved = displace(ligand, direction * distance)
-                shifts[distance].append(abs(score(site, moved) - native))
+                # Signed, not absolute. A model that merely *notices* the pose
+                # changes its answer in some direction; a model that can *rank*
+                # poses scores the displaced one lower. Only the second is
+                # usable for selecting among docked poses.
+                shifts[distance].append(score(site, moved) - native)
         except Exception as exc:
             failures[type(exc).__name__] += 1
         if n % 25 == 0:
@@ -260,20 +264,37 @@ def main(argv=None) -> int:
     print("POSE SENSITIVITY")
     print("=" * 66)
     print("  Ligand displaced from its crystal pose, complex rescored.")
-    print("  A model reading interactions should change its answer.\n")
+    print("  Magnitude says the model notices the pose. Direction says whether")
+    print("  it can rank one: a usable scorer marks the displaced pose down.\n")
+    print(f"    {'shift':>6}  {'|change|':>9}  {'signed':>9}  {'scored worse':>13}")
     for distance in offsets:
         values = np.array(shifts[distance])
         if values.size == 0:
             continue
-        print(f"    {distance:>4.1f} A   mean |delta pAffinity| {values.mean():.4f}"
-              f"   median {np.median(values):.4f}   max {values.max():.4f}")
+        worse = 100.0 * float((values < 0).mean())
+        print(f"    {distance:>4.1f} A  {np.abs(values).mean():>9.4f}  "
+              f"{values.mean():>+9.4f}  {worse:>12.1f}%")
 
     largest = np.array(shifts[offsets[-1]]) if offsets else np.array([])
-    if largest.size and largest.mean() < 0.1:
-        print(f"\n  Displacing the ligand {offsets[-1]:.0f} A changes the score by")
-        print(f"  {largest.mean():.3f} on average. The model is close to ignoring")
-        print("  the pose, so it cannot rank docked poses and its output is")
-        print("  effectively a function of composition, not of the complex.")
+    if largest.size:
+        worse = float((largest < 0).mean())
+        print()
+        if np.abs(largest).mean() < 0.1:
+            print(f"  A {offsets[-1]:.0f} A displacement moves the score by "
+                  f"{np.abs(largest).mean():.3f}.")
+            print("  The model is close to ignoring the pose: its output is")
+            print("  effectively a function of composition, not of the complex.")
+        elif worse < 0.6:
+            print(f"  The model reacts to the pose but only marks {100*worse:.0f}% of")
+            print(f"  {offsets[-1]:.0f} A displacements down -- near a coin flip. It")
+            print("  responds to the pose without preferring the native one, so it")
+            print("  cannot select among docked poses.")
+        else:
+            print(f"  {100*worse:.0f}% of {offsets[-1]:.0f} A displacements score lower "
+                  f"than the native")
+            print("  pose. The model prefers the crystal geometry, so it carries")
+            print("  usable signal for ranking poses -- worth testing directly")
+            print("  against pose RMSD from a real docking run.")
 
     if failures:
         print("\n  Failures:")
