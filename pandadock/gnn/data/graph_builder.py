@@ -16,8 +16,9 @@ Graph Structure:
 
 import numpy as np
 from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+import logging
 
 try:
     import torch
@@ -29,6 +30,8 @@ except ImportError:
 
 from .mol2_parser import MOL2Parser, ParsedMolecule, Atom, Bond
 from .featurizer import AtomFeaturizer, EdgeFeaturizer, FeaturizationConfig
+
+logger = logging.getLogger("pandadock.gnn.data.graph_builder")
 
 
 
@@ -325,6 +328,28 @@ def extract_binding_site(protein: ParsedMolecule, centroid, radius: float = 10.0
     return site
 
 
+def drop_hydrogens(molecule: "ParsedMolecule") -> "ParsedMolecule":
+    """
+    Return the molecule without hydrogens, renumbering atoms.
+
+    Bonds are dropped rather than remapped: the graph builder derives
+    connectivity from distance, so it never reads them, and silently keeping
+    bond indices that point at removed atoms would be worse than having none.
+    """
+    kept = [a for a in molecule.atoms if a.element.upper() not in ("H", "D")]
+    if len(kept) == len(molecule.atoms):
+        return molecule
+
+    renumbered = []
+    for i, atom in enumerate(kept):
+        clone = replace(atom, id=i + 1)
+        renumbered.append(clone)
+
+    trimmed = ParsedMolecule(name=molecule.name, atoms=renumbered, bonds=[])
+    trimmed.num_atoms = len(renumbered)
+    return trimmed
+
+
 @dataclass
 class GraphConfig:
     """Configuration for graph construction."""
@@ -336,6 +361,14 @@ class GraphConfig:
     include_intramolecular: bool = True
     bidirectional_interactions: bool = True
     use_site_only: bool = True  # Use binding site instead of full protein
+    # Radius of the sphere cut around the ligand centroid when a site has to be
+    # derived from a whole protein. Must match whatever the model was trained
+    # on; SAIR models were trained at 10 A.
+    site_radius: float = 10.0
+    # Drop hydrogens before building the graph. SAIR CIFs carry none, so models
+    # trained on them are heavy-atom models and must be given heavy-atom input.
+    # ULVSH and PDBbind models were trained with hydrogens present.
+    strip_hydrogens: bool = False
 
     # Featurization
     featurization: Optional[FeaturizationConfig] = None
@@ -414,6 +447,21 @@ class HeterogeneousGraphBuilder:
             protein = parse_molecule_file(site_file)
         else:
             protein = parse_molecule_file(protein_file)
+            if self.config.use_site_only:
+                # Without this the model receives an entire protein -- thousands
+                # of atoms -- where it was trained on a few hundred around the
+                # ligand. It returns numbers either way, which is what makes the
+                # mismatch worth cutting here rather than leaving to the caller.
+                centroid = np.array(
+                    [[a.x, a.y, a.z] for a in ligand.atoms], dtype=float
+                ).mean(axis=0)
+                protein = extract_binding_site(
+                    protein, centroid, radius=self.config.site_radius
+                )
+
+        if self.config.strip_hydrogens:
+            protein = drop_hydrogens(protein)
+            ligand = drop_hydrogens(ligand)
 
         return self.build_graph(protein, ligand)
 

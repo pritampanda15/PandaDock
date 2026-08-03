@@ -505,11 +505,12 @@ def complex_to_record(
 
     # Cut the site here rather than at load time: it is the whole reason the
     # record is small, and the radius is not something training should vary.
-    keep = [
-        a for a in protein.atoms
-        if (a.x - centroid[0]) ** 2 + (a.y - centroid[1]) ** 2
-        + (a.z - centroid[2]) ** 2 <= site_radius ** 2
-    ]
+    # Delegated to graph_builder so inference applies the identical cut; a model
+    # trained on a 10 A site and served a whole protein reports a confident
+    # number from an input unlike anything it has seen.
+    from .graph_builder import extract_binding_site
+
+    keep = extract_binding_site(protein, centroid, radius=site_radius).atoms
     if not keep:
         return None
 

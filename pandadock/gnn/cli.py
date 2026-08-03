@@ -303,14 +303,31 @@ if CLICK_AVAILABLE:
     @click.option('--site', '-s', type=click.Path(exists=True),
                   help='Optional binding site MOL2 file')
     @click.option('--output', '-o', type=click.Path(), help='Output JSON file')
-    def predict(model, protein, ligand, site, output):
-        """Predict binding affinity for a protein-ligand complex."""
+    @click.option('--site-radius', default=10.0, type=float,
+                  help='Radius cut around the ligand centroid when no --site is '
+                       'given. Must match the model training radius')
+    @click.option('--strip-hydrogens', is_flag=True,
+                  help='Drop hydrogens before scoring. Required for SAIR-trained '
+                       'models, which never saw any; wrong for ULVSH/PDBbind')
+    def predict(model, protein, ligand, site, output, site_radius, strip_hydrogens):
+        """
+        Predict binding affinity for a protein-ligand complex.
+
+        Without --site the protein is cut to --site-radius around the ligand
+        centroid, matching how the training data was prepared. Passing a whole
+        uncut protein to a model trained on binding sites yields a confident
+        number from an input unlike anything it has seen.
+        """
         check_dependencies()
 
         from .scoring import GNNScoring
 
         print("Loading model...")
-        scorer = GNNScoring(model_path=model)
+        scorer = GNNScoring(model_path=model, site_radius=site_radius,
+                            strip_hydrogens=strip_hydrogens)
+        if site is None:
+            print(f"No --site given: cutting {site_radius:.1f} A around the "
+                  f"ligand centroid")
 
         print("Predicting...")
         result = scorer.predict_affinity(protein, ligand, site)

@@ -34,7 +34,9 @@ class GNNScoring:
         self,
         model_path: Optional[str] = None,
         device: str = 'auto',
-        use_attention: bool = True
+        use_attention: bool = True,
+        site_radius: float = 10.0,
+        strip_hydrogens: bool = False
     ):
         """
         Initialize GNN scoring function.
@@ -43,11 +45,19 @@ class GNNScoring:
             model_path: Path to trained model checkpoint
             device: Device to use ('auto', 'cuda', 'cpu')
             use_attention: Store attention weights for interpretability
+            site_radius: When no binding site file is supplied, the protein is
+                cut to this radius around the ligand centroid. Must match the
+                radius the model was trained at.
+            strip_hydrogens: Drop hydrogens before scoring. Required for models
+                trained on SAIR, whose CIFs carry no hydrogens; wrong for the
+                ULVSH and PDBbind models, which were trained with them present.
         """
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch required. Install with: pip install torch")
 
         self.use_attention = use_attention
+        self.site_radius = site_radius
+        self.strip_hydrogens = strip_hydrogens
 
         # Setup device
         if device == 'auto':
@@ -73,8 +83,13 @@ class GNNScoring:
         self.model.eval()
 
         # Initialize graph builder
-        from .data.graph_builder import HeterogeneousGraphBuilder
-        self.graph_builder = HeterogeneousGraphBuilder()
+        from .data.graph_builder import GraphConfig, HeterogeneousGraphBuilder
+        self.graph_builder = HeterogeneousGraphBuilder(
+            GraphConfig(
+                site_radius=self.site_radius,
+                strip_hydrogens=self.strip_hydrogens,
+            )
+        )
 
     def calculate_binding_energy(
         self,
