@@ -35,9 +35,13 @@ from ..search import (
 class PandaCoreDocker(BaseDockingAlgorithm):
     """Flexible-ligand Monte Carlo docking with grid-accelerated scoring."""
 
-    def __init__(self, name: str = "pandacore"):
+    def __init__(self, name: str = "pandacore", grid_cache=None):
         super().__init__(name, supports_gpu=False)
         self.logger = logging.getLogger(f"pandadock.docking.{name}")
+        # Off by default: a single dock() gains nothing from it, and holding
+        # grids for a receptor that is never revisited only costs memory. Pass a
+        # GridCache when docking many ligands into one receptor.
+        self.grid_cache = grid_cache
 
     # ------------------------------------------------------------------ docking
 
@@ -61,6 +65,11 @@ class PandaCoreDocker(BaseDockingAlgorithm):
             seed: Random seed for reproducible runs (default None)
             rmsd_cutoff: Clustering threshold in Angstrom (default 2.0)
             max_torsions: Cap on torsional degrees of freedom (default 32)
+
+        Set `grid_cache` on the docker to reuse affinity grids across ligands
+        docked into the same receptor and box. Grids depend on the receptor and
+        on ligand atom types, not on ligand identity, so a screening run pays
+        for them once rather than once per ligand.
         """
         self._validate_inputs(receptor_file, ligand_mol, grid_center, grid_dimensions)
         start_time = time.time()
@@ -124,6 +133,7 @@ class PandaCoreDocker(BaseDockingAlgorithm):
             grid_dimensions=grid_dimensions,
             spacing=grid_spacing,
             scoring=scoring or VinaScoring(),
+            cache=self.grid_cache,
         )
         self.logger.info("Grid construction took %.2f s", time.time() - grid_build_start)
 
