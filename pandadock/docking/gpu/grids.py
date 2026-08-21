@@ -152,18 +152,25 @@ class TorchAffinityGrids:
         coords: "torch.Tensor",
         type_ids: "torch.Tensor",
         need_gradient: bool = True,
+        atom_mask: Optional["torch.Tensor"] = None,
     ) -> Tuple["torch.Tensor", Optional["torch.Tensor"]]:
         """
         Trilinear interpolation with analytic gradient, over a batch of poses.
 
         Args:
-            coords: (B, N, 3) heavy-atom coordinates, B poses of the same ligand.
-            type_ids: (N,) ligand atom type index into the first map axis.
+            coords: (B, N, 3) heavy-atom coordinates.
+            type_ids: (N,) atom types, or (B, N) when poses carry different
+                ligands, as they do once several are packed into one batch.
             need_gradient: skip the derivative when only the energy is wanted.
+            atom_mask: (B, N) bool, False for padding. Required when ligands of
+                different sizes share a batch: a padded slot still lands
+                somewhere in the grid and would otherwise contribute both an
+                energy and a boundary penalty for an atom that does not exist.
 
         Returns:
             energy: (B,) total interaction energy including the boundary penalty.
-            gradient: (B, N, 3) d(energy)/d(coord), or None.
+            gradient: (B, N, 3) d(energy)/d(coord), or None. Padded slots carry
+                zero, so they cannot move anything downstream.
         """
         if coords.dim() != 3 or coords.shape[-1] != 3:
             raise ValueError(f"coords must be (B, N, 3), got {tuple(coords.shape)}")
@@ -189,9 +196,9 @@ class TorchAffinityGrids:
         x0, y0, z0 = i0[..., 0], i0[..., 1], i0[..., 2]
         x1, y1, z1 = x0 + 1, y0 + 1, z0 + 1
 
-        # type_ids is (N,) and the coordinate indices are (B, N); broadcasting
-        # pairs each pose's atom with that atom's map.
-        tid = type_ids.expand_as(x0)
+        # type_ids is (N,) for one ligand or (B, N) for a mixed batch; either
+        # broadcasts against the (B, N) coordinate indices.
+        tid = type_ids.expand_as(x0) if type_ids.dim() == 1 else type_ids
 
         c000 = self._gather_corners(tid, x0, y0, z0)
         c100 = self._gather_corners(tid, x1, y0, z0)
@@ -214,7 +221,13 @@ class TorchAffinityGrids:
 
         values = c0 * one_w + c1 * w
 
-        penalty = self.out_of_box_penalty * (overflow**2).sum(dim=(1, 2))
+        overflow_sq = (overflow**2).sum(dim=-1)
+        if atom_mask is not None:
+            zero = torch.zeros_like(values)
+            values = torch.where(atom_mask, values, zero)
+            overflow_sq = torch.where(atom_mask, overflow_sq, torch.zeros_like(overflow_sq))
+
+        penalty = self.out_of_box_penalty * overflow_sq.sum(dim=1)
         energy = values.sum(dim=1) + penalty
 
         if not need_gradient:
@@ -228,4 +241,6 @@ class TorchAffinityGrids:
 
         grad = torch.stack([d_du, d_dv, d_dw], dim=-1) / self.spacing
         grad = grad + 2.0 * self.out_of_box_penalty * overflow / self.spacing
+        if atom_mask is not None:
+            grad = torch.where(atom_mask.unsqueeze(-1), grad, torch.zeros_like(grad))
         return energy, grad

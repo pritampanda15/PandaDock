@@ -144,6 +144,40 @@ def wrap_rotvec(rotvec: "torch.Tensor") -> "torch.Tensor":
     return torch.where(untouched, rotvec, axis * wrapped)
 
 
+def rotvec_gradient(
+    rotvec: "torch.Tensor", rot_matrix: "torch.Tensor", torque: "torch.Tensor"
+) -> "torch.Tensor":
+    """
+    d(scalar)/d(axis-angle vector) from an accumulated torque, batched.
+
+    The scalar counterpart is `pandadock.docking.search.rotations.rotvec_gradient`,
+    and this uses the same closed form for the derivative of the SO(3)
+    exponential map (Gallego & Yezzi 2015):
+
+        dR/dr_k = [u_k]_x R,   u_k = (r_k r + r x (I - R) e_k) / |r|^2
+
+    which the triple-product identity collapses to a single 3x3 matrix applied
+    to the torque. At the identity the derivative of the exponential map is
+    itself the identity, so the gradient is the torque unchanged -- and that
+    branch has to be selected rather than divided into, since |r|^2 is zero
+    there.
+    """
+    theta_sq = (rotvec * rotvec).sum(-1, keepdim=True).unsqueeze(-1)
+
+    eye = torch.eye(3, dtype=rotvec.dtype, device=rotvec.device).expand_as(rot_matrix)
+    imr = eye - rot_matrix
+    # Row k holds column k of (I - R), matching the scalar implementation.
+    columns = imr.transpose(-1, -2)
+    cross_terms = torch.cross(
+        rotvec.unsqueeze(-2).expand_as(columns), columns, dim=-1
+    )
+    outer = rotvec.unsqueeze(-1) * rotvec.unsqueeze(-2)
+
+    u = (outer + cross_terms) / theta_sq.clamp_min(1e-16)
+    mapped = torch.einsum("bij,bj->bi", u, torque)
+    return torch.where(theta_sq.squeeze(-1) < 1e-16, torque, mapped)
+
+
 def random_rotvec(
     n: int, generator=None, dtype=None, device=None
 ) -> "torch.Tensor":
