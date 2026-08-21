@@ -196,3 +196,50 @@ class IntramolecularClash:
         per_pair = self.w_g1 * g1 + self.w_g2 * g2 + self.w_rep * rep
         per_pair = torch.where(surf < self.cutoff, per_pair, torch.zeros_like(per_pair))
         return self.weight * per_pair.sum(dim=-1)
+
+    def energy_and_gradient(self, coords: "torch.Tensor"):
+        """
+        Energy and d(energy)/d(coord) without autograd.
+
+        Mirrors the CPU's `_intramolecular(..., need_gradient=True)`. `surf`
+        depends only on the pair distance, so the Cartesian derivative follows
+        the unit separation vector and each pair contributes equally and
+        oppositely to its two atoms.
+        """
+        n_atoms = coords.shape[1]
+        if self.n_pairs == 0:
+            zeros = torch.zeros_like(coords)
+            return (
+                torch.zeros(coords.shape[0], dtype=coords.dtype, device=coords.device),
+                zeros,
+            )
+
+        delta = coords[:, self.pair_a, :] - coords[:, self.pair_b, :]
+        dist = delta.pow(2).sum(-1).clamp_min(1e-12).sqrt()
+        surf = dist - self.radii_sum
+        active = surf < self.cutoff
+
+        g1 = torch.exp(-(((surf - self.g1_offset) / self.g1_width) ** 2))
+        g2 = torch.exp(-(((surf - self.g2_offset) / self.g2_width) ** 2))
+        rep = torch.where(surf < self.rep_cutoff, surf**2, torch.zeros_like(surf))
+
+        per_pair = self.w_g1 * g1 + self.w_g2 * g2 + self.w_rep * rep
+        per_pair = torch.where(active, per_pair, torch.zeros_like(per_pair))
+        energy = self.weight * per_pair.sum(dim=-1)
+
+        d_g1 = g1 * (-2.0 * (surf - self.g1_offset) / self.g1_width**2)
+        d_g2 = g2 * (-2.0 * (surf - self.g2_offset) / self.g2_width**2)
+        d_rep = torch.where(
+            surf < self.rep_cutoff, 2.0 * surf, torch.zeros_like(surf)
+        )
+
+        d_dsurf = self.w_g1 * d_g1 + self.w_g2 * d_g2 + self.w_rep * d_rep
+        d_dsurf = torch.where(active, d_dsurf, torch.zeros_like(d_dsurf)) * self.weight
+
+        unit = delta / dist.unsqueeze(-1)
+        contrib = d_dsurf.unsqueeze(-1) * unit
+
+        grad = torch.zeros_like(coords)
+        grad.index_add_(1, self.pair_a, contrib)
+        grad.index_add_(1, self.pair_b, -contrib)
+        return energy, grad

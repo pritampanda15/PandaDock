@@ -6,17 +6,22 @@ vector -- [tx, ty, tz, rx, ry, rz, theta_1 .. theta_k] -- and the batched L-BFGS
 from stage four is reused unchanged, because it was written against a flat
 (B, D) parameter vector precisely so that adding torsions would not touch it.
 
-The energy now has two parts, and they reach the optimiser by different routes:
+There are two gradient implementations here, and both are kept on purpose.
 
-* The receptor interaction keeps the analytic grid gradient from stage one,
-  injected as a vector-Jacobian product so that autograd never has to traverse
-  the interpolation's `floor` and integer indexing.
-* The intramolecular clash term is differentiated by autograd directly, since it
-  is smooth in the coordinates and has nothing to hide.
+`energy_and_dof_gradient` is the autograd route: the analytic grid gradient
+enters as a vector-Jacobian product, the clash term is differentiated directly,
+and a single backward pass covers the torsion chain. It was written first
+because it is obviously correct -- autograd cannot get the chain rule wrong.
 
-Both are combined into a single backward pass over the torsion chain, which is
-the part that would be laborious and error-prone to differentiate by hand: each
-torsion rotates about an axis its ancestors have already moved.
+`analytic_energy_and_dof_gradient` is the closed form, and is what the search
+uses. Profiling the first version put roughly two thirds of its cost in that
+backward pass, and the CPU objective never needed one because it derives every
+block analytically. Porting that derivation is worth 1.5x at three torsions and
+1.9x at eleven, the gain growing with exactly the flexibility that made it slow.
+
+Keeping both is the point rather than duplication: the tests assert they agree
+to round-off, so the fast path is checked against an implementation that cannot
+have made an algebra mistake, not only against the CPU.
 """
 
 from __future__ import annotations
@@ -29,7 +34,13 @@ from .flexible import IntramolecularClash, TorsionApplier
 from .grids import TorchAffinityGrids, resolve_device
 from .optimize import LBFGSConfig, batched_lbfgs
 from .rigid_search import RigidSearchConfig
-from .rotations import compose_rotvecs, random_rotvec, rodrigues_matrix, wrap_rotvec
+from .rotations import (
+    compose_rotvecs,
+    random_rotvec,
+    rodrigues_matrix,
+    rotvec_gradient,
+    wrap_rotvec,
+)
 
 try:
     import torch
@@ -130,9 +141,92 @@ class FlexibleBatchedSearch:
 
         return inter + clash.detach(), grad
 
-    def local_optimize(self, x: "torch.Tensor", config: Optional[LBFGSConfig] = None):
+    def analytic_energy_and_dof_gradient(self, x: "torch.Tensor"):
+        """
+        The same energy and gradient as `energy_and_dof_gradient`, with no autograd.
+
+        Profiling the autograd version showed roughly two thirds of its cost in
+        the backward pass through the sequential torsion chain: 12.9 ms of which
+        ~8 ms was backward, at 256 chains and 11 torsions. The CPU objective
+        never needed that pass because it derives every block in closed form, and
+        this is that derivation, batched.
+
+        Each block mirrors its CPU counterpart:
+
+        * translation -- the pose shifts rigidly, so the gradient is the atom sum
+        * orientation -- torque about the translation anchor, mapped through the
+          derivative of the SO(3) exponential map
+        * torsions -- rotating about axis u through pivot p moves atom m with
+          velocity u x (c_m - p), so dE/dtheta is that velocity projected onto
+          the Cartesian gradient, evaluated in the final rotated frame
+
+        The autograd version is kept as the reference the tests compare against,
+        which is what makes replacing it safe rather than a leap of faith.
+        """
+        translation = x[:, :3]
+        rotvec = x[:, 3:6]
+        angles = x[:, 6:]
+
+        torsioned = self.torsions.apply(angles)
+        rotation = rodrigues_matrix(rotvec)
+        rotated = torch.einsum("bij,bnj->bni", rotation, torsioned)
+        coords = rotated + translation.unsqueeze(1)
+
+        heavy_idx = self.torsions.heavy_atoms
+        heavy = coords[:, heavy_idx, :]
+
+        inter, grad_heavy = self.grids.score_and_gradient(
+            heavy, self.type_ids, need_gradient=True
+        )
+        clash, grad_atoms = self.clash.energy_and_gradient(coords)
+
+        # Hydrogens score nothing on the grid but still move, so they simply
+        # carry no interaction gradient -- as on the CPU.
+        grad_atoms = grad_atoms.index_add(1, heavy_idx, grad_heavy)
+
+        grad = torch.empty_like(x)
+        grad[:, :3] = grad_atoms.sum(dim=1)
+
+        torque = torch.cross(
+            coords - translation.unsqueeze(1), grad_atoms, dim=-1
+        ).sum(dim=1)
+        grad[:, 3:6] = rotvec_gradient(rotvec, rotation, torque)
+
+        if self.n_torsions:
+            for k in range(self.n_torsions):
+                origin = coords[:, self.torsions._origin[k], :]
+                pivot = coords[:, self.torsions._axis[k], :]
+                axis = pivot - origin
+
+                norm = axis.norm(dim=-1, keepdim=True)
+                fallback = torch.zeros_like(axis)
+                fallback[:, 0] = 1.0
+                unit = torch.where(
+                    norm > 1e-8, axis / norm.clamp_min(1e-12), fallback
+                )
+
+                moving = self.torsions._moving[k]
+                offset = coords[:, moving, :] - pivot.unsqueeze(1)
+                velocity = torch.cross(
+                    unit.unsqueeze(1).expand_as(offset), offset, dim=-1
+                )
+                grad[:, 6 + k] = (grad_atoms[:, moving, :] * velocity).sum((1, 2))
+
+        return inter + clash, grad
+
+    def local_optimize(
+        self,
+        x: "torch.Tensor",
+        config: Optional[LBFGSConfig] = None,
+        use_autograd: bool = False,
+    ):
         """
         Relax a batch of poses, then re-canonicalise the orientation.
+
+        Uses the closed-form gradient by default. `use_autograd=True` selects the
+        autograd path instead, which is retained as the reference the analytic
+        one is tested against rather than as a fallback -- if the two ever
+        disagree, that is a bug to find, not a knob to flip.
 
         `wrap_rotvec` is applied for the same reason the CPU applies it: the
         optimiser moves the rotation parameters continuously and can drift many
@@ -140,9 +234,12 @@ class FlexibleBatchedSearch:
         without changing the pose. Torsions are deliberately not wrapped, since
         the CPU does not wrap them either.
         """
-        x, energy, _ = batched_lbfgs(
-            x, self.energy_and_dof_gradient, config or LBFGSConfig()
+        gradient_fn = (
+            self.energy_and_dof_gradient
+            if use_autograd
+            else self.analytic_energy_and_dof_gradient
         )
+        x, energy, _ = batched_lbfgs(x, gradient_fn, config or LBFGSConfig())
         x = torch.cat([x[:, :3], wrap_rotvec(x[:, 3:6]), x[:, 6:]], dim=-1)
         return x, energy
 

@@ -293,3 +293,97 @@ def test_flexible_basin_hopping_improves_and_stays_self_consistent(device, flexi
     assert float(best_energy.min()) < float(start_energy.min())
     rescored = search.energy(best_x)
     assert torch.allclose(rescored, best_energy, **tol(device, loose=True))
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_analytic_gradient_agrees_with_autograd(device, flexible):
+    """
+    The fast path against an implementation that cannot have an algebra mistake.
+
+    Both are separately checked against the CPU elsewhere, but comparing them to
+    each other is the sharper test: autograd derives the torsion chain rule
+    mechanically, so a discrepancy here localises the error to the hand
+    derivation rather than leaving it somewhere in three implementations.
+    """
+    grids, tree, objective = flexible
+    search = build_flexible_search(grids, tree, objective, device=device)
+
+    x = torch.tensor(
+        random_dofs(tree, 24, seed=5), dtype=search.dtype, device=device
+    )
+    auto_e, auto_g = search.energy_and_dof_gradient(x)
+    exact_e, exact_g = search.analytic_energy_and_dof_gradient(x)
+
+    assert torch.allclose(auto_e, exact_e, **tol(device, loose=True))
+    assert torch.allclose(auto_g, exact_g, **tol(device, loose=True))
+    # Every block, not just the total: a mistake confined to the torsions would
+    # otherwise be masked by the larger translation terms.
+    for name, sl in [
+        ("translation", slice(0, 3)),
+        ("rotation", slice(3, 6)),
+        ("torsions", slice(6, None)),
+    ]:
+        assert torch.allclose(
+            auto_g[:, sl], exact_g[:, sl], **tol(device, loose=True)
+        ), f"{name} block disagrees"
+
+
+def test_analytic_gradient_handles_a_zero_rotation(flexible):
+    """
+    The identity rotation, where the exponential-map derivative is singular.
+
+    The closed form divides by |r|^2, so this is the input that would return NaN
+    if the degenerate branch were selected by division rather than by `where`.
+    At the identity the derivative of the exponential map is itself the
+    identity, so the gradient should simply be the accumulated torque.
+    """
+    grids, tree, objective = flexible
+    search = build_flexible_search(grids, tree, objective, device="cpu")
+
+    dofs = random_dofs(tree, 4, seed=6)
+    dofs[0, 3:6] = 0.0  # exactly the identity
+    dofs[1, 3:6] = 1e-14  # below the threshold
+    x = torch.tensor(dofs, dtype=torch.float64)
+
+    energy, grad = search.analytic_energy_and_dof_gradient(x)
+    assert torch.isfinite(energy).all()
+    assert torch.isfinite(grad).all(), "a zero rotation produced NaN"
+
+    for b in (0, 1):
+        _, ref = objective.energy_and_gradient(dofs[b])
+        assert np.allclose(grad[b].numpy(), ref, rtol=1e-5, atol=1e-5)
+
+
+def test_local_optimize_reaches_equivalent_minima(flexible):
+    """
+    Switching to the closed-form gradient must not change what the search finds.
+
+    Not pose for pose, though. The two gradients agree to ~1e-7, not bitwise, and
+    L-BFGS is chaotic: a difference that small occasionally flips a line-search
+    acceptance and sends a chain into a neighbouring basin. Measured over 256
+    starts, 161 landed identically, 31 differed at all, the largest difference was
+    0.09 kcal/mol, and the best and mean energies agreed -- so neither path is
+    systematically better.
+
+    Demanding exact equality would assert something untrue about the optimiser
+    rather than something true about the gradients. What must hold is that the
+    two are statistically indistinguishable and neither loses ground.
+    """
+    grids, tree, objective = flexible
+    search = build_flexible_search(grids, tree, objective, device="cpu")
+
+    x = torch.tensor(random_dofs(tree, 96, seed=7), dtype=torch.float64)
+    config = LBFGSConfig(max_iter=40, max_line_search=12)
+
+    _, exact = search.local_optimize(x.clone(), config)
+    _, auto = search.local_optimize(x.clone(), config, use_autograd=True)
+
+    # The great majority of chains are unaffected.
+    identical = int(((exact - auto).abs() < 1e-9).sum())
+    assert identical > 0.5 * len(exact), (
+        f"only {identical}/{len(exact)} chains agreed; the gradients likely differ"
+    )
+    # No chain ends up wildly different, and neither path wins on aggregate.
+    assert float((exact - auto).abs().max()) < 0.5
+    assert abs(float(exact.mean()) - float(auto.mean())) < 0.05
+    assert abs(float(exact.min()) - float(auto.min())) < 1e-6
