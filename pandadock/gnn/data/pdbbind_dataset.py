@@ -12,12 +12,20 @@ from dataclasses import dataclass
 from typing import List, Optional, Dict, Tuple
 
 import numpy as np
-import torch
-from torch.utils.data import Dataset
 
+# torch is an optional extra (`pip install pandadock[gnn]`), and this module is
+# reached from `pandadock.gnn.data.__init__`, so importing it unguarded makes the
+# whole subpackage unimportable in a base install rather than only the parts that
+# need a tensor library.
 try:
+    import torch
+    from torch.utils.data import Dataset
     from torch_geometric.data import HeteroData
+    TORCH_AVAILABLE = True
 except ImportError:
+    TORCH_AVAILABLE = False
+    torch = None
+    Dataset = object
     HeteroData = None
 
 

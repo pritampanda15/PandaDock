@@ -7,10 +7,29 @@ Or:       python pandadock/gnn/tests/test_gnn.py
 
 import sys
 import numpy as np
+import pytest
 from pathlib import Path
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+# torch and torch-geometric are the optional [gnn] extra. Every test below needs
+# them, so skip the module rather than let each test fail on its own import in a
+# base install. `pytestmark` is an inert module attribute outside a pytest run,
+# so the __main__ block at the bottom keeps reporting the missing dependency
+# itself when this file is executed as a script.
+try:
+    import torch
+    import torch_geometric
+
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+
+pytestmark = pytest.mark.skipif(
+    not TORCH_AVAILABLE,
+    reason="PandaDock-GNN needs the optional [gnn] extra (torch, torch-geometric)",
+)
 
 
 def test_mol2_parser():
