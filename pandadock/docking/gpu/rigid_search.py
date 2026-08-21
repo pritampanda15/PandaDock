@@ -35,6 +35,7 @@ from typing import Optional
 import numpy as np
 
 from .grids import TorchAffinityGrids, dtype_for_device, resolve_device
+from .optimize import LBFGSConfig, batched_lbfgs
 from .rotations import compose_rotvecs, random_rotvec, wrap_rotvec
 
 try:
@@ -155,7 +156,9 @@ class RigidBatchedSearch:
         )
         return energy, torch.cat([grad_t, grad_r], dim=-1)
 
-    def local_optimize(self, translation, rotvec, config: "LBFGSConfig" = None):
+    def local_optimize(
+        self, translation, rotvec, config: Optional[LBFGSConfig] = None
+    ):
         """
         Relax a batch of poses to their nearest local minima.
 
@@ -165,8 +168,6 @@ class RigidBatchedSearch:
         origin, which costs precision in the rotation gradient without changing
         the pose.
         """
-        from .optimize import LBFGSConfig, batched_lbfgs
-
         x0 = torch.cat([translation, rotvec], dim=-1)
         x, energy, _ = batched_lbfgs(
             x0, self.energy_and_dof_gradient, config or LBFGSConfig()
