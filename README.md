@@ -451,12 +451,17 @@ Full documentation available at [pandadock.readthedocs.io](https://pandadock.rea
 If you use PandaDock in your research, please cite:
 
 ```bibtex
-@article{panda2024pandadock,
-  title={PandaDock: SE(3)-Equivariant Graph Neural Network Scoring for Molecular Docking},
-  author={Panda, Pritam Kumar},
-  journal={bioRxiv},
-  year={2024},
-  note={Manuscript in preparation}
+@article {Panda2026.08.19.745667,
+  author = {Panda, Pritam Kumar},
+  title = {PandaDock: An Open-Source Molecular Docking Platform with Flexible-Ligand Search and Equivariant Neural Scoring},
+  elocation-id = {2026.08.19.745667},
+  year = {2026},
+  doi = {10.64898/2026.08.19.745667},
+  publisher = {Cold Spring Harbor Laboratory},
+  abstract = {We present PandaDock, an open-source molecular docking platform implementing flexible-ligand conformational search with analytic gradients, a precomputed affinity grid engine, specialized modules for induced-fit, metal-coordination and tethered docking, and an SE(3)-equivariant graph neural network scoring function trained at scale. Ligand flexibility is represented as a torsion tree and pose parameters are optimized by Monte Carlo with Metropolis acceptance refined by L-BFGS, with rotational gradients obtained in closed form through the derivative of the SO(3) exponential map rather than by finite differences. Affinity grids are built by a blocked neighbor-selection scheme that is exact and 5.6-9.7x faster than dense evaluation, and may be cached across ligands sharing a receptor and site, reducing a six-ligand series from 29.3 s to 10.4 s. On 814 protein-ligand complexes spanning 14 target families, PandaDock recovers a pose within 2 Angstroms of the crystal geometry in 33.7\% of cases at rank 1 and in 57.0\% of cases within the returned ensemble. The GNN scoring function is trained on 741,706 co-folded complexes from SAIR under target-disjoint splits, reaching a Pearson r of 0.407 on 90,219 held-out complexes and transferring to 202 independent crystal structures with measured Ki, Kd, IC50 or EC50 at r = 0.467. We report the model against three controls, a target-mean predictor, a ligand-descriptor-only baseline, and within-target correlations, and document both where it performs and where it does not, including its unsuitability for pose rescoring. On an independent 30-compound series against a single GABAA receptor target, PandaDock{\textquoteright}s empirical scoring function ranks 8th of 25 methods evaluated, ahead of every AutoDock Vina and Vinardo configuration tested, while the GNN scores below Vina, consistent with the within-target ceiling identified on SAIR. At full scale on the PDBbind v2020 refined set (n = 4,640, native crystal poses), the fully independent SAIR model reaches r = 0.531, and a dedicated model trained on PDBbind alone under a target-disjoint split reaches r = 0.690 on its own held-out test complexes, the strongest evidence in this work that PandaDock{\textquoteright}s affinity predictions generalize. PandaDock is distributed under an open-source license at https://github.com/pritampanda15/PandaDock with a complete command-line interface and a reproducible benchmarking harness.Competing Interest StatementThe authors have declared no competing interest.},
+  URL = {https://www.biorxiv.org/content/early/2026/08/20/2026.08.19.745667},
+  eprint = {https://www.biorxiv.org/content/early/2026/08/20/2026.08.19.745667.full.pdf},
+  journal = {bioRxiv}
 }
 ```
 
@@ -478,7 +483,7 @@ PandaDock is released under the MIT License. See [LICENSE](LICENSE) for details.
 
 **Author**: Pritam Kumar Panda
 **Affiliation**: Stanford University
-**Email**: pritampanda@stanford.edu
+**Email**: pritam@stanford.edu
 **GitHub**: [@pritampanda15](https://github.com/pritampanda15)
 
 ---
