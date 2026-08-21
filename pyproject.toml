@@ -7,7 +7,9 @@ name = "pandadock"
 dynamic = ["version"]
 description = "Molecular docking with flexible-ligand conformational search and SE(3)-equivariant GNN scoring"
 readme = { file = "README.md", content-type = "text/markdown" }
-requires-python = ">=3.8"
+# 3.9 is the lowest version exercised by CI; 3.8 was advertised but
+# never tested and is end-of-life upstream.
+requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [
     { name = "Pritam Kumar Panda", email = "pritampanda15@gmail.com" },
@@ -28,7 +30,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -88,6 +89,10 @@ pandadock-metal = "pandadock.metal_docking_cli:main"
 pandadock-tethered = "pandadock.tethered_cli:main"
 pandadock-ml = "pandadock.ml_docking_cli:main"
 pandadock-gnn = "pandadock.gnn.cli:main"
+# pandadock-gui-server is deliberately absent: pandadock.gui_server is still
+# unreleased, and declaring the script here installs a command whose import
+# target does not exist in the published package. Re-add this line in the same
+# commit that ships the package, not before.
 
 [tool.setuptools.dynamic]
 # Single source of truth for the version. Keeping it only in the package avoids

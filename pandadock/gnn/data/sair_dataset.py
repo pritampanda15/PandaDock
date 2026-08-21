@@ -458,9 +458,445 @@ class SAIRDataset:
             if cache_path is not None:
                 torch.save(graph, cache_path)
 
-        graph.y = torch.tensor([entry.pic50], dtype=torch.float)
+        # y_affinity is the name the trainer reads; `y` alone yields no loss
+        # terms at all, which surfaces as a total loss of 0.0 rather than an error.
+        graph.y_affinity = torch.tensor([entry.pic50], dtype=torch.float32)
+        graph.y = graph.y_affinity
         graph.entry_id = entry.entry_id
         return graph
 
     def get_entry(self, index: int) -> SAIREntry:
         return self.entries[index]
+
+
+# ------------------------------------------------------------- compact caching
+
+# Caching built graphs costs ~195 KB per complex, because a materialised
+# HeteroData carries ~600 site atoms of 56-dimensional float features. Caching
+# the parsed atoms instead and featurising at load time costs roughly 5 KB, which
+# is the difference between 172 GB and 5 GB over the full set. Featurisation is
+# cheap once the CIF has been parsed, so nothing is lost by deferring it.
+
+SHARD_SIZE = 1000
+
+
+def complex_to_record(
+    entry_id: int,
+    cif_path: str,
+    smiles: str,
+    pic50: float,
+    site_radius: float = 10.0,
+) -> Optional[dict]:
+    """
+    Parse one complex into the compact form that gets cached.
+
+    Coordinates are float32 and atom types are interned strings; the graph is
+    rebuilt from this at load time.
+    """
+    protein_atoms, ligand_atoms = parse_sair_cif(cif_path)
+    if not protein_atoms or not ligand_atoms:
+        return None
+
+    ligand, matched = ligand_to_parsed(ligand_atoms, smiles)
+    protein = protein_to_parsed(protein_atoms)
+
+    ligand_xyz = np.array([[a.x, a.y, a.z] for a in ligand.atoms], dtype=np.float32)
+    centroid = ligand_xyz.mean(axis=0)
+
+    # Cut the site here rather than at load time: it is the whole reason the
+    # record is small, and the radius is not something training should vary.
+    # Delegated to graph_builder so inference applies the identical cut; a model
+    # trained on a 10 A site and served a whole protein reports a confident
+    # number from an input unlike anything it has seen.
+    from .graph_builder import extract_binding_site
+
+    keep = extract_binding_site(protein, centroid, radius=site_radius).atoms
+    if not keep:
+        return None
+
+    return {
+        "entry_id": entry_id,
+        "pic50": float(pic50),
+        "smiles_matched": bool(matched),
+        "site_xyz": np.array([[a.x, a.y, a.z] for a in keep], dtype=np.float32),
+        "site_types": [a.atom_type for a in keep],
+        "site_names": [a.name for a in keep],
+        "site_resnames": [a.residue_name for a in keep],
+        "site_resids": np.array([a.residue_id for a in keep], dtype=np.int32),
+        "lig_xyz": ligand_xyz,
+        "lig_types": [a.atom_type for a in ligand.atoms],
+        "lig_names": [a.name for a in ligand.atoms],
+    }
+
+
+def record_to_molecules(record: dict):
+    """Rebuild the site and ligand ParsedMolecules from a cached record."""
+    from .mol2_parser import Atom, ParsedMolecule
+
+    def build(prefix: str, resnames, resids, name: str):
+        xyz = record[f"{prefix}_xyz"]
+        types = record[f"{prefix}_types"]
+        names = record[f"{prefix}_names"]
+        atoms = [
+            Atom(
+                id=i + 1,
+                name=names[i],
+                x=float(xyz[i][0]), y=float(xyz[i][1]), z=float(xyz[i][2]),
+                atom_type=types[i],
+                charge=0.0,
+                residue_name=resnames[i] if resnames is not None else LIGAND_COMP_ID,
+                residue_id=int(resids[i]) if resids is not None else 1,
+            )
+            for i in range(len(types))
+        ]
+        molecule = ParsedMolecule(name=name, atoms=atoms, bonds=[])
+        molecule.num_atoms = len(atoms)
+        return molecule
+
+    site = build("site", record["site_resnames"], record["site_resids"], "site")
+    ligand = build("lig", None, None, "ligand")
+    return site, ligand
+
+
+def shard_path(cache_dir, shard_id: int) -> Path:
+    return Path(cache_dir) / f"shard_{shard_id:04d}.pkl.gz"
+
+
+def save_shard(cache_dir, shard_id: int, records: dict) -> Path:
+    """Write one shard of records. Gzipped: these are mostly repeated strings."""
+    import gzip
+    import pickle
+
+    path = shard_path(cache_dir, shard_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    with gzip.open(tmp, "wb", compresslevel=4) as handle:
+        pickle.dump(records, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    tmp.replace(path)
+    return path
+
+
+def load_shard(cache_dir, shard_id: int) -> dict:
+    import gzip
+    import pickle
+
+    path = shard_path(cache_dir, shard_id)
+    if not path.exists():
+        return {}
+    with gzip.open(path, "rb") as handle:
+        return pickle.load(handle)
+
+
+INDEX_NAME = "index.pkl.gz"
+
+# Bumped when the stored structure changes; a stale index rebuilds itself rather
+# than failing on a missing key. v2 added the label array, so target means can be
+# computed without decompressing every shard again.
+INDEX_VERSION = 2
+
+
+def build_index(cache_dir, rebuild: bool = False) -> dict:
+    """
+    Index the shard cache: which shard each entry lives in, and its target
+    sequence so splits can be made target-disjoint.
+
+    Persisted, because building it means decompressing every shard -- several
+    minutes over the full 920k set, and it would otherwise be paid three times
+    per run, once for each of train/val/test.
+
+    Sequences are stored once in a table and referenced by position; the same
+    target recurs across thousands of complexes, so storing the string per entry
+    would make the index larger than it needs to be by two orders of magnitude.
+    """
+    import glob
+    import gzip
+    import pickle
+
+    cache_dir = Path(cache_dir)
+    path = cache_dir / INDEX_NAME
+
+    if path.exists() and not rebuild:
+        with gzip.open(path, "rb") as handle:
+            index = pickle.load(handle)
+        if index.get("version") == INDEX_VERSION:
+            return index
+        logger.info("Index is version %s, rebuilding at version %s",
+                    index.get("version", 1), INDEX_VERSION)
+
+    shards = sorted(glob.glob(str(cache_dir / "shard_*.pkl.gz")))
+    if not shards:
+        raise FileNotFoundError(f"No shards under {cache_dir}")
+
+    entries: List[Tuple[int, int, int]] = []
+    labels: List[float] = []
+    sequence_ids: Dict[str, int] = {}
+    logger.info("Indexing %d shards (one-off, result is cached)", len(shards))
+
+    for shard_file in shards:
+        shard_id = int(Path(shard_file).name.split("_")[1].split(".")[0])
+        for entry_id, record in load_shard(cache_dir, shard_id).items():
+            sequence = record.get("sequence") or str(entry_id)
+            seq_id = sequence_ids.setdefault(sequence, len(sequence_ids))
+            entries.append((shard_id, entry_id, seq_id))
+            labels.append(float(record["pic50"]))
+
+    index = {
+        "version": INDEX_VERSION,
+        "entries": entries,
+        # Parallel to entries. Carried here so target means are available
+        # without decompressing the shards a second time.
+        "labels": np.asarray(labels, dtype=np.float32),
+        "n_sequences": len(sequence_ids),
+        "n_shards": len(shards),
+    }
+
+    tmp = path.with_suffix(".tmp")
+    with gzip.open(tmp, "wb", compresslevel=4) as handle:
+        pickle.dump(index, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    tmp.replace(path)
+
+    logger.info("Indexed %d complexes over %d targets",
+                len(entries), len(sequence_ids))
+    return index
+
+
+def target_means(index: dict, entries: Sequence[Tuple[int, int]]) -> Dict[int, float]:
+    """
+    Mean label per target, over the given entries only.
+
+    Used for target-centred training. Each split computes means over its own
+    entries and never sees another split's, which matters because the splits are
+    target-disjoint: there is no shared target whose mean could carry
+    information across the boundary.
+    """
+    wanted = {entry_id for _, entry_id in entries}
+    sums: Dict[int, float] = {}
+    counts: Dict[int, int] = {}
+    labels = index["labels"]
+
+    for position, (_, entry_id, seq_id) in enumerate(index["entries"]):
+        if entry_id not in wanted:
+            continue
+        sums[seq_id] = sums.get(seq_id, 0.0) + float(labels[position])
+        counts[seq_id] = counts.get(seq_id, 0) + 1
+
+    return {seq_id: sums[seq_id] / counts[seq_id] for seq_id in sums}
+
+
+class SAIRCachedDataset:
+    """
+    Dataset over the sharded record cache.
+
+    Shards are loaded lazily and the most recently used ones kept, so access in
+    shard order touches each file once. Random access across 920 shards would
+    decompress a shard per sample, so shuffle with ShardBlockSampler rather than
+    with DataLoader(shuffle=True).
+    """
+
+    def __init__(
+        self,
+        cache_dir: str,
+        split: str = "train",
+        split_ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
+        seed: int = 42,
+        graph_config=None,
+        max_open_shards: int = 4,
+        index: Optional[dict] = None,
+        center_targets: bool = False,
+    ):
+        from .graph_builder import HeterogeneousGraphBuilder
+
+        self.cache_dir = Path(cache_dir)
+        self.graph_builder = HeterogeneousGraphBuilder(graph_config)
+        self.max_open_shards = max_open_shards
+        self._open: Dict[int, dict] = {}
+
+        if index is None:
+            index = build_index(self.cache_dir)
+
+        # Split on targets, not complexes: SAIR carries many ligands against the
+        # same protein, so a random split would put near-identical complexes on
+        # both sides and report a score the model has not earned.
+        rng = np.random.default_rng(seed)
+        order = rng.permutation(index["n_sequences"])
+        n_train = int(index["n_sequences"] * split_ratios[0])
+        n_val = int(index["n_sequences"] * split_ratios[1])
+        assigned = {
+            "train": set(order[:n_train].tolist()),
+            "val": set(order[n_train:n_train + n_val].tolist()),
+            "test": set(order[n_train + n_val:].tolist()),
+        }[split]
+
+        # Sorted by shard so the default sequential order is also the cheapest.
+        self.index: List[Tuple[int, int]] = [
+            (shard_id, entry_id)
+            for shard_id, entry_id, seq_id in index["entries"]
+            if seq_id in assigned
+        ]
+        # Target centring: predict a ligand's affinity relative to its target's
+        # mean rather than in absolute terms.
+        #
+        # 29% of SAIR's label variance sits between targets, so plain MSE spends
+        # most of its gradient on target-level offsets -- the easy part -- while
+        # within-target ranking, the ability a scoring function exists to
+        # provide, is optimised only incidentally. Subtracting the target mean
+        # removes that component from the objective entirely.
+        #
+        # Means come from each split's own entries. Splits here are
+        # target-disjoint, so a test target's mean cannot be derived from
+        # training data and none is used during training. At evaluation the mean
+        # is a property of the grouping, not an input to the model: within a
+        # fixed target it is a constant, so it shifts the labels without
+        # changing their order or any within-target correlation.
+        #
+        # The consequence is that a centred model predicts a residual and cannot
+        # emit an absolute pIC50 for an unseen target, because that would need
+        # the target's mean, which is exactly the unknown. Centred models are
+        # ligand rankers.
+        self.centered = center_targets
+        self.target_mean = target_means(index, self.index) if center_targets else {}
+        self.entry_target = {
+            entry_id: seq_id for _, entry_id, seq_id in index["entries"]
+        }
+
+        logger.info("%s: %d complexes from %d shards%s",
+                    split, len(self.index), index["n_shards"],
+                    " (target-centred)" if center_targets else "")
+
+    def __len__(self) -> int:
+        return len(self.index)
+
+    def _records(self, shard_id: int) -> dict:
+        if shard_id not in self._open:
+            if len(self._open) >= self.max_open_shards:
+                self._open.pop(next(iter(self._open)))
+            self._open[shard_id] = load_shard(self.cache_dir, shard_id)
+        return self._open[shard_id]
+
+    def __getitem__(self, index: int):
+        import torch
+
+        shard_id, entry_id = self.index[index]
+        record = self._records(shard_id)[entry_id]
+
+        site, ligand = record_to_molecules(record)
+        graph = self.graph_builder.build_graph(site, ligand)
+        label = record["pic50"]
+        if self.centered:
+            label = label - self.target_mean[self.entry_target[entry_id]]
+
+        # See the note in SAIRDataset.__getitem__: the trainer reads y_affinity.
+        graph.y_affinity = torch.tensor([label], dtype=torch.float32)
+        graph.y = graph.y_affinity
+        graph.entry_id = entry_id
+        # Carried so the within-target loss can group a batch by protein.
+        graph.target_id = self.entry_target[entry_id]
+        return graph
+
+    @property
+    def shard_ids(self) -> List[int]:
+        return [shard_id for shard_id, _ in self.index]
+
+
+class ShardBlockSampler:
+    """
+    Shuffle within a sliding block of shards instead of across the whole set.
+
+    DataLoader(shuffle=True) draws uniformly over 920k samples, so consecutive
+    samples land in different shards and each one costs a gzip decompression --
+    the cache holds four shards and thrashes immediately. Shuffling shard order,
+    then shuffling within a block of `block_shards` at a time, keeps every
+    decompressed shard in use for its whole block.
+
+    With the default block of 16 shards the shuffle pool is 16k complexes, which
+    is well past the point where batch composition correlates with shard order.
+    Reshuffled every epoch.
+    """
+
+    def __init__(self, dataset: "SAIRCachedDataset", block_shards: int = 16, seed: int = 42):
+        self.block_shards = block_shards
+        self.seed = seed
+        self.epoch = 0
+
+        self.by_shard: Dict[int, List[int]] = {}
+        for position, (shard_id, _) in enumerate(dataset.index):
+            self.by_shard.setdefault(shard_id, []).append(position)
+        self.n = len(dataset.index)
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = epoch
+
+    def __len__(self) -> int:
+        return self.n
+
+    def __iter__(self):
+        rng = np.random.default_rng(self.seed + self.epoch)
+        shards = list(self.by_shard)
+        rng.shuffle(shards)
+
+        for start in range(0, len(shards), self.block_shards):
+            block: List[int] = []
+            for shard_id in shards[start:start + self.block_shards]:
+                block.extend(self.by_shard[shard_id])
+            rng.shuffle(block)
+            yield from block
+
+
+def create_sair_dataloaders(
+    cache_dir: str,
+    batch_size: int = 32,
+    split_ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
+    seed: int = 42,
+    num_workers: int = 0,
+    block_shards: int = 16,
+    graph_config=None,
+    center_targets: bool = False,
+):
+    """
+    Build train/val/test loaders over the shard cache.
+
+    The index is built once and shared, rather than rebuilt per split.
+    """
+    from torch_geometric.loader import DataLoader as PyGDataLoader
+
+    index = build_index(cache_dir)
+
+    # Enough open shards to cover a block, plus room for the loader to read
+    # ahead. Each shard is ~3 MB decompressed, so a block of 16 costs ~50 MB per
+    # worker -- negligible against a 23 GB card, and it removes the thrashing.
+    max_open = block_shards + 2
+
+    datasets = {
+        split: SAIRCachedDataset(
+            cache_dir, split=split, split_ratios=split_ratios, seed=seed,
+            graph_config=graph_config, max_open_shards=max_open, index=index,
+            center_targets=center_targets,
+        )
+        for split in ("train", "val", "test")
+    }
+
+    # Featurising a complex costs ~1.3 ms, so a worker sustains roughly 800
+    # samples/s and the GPU is fed by however many workers are running. Pinned
+    # memory and a deeper prefetch queue keep the transfer off the critical path.
+    common = dict(
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
+        pin_memory=True,
+    )
+    if num_workers > 0:
+        common["prefetch_factor"] = 4
+
+    train_sampler = ShardBlockSampler(datasets["train"], block_shards, seed)
+    loaders = {
+        "train": PyGDataLoader(
+            datasets["train"], batch_size=batch_size, sampler=train_sampler, **common
+        )
+    }
+    # Validation and test run in shard order: no shuffle needed, and sequential
+    # access is the cheapest way through the cache.
+    for split in ("val", "test"):
+        loaders[split] = PyGDataLoader(
+            datasets[split], batch_size=batch_size, shuffle=False, **common
+        )
+
+    return loaders["train"], loaders["val"], loaders["test"]

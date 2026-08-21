@@ -161,6 +161,138 @@ if CLICK_AVAILABLE:
         print(f"\nResults saved to {results_file}")
         print("\nTraining complete!")
 
+    @main.command('train-sair')
+    @click.option('--cache', '-c', required=True, type=click.Path(exists=True),
+                  help='Shard cache directory built by benchmarking/sair_preprocess.py')
+    @click.option('--output', '-o', required=True, type=click.Path(),
+                  help='Output directory for checkpoints and logs')
+    @click.option('--epochs', default=50, type=int, help='Number of training epochs')
+    @click.option('--batch-size', default=64, type=int, help='Batch size')
+    @click.option('--lr', default=1e-4, type=float, help='Learning rate')
+    @click.option('--hidden-dim', default=256, type=int, help='Hidden dimension')
+    @click.option('--num-layers', default=6, type=int, help='Number of EGNN layers')
+    @click.option('--dropout', default=0.1, type=float, help='Dropout rate')
+    @click.option('--patience', default=10, type=int, help='Early stopping patience')
+    @click.option('--scheduler',
+                  type=click.Choice(['cosine_anneal', 'cosine', 'plateau', 'none']),
+                  default='cosine_anneal',
+                  help='LR schedule; cosine_anneal decays once over --epochs, '
+                       'cosine restarts every 10 epochs then 20, then 40')
+    @click.option('--rank-weight', default=0.0, type=float,
+                  help='Weight on the within-target ranking loss. Keeps the '
+                       'absolute affinity output while rewarding correct '
+                       'ordering of ligands against the same protein. Try 1.0')
+    @click.option('--target-centered', is_flag=True,
+                  help='Train on affinity relative to each target mean. Produces '
+                       'a ligand ranker that CANNOT emit an absolute pIC50 for an '
+                       'unseen target; use --rank-weight instead if you need IC50')
+    @click.option('--num-workers', default=6, type=int,
+                  help='Dataloader worker processes')
+    @click.option('--block-shards', default=16, type=int,
+                  help='Shards shuffled together; larger mixes more but uses more memory')
+    @click.option('--gpu/--cpu', default=True, help='Use GPU if available')
+    @click.option('--seed', default=42, type=int, help='Random seed')
+    def train_sair(cache, output, epochs, batch_size, lr, hidden_dim, num_layers,
+                   dropout, patience, scheduler, rank_weight, target_centered,
+                   num_workers, block_shards, gpu, seed):
+        """
+        Train PandaDock-GNN on the SAIR shard cache.
+
+        Splits are target-disjoint: SAIR holds many ligands per protein, so a
+        random split would place near-identical complexes on both sides.
+        """
+        check_dependencies()
+
+        import random
+
+        import numpy as np
+        import torch
+
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        random.seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+
+        output_dir = Path(output)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        device = 'cuda' if gpu and torch.cuda.is_available() else 'cpu'
+        print("=" * 60)
+        print("PandaDock-GNN Training (SAIR)")
+        print("=" * 60)
+        print(f"Cache: {cache}")
+        print(f"Output: {output}")
+        print(f"Epochs: {epochs}, Batch size: {batch_size}")
+        print(f"Hidden dim: {hidden_dim}, Layers: {num_layers}")
+        print(f"LR: {lr} ({scheduler})")
+        print(f"Rank loss weight: {rank_weight}"
+              + ("   TARGET-CENTRED (predicts residuals, not absolute pIC50)"
+                 if target_centered else ""))
+        print(f"Device: {device}")
+        print("=" * 60)
+
+        from .data.sair_dataset import create_sair_dataloaders
+
+        print("\nLoading dataset (first run indexes the shards, which takes a few minutes)...")
+        train_loader, val_loader, test_loader = create_sair_dataloaders(
+            cache_dir=cache,
+            batch_size=batch_size,
+            seed=seed,
+            num_workers=num_workers,
+            block_shards=block_shards,
+            center_targets=target_centered,
+        )
+        print(f"  train {len(train_loader.dataset):,}  "
+              f"val {len(val_loader.dataset):,}  "
+              f"test {len(test_loader.dataset):,}")
+
+        from .models.pandadock_gnn import PandaDockGNN, ModelConfig
+
+        config = ModelConfig(
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+            dropout=dropout,
+            predict_activity=False,
+        )
+        model = PandaDockGNN(config)
+        print(f"\nModel parameters: {model.count_parameters():,}")
+
+        from .training.trainer import GNNTrainer, TrainingConfig
+
+        train_config = TrainingConfig(
+            learning_rate=lr,
+            epochs=epochs,
+            batch_size=batch_size,
+            patience=patience,
+            scheduler=scheduler,
+            w_rank=rank_weight,
+            checkpoint_dir=str(output_dir),
+            device=device,
+        )
+        trainer = GNNTrainer(model, train_config)
+
+        print("\nStarting training...")
+        results = trainer.train(train_loader, val_loader, test_loader)
+
+        results_file = output_dir / 'training_results.json'
+        with open(results_file, 'w') as f:
+            json_results = {
+                'best_metrics': {k: float(v) for k, v in results['best_metrics'].items()},
+                'elapsed_time': results['elapsed_time'],
+                'n_train': len(train_loader.dataset),
+                'n_val': len(val_loader.dataset),
+                'n_test': len(test_loader.dataset),
+            }
+            if results['test_metrics']:
+                json_results['test_metrics'] = {
+                    k: float(v) for k, v in results['test_metrics'].items()
+                }
+            json.dump(json_results, f, indent=2)
+
+        print(f"\nResults saved to {results_file}")
+        print("\nTraining complete!")
+
     @main.command()
     @click.option('--model', '-m', required=True, type=click.Path(exists=True),
                   help='Path to trained model checkpoint')
@@ -171,14 +303,31 @@ if CLICK_AVAILABLE:
     @click.option('--site', '-s', type=click.Path(exists=True),
                   help='Optional binding site MOL2 file')
     @click.option('--output', '-o', type=click.Path(), help='Output JSON file')
-    def predict(model, protein, ligand, site, output):
-        """Predict binding affinity for a protein-ligand complex."""
+    @click.option('--site-radius', default=10.0, type=float,
+                  help='Radius cut around the ligand centroid when no --site is '
+                       'given. Must match the model training radius')
+    @click.option('--strip-hydrogens', is_flag=True,
+                  help='Drop hydrogens before scoring. Required for SAIR-trained '
+                       'models, which never saw any; wrong for ULVSH/PDBbind')
+    def predict(model, protein, ligand, site, output, site_radius, strip_hydrogens):
+        """
+        Predict binding affinity for a protein-ligand complex.
+
+        Without --site the protein is cut to --site-radius around the ligand
+        centroid, matching how the training data was prepared. Passing a whole
+        uncut protein to a model trained on binding sites yields a confident
+        number from an input unlike anything it has seen.
+        """
         check_dependencies()
 
         from .scoring import GNNScoring
 
         print("Loading model...")
-        scorer = GNNScoring(model_path=model)
+        scorer = GNNScoring(model_path=model, site_radius=site_radius,
+                            strip_hydrogens=strip_hydrogens)
+        if site is None:
+            print(f"No --site given: cutting {site_radius:.1f} A around the "
+                  f"ligand centroid")
 
         print("Predicting...")
         result = scorer.predict_affinity(protein, ligand, site)

@@ -7,10 +7,29 @@ Or:       python pandadock/gnn/tests/test_gnn.py
 
 import sys
 import numpy as np
+import pytest
 from pathlib import Path
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+# torch and torch-geometric are the optional [gnn] extra. Every test below needs
+# them, so skip the module rather than let each test fail on its own import in a
+# base install. `pytestmark` is an inert module attribute outside a pytest run,
+# so the __main__ block at the bottom keeps reporting the missing dependency
+# itself when this file is executed as a script.
+try:
+    import torch
+    import torch_geometric
+
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+
+pytestmark = pytest.mark.skipif(
+    not TORCH_AVAILABLE,
+    reason="PandaDock-GNN needs the optional [gnn] extra (torch, torch-geometric)",
+)
 
 
 def test_mol2_parser():
@@ -48,7 +67,6 @@ NO_CHARGES
     assert mol.coordinates.shape == (5, 3), f"Expected (5,3) coords, got {mol.coordinates.shape}"
 
     print("  PASSED: MOL2 parser works correctly")
-    return True
 
 
 def test_featurizer():
@@ -97,7 +115,6 @@ NO_CHARGES
     print(f"  Node features: {features.shape}")
     print(f"  Edge features: {edge_features.shape}")
     print("  PASSED: Featurizer works correctly")
-    return True
 
 
 def test_egnn_layer():
@@ -145,7 +162,6 @@ def test_egnn_layer():
 
     print(f"  Rotation equivariance error: {diff:.6f}")
     print("  PASSED: EGNN layer is equivariant")
-    return True
 
 
 def test_pooling():
@@ -178,7 +194,6 @@ def test_pooling():
 
     print(f"  Output shape: {output.shape}")
     print("  PASSED: Pooling works correctly")
-    return True
 
 
 def test_model_forward():
@@ -237,7 +252,6 @@ def test_model_forward():
     print(f"  Affinity prediction: {predictions['affinity'].item():.4f}")
     print(f"  Activity prediction: {predictions['activity'].item():.4f}")
     print("  PASSED: Model forward pass works")
-    return True
 
 
 def test_loss_functions():
@@ -273,7 +287,6 @@ def test_loss_functions():
     print(f"  Affinity loss: {losses['affinity'].item():.4f}")
     print(f"  Activity loss: {losses['activity'].item():.4f}")
     print("  PASSED: Loss functions work correctly")
-    return True
 
 
 def test_metrics():
@@ -307,7 +320,6 @@ def test_metrics():
     print(f"  RMSE: {metrics['rmse']:.4f}")
     print(f"  MAE: {metrics['mae']:.4f}")
     print("  PASSED: Metrics work correctly")
-    return True
 
 
 def test_ulvsh_dataset():
@@ -318,7 +330,7 @@ def test_ulvsh_dataset():
 
     if not ulvsh_path.exists():
         print("  SKIPPED: ULVSH dataset not found")
-        return True
+        return
 
     from pandadock.gnn.data.dataset import ULVSHDataset
 
@@ -340,7 +352,6 @@ def test_ulvsh_dataset():
         print(f"  pEC50: {sample.y_affinity.item():.3f}")
         print("  PASSED: Dataset loads correctly")
 
-    return True
 
 
 def run_all_tests():
@@ -364,8 +375,9 @@ def run_all_tests():
 
     for name, test_fn in tests:
         try:
-            success = test_fn()
-            results.append((name, "PASSED" if success else "FAILED"))
+            # A test passes by returning without raising, matching pytest.
+            test_fn()
+            results.append((name, "PASSED"))
         except Exception as e:
             print(f"  FAILED: {e}")
             results.append((name, f"ERROR: {e}"))

@@ -39,6 +39,13 @@ except ImportError:
     TORCH_AVAILABLE = False
     Dataset = object
     HeteroData = None
+    # Every name bound in the try block needs a fallback, not just the ones
+    # subclassed. `get_dataloader` annotates its return type as DataLoader, and
+    # an annotation on a method is evaluated when the class body runs, so a
+    # missing name here raises NameError at import time and takes down the whole
+    # package rather than degrading to "torch is unavailable".
+    DataLoader = None
+    torch = None
 
 from .graph_builder import HeterogeneousGraphBuilder, GraphConfig
 

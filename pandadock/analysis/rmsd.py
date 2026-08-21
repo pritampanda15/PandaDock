@@ -41,6 +41,58 @@ def simple_rmsd(coords_a: np.ndarray, coords_b: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.sum((coords_a - coords_b) ** 2, axis=1))))
 
 
+def heavy_atom_automorphisms(mol: Chem.Mol, max_matches: int = 1024) -> np.ndarray:
+    """
+    Relabellings of the heavy atoms that leave the molecule unchanged.
+
+    Row `k` is a permutation `p` such that placing atom `i` at the position of
+    atom `p[i]` describes the same physical structure. The identity is always
+    row 0, so a molecule with no symmetry yields a single row and callers can
+    use the result unconditionally.
+
+    This depends only on the molecular graph, not on any conformer, so it is
+    computed once per ligand and reused across every pose comparison rather
+    than re-derived inside a clustering loop.
+
+    Atom order matches `heavy_atom_coords`: RemoveHs preserves the relative
+    order of the atoms it keeps, so column `i` corresponds to the `i`-th heavy
+    atom of `mol`.
+    """
+    identity = np.arange(mol.GetNumHeavyAtoms(), dtype=np.int64)[None, :]
+    heavy = Chem.RemoveHs(Chem.Mol(mol))
+    try:
+        matches = heavy.GetSubstructMatches(
+            heavy, uniquify=False, useChirality=False, maxMatches=max_matches
+        )
+    except Exception as exc:  # pragma: no cover - RDKit internal failure
+        logger.debug("Automorphism search failed (%s); assuming no symmetry", exc)
+        return identity
+
+    # A self-match must be a permutation of every atom. Partial matches would
+    # silently drop atoms from the RMSD, so they are discarded rather than used.
+    n = heavy.GetNumAtoms()
+    perms = [m for m in matches if len(m) == n]
+    if not perms:
+        return identity
+    return np.array(perms, dtype=np.int64)
+
+
+def min_rmsd_over_permutations(
+    coords_a: np.ndarray, coords_b: np.ndarray, permutations: Optional[np.ndarray]
+) -> float:
+    """
+    Smallest in-place RMSD between two poses over a set of atom relabellings.
+
+    With `permutations` None or a lone identity row this is `simple_rmsd`. The
+    permutations come from `heavy_atom_automorphisms`, so the minimum is taken
+    over exactly the relabellings that describe the same physical structure.
+    """
+    if permutations is None or len(permutations) <= 1:
+        return simple_rmsd(coords_a, coords_b)
+    diff = coords_a[permutations] - coords_b[None, :, :]
+    return float(np.sqrt(np.mean(np.sum(diff**2, axis=2), axis=1)).min())
+
+
 def symmetry_corrected_rmsd(
     probe: Chem.Mol,
     reference: Chem.Mol,

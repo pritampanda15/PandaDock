@@ -162,3 +162,18 @@ benchmarking/**/*.json
 benchmark_prepared/
 benchmark_results/
 complexes/
+
+# SAIR training data and derived caches. sair.parquet is 635 MB and graph_cache
+# reaches tens of GB over the full set; both live in S3 and are regenerable.
+# A blob this size cannot be removed from history later without a force-push.
+sair.parquet
+cif_index.json
+graph_cache/
+*.cif
+preprocess.log
+
+# GNN test fixtures. The blanket *.pdb / *.mol2 rules above are meant for
+# user data and large downloads; these two files are a few kilobytes and the
+# inference tests cannot run without them.
+!pandadock/gnn/tests/data/receptor.pdb
+!pandadock/gnn/tests/data/ligand.mol2

@@ -439,9 +439,18 @@ def dock(receptor, ligand, grid_config, center, box, scoring,
               help='Use fast mode with reduced sampling')
 def hybrid(receptor, ligand, grid_config, center, box, model, output_dir, num_poses, top_k, fast):
     """
-    Hybrid docking: Traditional docking + GNN rescoring
+    Hybrid docking: docking followed by GNN rescoring.
 
-    This is the RECOMMENDED workflow for best accuracy. It:
+    NOT RECOMMENDED for pose selection. Benchmarking shows the affinity GNN
+    selects worse poses than the empirical scoring function it replaces here:
+    median RMSD 5.36 A against 2.09 A, and 22% within 2 A against 48%. The
+    affinity model was trained to rank ligands, not poses, and it does not
+    transfer to the second task.
+
+    Use `pandadock dock` to select a pose, and the GNN only to estimate the
+    affinity of a pose already chosen. This command is retained for
+    reproducibility of that comparison.
+
     1. Generates diverse poses using hierarchical docking
     2. Rescores all poses using the SE(3)-equivariant GNN
     3. Ranks poses by GNN-predicted binding affinity
@@ -461,6 +470,12 @@ def hybrid(receptor, ligand, grid_config, center, box, model, output_dir, num_po
     click.echo("=" * 60)
     click.echo("PandaDock Hybrid Docking (Dock + GNN Rescore)")
     click.echo("=" * 60)
+    click.echo(
+        "WARNING: GNN rescoring selects worse poses than the empirical score\n"
+        "         (median RMSD 5.36 A vs 2.09 A; 22% vs 48% within 2 A).\n"
+        "         The affinity model ranks ligands, not poses. For pose\n"
+        "         selection use `pandadock dock` instead.\n"
+    )
     click.echo(f"Receptor: {receptor}")
     click.echo(f"Ligand: {ligand}")
     click.echo(f"GNN Model: {model}")
@@ -724,15 +739,16 @@ def list_algorithms():
     click.echo("  - vina: Vina-style empirical scoring (default)")
     click.echo("  - physics_based: Physics-based Lennard-Jones + electrostatics")
 
-    click.echo("\nML-Based Scoring (pandadock gnn):")
-    click.echo("  - pandadock_gnn: SE(3)-equivariant GNN scoring function")
-    click.echo("                   Achieves R > 0.8 on ULVSH benchmark")
-    click.echo("                   (RECOMMENDED for best accuracy)")
+    click.echo("\nML-Based Scoring (pandadock-gnn):")
+    click.echo("  - pandadock_gnn: SE(3)-equivariant GNN affinity scoring")
+    click.echo("                   Pearson R 0.53 on PDBbind (n=4,640, held out)")
+    click.echo("                   Estimates affinity for a chosen pose.")
+    click.echo("                   Do NOT use it to select poses: it picks worse")
+    click.echo("                   poses than the empirical score above.")
     click.echo("")
     click.echo("  Commands:")
-    click.echo("    pandadock gnn train -d ULVSH/ -o models/")
-    click.echo("    pandadock gnn predict -m model.pt -p protein.mol2 -l ligand.mol2")
-    click.echo("    pandadock hybrid -r protein.pdb -l ligand.sdf -m model.pt --center X Y Z --box X Y Z")
+    click.echo("    pandadock-gnn download-model")
+    click.echo("    pandadock-gnn predict -m model.pt -p protein.mol2 -l ligand.mol2")
 
 
 # =============================================================================

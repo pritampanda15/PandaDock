@@ -26,6 +26,79 @@ from ..scoring.vina_scoring import VinaScoring
 logger = logging.getLogger("pandadock.docking.search.grid_maps")
 
 
+class GridCache:
+    """
+    Reuse affinity grids across ligands docked into the same receptor and box.
+
+    A grid depends on the receptor, the box, and one ligand atom *signature*
+    -- (radius, hydrophobic, donor, acceptor) -- and not on ligand identity.
+    Two different ligands sharing a signature see an identical receptor field,
+    so the grid can be built once and reused.
+
+    This is what makes virtual screening tractable. Docking a million ligands
+    into one receptor currently rebuilds every grid a million times; AutoDock
+    separates this out as `autogrid` and runs it once per campaign, which is
+    part of why its quoted docking times look so much lower.
+
+    Entries are held per signature rather than per ligand, so a ligand needing
+    types {C, N, O} where {C, N} are already cached builds only the one that is
+    missing.
+    """
+
+    def __init__(self, max_entries: int = 256):
+        self.max_entries = max_entries
+        self._grids: Dict[Tuple, np.ndarray] = {}
+        self._receptors: Dict[Tuple, Tuple] = {}
+        self.hits = 0
+        self.misses = 0
+
+    @staticmethod
+    def receptor_key(coords: np.ndarray, radii: np.ndarray) -> str:
+        """
+        Stable identity for a prepared receptor.
+
+        Hashed from the coordinates actually used rather than from a file path:
+        two runs pointing at the same file but different boxes keep different
+        atom subsets, and a path would collide them.
+        """
+        import hashlib
+
+        digest = hashlib.blake2b(digest_size=16)
+        digest.update(np.ascontiguousarray(coords, dtype=np.float64).tobytes())
+        digest.update(np.ascontiguousarray(radii, dtype=np.float64).tobytes())
+        return digest.hexdigest()
+
+    def key(self, receptor: str, origin: np.ndarray, shape, spacing: float,
+            signature: Tuple) -> Tuple:
+        return (
+            receptor,
+            tuple(np.round(np.asarray(origin, dtype=float), 6)),
+            tuple(int(v) for v in shape),
+            round(float(spacing), 6),
+            signature,
+        )
+
+    def get(self, key: Tuple) -> Optional[np.ndarray]:
+        grid = self._grids.get(key)
+        if grid is None:
+            self.misses += 1
+        else:
+            self.hits += 1
+        return grid
+
+    def put(self, key: Tuple, grid: np.ndarray) -> None:
+        if len(self._grids) >= self.max_entries:
+            # Plain FIFO eviction: a screening run walks one receptor and box,
+            # so entries are effectively permanent and the policy never bites.
+            self._grids.pop(next(iter(self._grids)))
+        self._grids[key] = grid
+
+    def stats(self) -> Dict[str, int]:
+        return {
+            "entries": len(self._grids), "hits": self.hits, "misses": self.misses,
+        }
+
+
 class LigandTyping:
     """Vina-style types, radii and interaction flags for the ligand's heavy atoms."""
 
@@ -116,6 +189,8 @@ class AffinityGrids:
         margin: float = 4.0,
         scoring: Optional[VinaScoring] = None,
         chunk_size: int = 4096,
+        block_size: int = 6,
+        cache: Optional["GridCache"] = None,
     ) -> "AffinityGrids":
         """
         Precompute interaction grids for `ligand_mol` against `receptor_structure`.
@@ -158,67 +233,136 @@ class AffinityGrids:
             maps = np.zeros((typing.n_types,) + tuple(shape), dtype=np.float32)
             return cls(origin, spacing, maps, typing, box_min, box_max)
 
-        # Flattened grid point coordinates, generated per chunk to bound memory.
         gx = origin[0] + np.arange(shape[0]) * spacing
         gy = origin[1] + np.arange(shape[1]) * spacing
         gz = origin[2] + np.arange(shape[2]) * spacing
 
-        maps = np.zeros((typing.n_types, n_points), dtype=np.float32)
+        maps = np.zeros((typing.n_types,) + tuple(shape), dtype=np.float32)
+
+        # Signatures already built for this receptor and box are copied straight
+        # in; only the rest reach the block loop below.
+        pending = list(range(typing.n_types))
+        cache_keys: Dict[int, Tuple] = {}
+        if cache is not None:
+            receptor_id = cache.receptor_key(rec_coords, rec_radii)
+            still = []
+            for t, signature in enumerate(typing.signatures):
+                key = cache.key(receptor_id, origin, shape, spacing, signature)
+                cache_keys[t] = key
+                cached = cache.get(key)
+                if cached is None:
+                    still.append(t)
+                else:
+                    maps[t] = cached
+            pending = still
+            if not pending:
+                logger.info("All %d grid(s) served from cache", typing.n_types)
+                return cls(origin, spacing, maps, typing, box_min, box_max)
+            logger.info(
+                "Building %d of %d grid(s); %d served from cache",
+                len(pending), typing.n_types, typing.n_types - len(pending),
+            )
 
         w = scoring.weights
         cutoff = scoring.cutoff
 
-        for start in range(0, n_points, chunk_size):
-            stop = min(start + chunk_size, n_points)
-            flat = np.arange(start, stop)
-            ix, rem = np.divmod(flat, shape[1] * shape[2])
-            iy, iz = np.divmod(rem, shape[2])
-            pts = np.stack([gx[ix], gy[iy], gz[iz]], axis=1)
+        # An atom contributes to a point only where surf = d - r_lig - r_rec is
+        # below the cutoff, so nothing further than this from a point can ever
+        # matter. Selecting on it is exact rather than an approximation.
+        max_ligand_radius = max(sig[0] for sig in typing.signatures)
+        reach = cutoff + max_ligand_radius + float(rec_radii.max())
 
-            # Pairwise distances for this chunk, shared across all ligand types.
-            d = np.linalg.norm(pts[:, None, :] - rec_coords[None, :, :], axis=2)
-            within = d < (cutoff + rec_radii.max() + 2.5)
-            if not np.any(within):
-                continue
+        # Walk the grid in compact 3D blocks and keep only the receptor atoms
+        # near each one. Iterating flat chunks instead spreads a chunk across the
+        # whole box, so no atom can be excluded and every grid point is evaluated
+        # against every receptor atom -- for a few thousand atoms at an 8 A
+        # cutoff, almost all of that arithmetic lands on pairs contributing zero.
+        #
+        # block_size trades selection tightness against per-block overhead.
+        # Measured on a 65^3 grid against a 5.8k-atom receptor: 6 -> 17 s,
+        # 12 -> 36 s, 32 -> 83 s, and 4 is slightly worse than 6. The default is
+        # the measured minimum rather than a round number.
+        block = max(1, int(round(block_size)))
+        for bx in range(0, int(shape[0]), block):
+            ex = min(bx + block, int(shape[0]))
+            for by in range(0, int(shape[1]), block):
+                ey = min(by + block, int(shape[1]))
+                for bz in range(0, int(shape[2]), block):
+                    ez = min(bz + block, int(shape[2]))
 
-            for t, (radius, hydrophobic, donor, acceptor) in enumerate(typing.signatures):
-                surf = d - radius - rec_radii[None, :]
-                active = surf < cutoff
+                    lo = np.array([gx[bx], gy[by], gz[bz]])
+                    hi = np.array([gx[ex - 1], gy[ey - 1], gz[ez - 1]])
 
-                energy = np.zeros_like(surf)
-
-                g1 = np.exp(-((surf - scoring.gauss1_offset) / scoring.gauss1_width) ** 2)
-                g2 = np.exp(-((surf - scoring.gauss2_offset) / scoring.gauss2_width) ** 2)
-                energy += w["gauss1"] * g1 + w["gauss2"] * g2
-
-                rep = np.where(surf < scoring.repulsion_cutoff, surf**2, 0.0)
-                energy += w["repulsion"] * rep
-
-                if hydrophobic:
-                    h = np.clip(
-                        (scoring.hydrophobic_bad - surf)
-                        / (scoring.hydrophobic_bad - scoring.hydrophobic_good),
+                    # Distance from each atom to this block's bounding box.
+                    outside = np.maximum(
+                        np.maximum(lo[None, :] - rec_coords, rec_coords - hi[None, :]),
                         0.0,
-                        1.0,
                     )
-                    energy += w["hydrophobic"] * (h * rec_hydrophobic[None, :])
+                    near = np.linalg.norm(outside, axis=1) <= reach
+                    if not np.any(near):
+                        continue
 
-                hb_partner = np.zeros(len(rec_coords), dtype=np.float64)
-                if donor:
-                    hb_partner += rec_acceptor
-                if acceptor:
-                    hb_partner += rec_donor
-                if np.any(hb_partner > 0):
-                    hb = np.clip(
-                        (scoring.hbond_bad - surf) / (scoring.hbond_bad - scoring.hbond_good),
-                        0.0,
-                        1.0,
-                    )
-                    energy += w["hydrogen"] * (hb * np.minimum(hb_partner, 1.0)[None, :])
+                    coords = rec_coords[near]
+                    radii = rec_radii[near]
+                    hydro = rec_hydrophobic[near]
+                    donor_flags = rec_donor[near]
+                    acceptor_flags = rec_acceptor[near]
 
-                maps[t, start:stop] = np.sum(np.where(active, energy, 0.0), axis=1)
+                    pts = np.stack(
+                        np.meshgrid(gx[bx:ex], gy[by:ey], gz[bz:ez], indexing="ij"),
+                        axis=-1,
+                    ).reshape(-1, 3)
 
-        maps = maps.reshape((typing.n_types,) + tuple(shape))
+                    d = np.linalg.norm(pts[:, None, :] - coords[None, :, :], axis=2)
+
+                    for t in pending:
+                        radius, hydrophobic, donor, acceptor = typing.signatures[t]
+                        surf = d - radius - radii[None, :]
+                        active = surf < cutoff
+                        if not np.any(active):
+                            continue
+
+                        energy = np.zeros_like(surf)
+
+                        g1 = np.exp(-((surf - scoring.gauss1_offset) / scoring.gauss1_width) ** 2)
+                        g2 = np.exp(-((surf - scoring.gauss2_offset) / scoring.gauss2_width) ** 2)
+                        energy += w["gauss1"] * g1 + w["gauss2"] * g2
+
+                        rep = np.where(surf < scoring.repulsion_cutoff, surf**2, 0.0)
+                        energy += w["repulsion"] * rep
+
+                        if hydrophobic:
+                            h = np.clip(
+                                (scoring.hydrophobic_bad - surf)
+                                / (scoring.hydrophobic_bad - scoring.hydrophobic_good),
+                                0.0,
+                                1.0,
+                            )
+                            energy += w["hydrophobic"] * (h * hydro[None, :])
+
+                        hb_partner = np.zeros(len(coords), dtype=np.float64)
+                        if donor:
+                            hb_partner += acceptor_flags
+                        if acceptor:
+                            hb_partner += donor_flags
+                        if np.any(hb_partner > 0):
+                            hb = np.clip(
+                                (scoring.hbond_bad - surf)
+                                / (scoring.hbond_bad - scoring.hbond_good),
+                                0.0,
+                                1.0,
+                            )
+                            energy += w["hydrogen"] * (hb * np.minimum(hb_partner, 1.0)[None, :])
+
+                        total = np.sum(np.where(active, energy, 0.0), axis=1)
+                        maps[t, bx:ex, by:ey, bz:ez] = total.reshape(
+                            ex - bx, ey - by, ez - bz
+                        )
+
+        if cache is not None:
+            for t in pending:
+                cache.put(cache_keys[t], maps[t].copy())
+
         logger.info("Affinity grids built (%.1f MB)", maps.nbytes / 1e6)
         return cls(origin, spacing, maps, typing, box_min, box_max)
 
