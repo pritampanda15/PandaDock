@@ -145,12 +145,32 @@ class PandaCoreDocker(BaseDockingAlgorithm):
             tether_radius=float(kwargs.get("tether_radius", 0.0)),
             tether_force=float(kwargs.get("tether_force", 10.0)),
         )
-        search = MonteCarloSearch(objective, config)
-
         box_min = grid_center - grid_dimensions / 2.0
         box_max = grid_center + grid_dimensions / 2.0
 
-        minima = search.run(box_min, box_max)
+        # `device` selects where the search runs, not what happens to its
+        # results: both paths return the same SearchResult list, and everything
+        # below this point is shared. The CPU path remains the default and is
+        # the one validated in the manuscript.
+        device = kwargs.get("device")
+        if device in (None, "cpu"):
+            minima = MonteCarloSearch(objective, config).run(box_min, box_max)
+        else:
+            from ..gpu.handoff import run_batched_search
+
+            self.logger.info("Running the batched search on %s", device)
+            minima = run_batched_search(
+                grids,
+                tree,
+                objective,
+                box_min,
+                box_max,
+                device=device,
+                n_chains=int(kwargs.get("n_chains", 512)),
+                n_steps=int(kwargs.get("gpu_steps", 8)),
+                seed=config.seed,
+                max_local_iter=config.max_local_iter,
+            )
         if not minima:
             self.logger.warning("Search produced no poses")
             return self._empty_result(

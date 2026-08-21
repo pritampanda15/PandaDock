@@ -65,6 +65,8 @@ so a full search costs seconds to minutes rather than hours.
 
 - **Flexible-ligand search** — all rotatable bonds searched, uniform SO(3)
   orientation sampling, L-BFGS relaxation with analytic gradients
+- **Optional GPU search** *(experimental)* — `--device cuda|mps` runs the same
+  algorithm batched over thousands of chains, verified against the CPU objective
 - **Grid-accelerated scoring** — AutoDock Vina functional form, precomputed per
   atom type
 - **PandaDock-GNN** — SE(3)-equivariant affinity scoring, R = 0.53 on PDBbind
@@ -150,6 +152,8 @@ pandadock dock -r receptor.pdb -l ligand.sdf \
 | `--seed` | *random* | Seed for reproducible runs |
 | `--rigid-ligand` | off | Disable torsional search |
 | `--grid-spacing` | `0.375` | Affinity grid spacing in Å |
+| `--device` | `cpu` | Where the search runs: `cpu`, `cuda`, `mps` |
+| `--n-chains` | `512` | Parallel search chains when `--device` is not `cpu` |
 | `--rescoring` | `none` | `none` or `mmgbsa` |
 | `-o, --output-dir` | `docking_output` | Output directory |
 | `--fast` | off | Reduced sampling for smoke tests only |
@@ -183,6 +187,75 @@ A snug box outperforms a large one. Measured on confirmed search failures,
 reducing padding around the ligand from 8 Å to 5 Å lowered median best-of-N RMSD
 from 5.11 Å to 2.48 Å — and beat quadrupling exhaustiveness in a larger box,
 while running faster. Search volume matters more than sampling budget.
+
+---
+
+## GPU-Accelerated Search (experimental)
+
+```bash
+pandadock dock -r receptor.pdb -l ligand.sdf \
+               --center 10 12 8 --box 22 22 22 \
+               --device cuda --n-chains 1024 -o results/
+```
+
+Requires the `[gnn]` extra for PyTorch. `--device` accepts `cuda`, `mps` (Apple
+Silicon) or `cpu`; unlike the removed legacy CUDA modules, this is the same
+algorithm as the CPU path rather than a separate engine.
+
+**What runs where.** The conformational search — pose construction, grid
+scoring, Monte Carlo, and a batched L-BFGS — runs on the device, advancing
+thousands of chains at once instead of one after another. Everything after it
+stays on the CPU: minima are returned, rescored in float64, clustered with
+symmetry-corrected RMSD, and written out by the same code the CPU path uses. A
+`--device` flag changes how poses are found, not what is done with them.
+
+**Numerical agreement.** Against the CPU objective, on float64 devices:
+
+| quantity | agreement |
+|---|---|
+| coordinates | 3.6e-15 |
+| energy (incl. intramolecular) | 1.4e-14 |
+| DOF gradient | 1.9e-07 |
+
+The gradient figure is not looseness in the port. The affinity maps are stored
+as float32, and the CPU's x-derivative subtracts two raw float32 map values,
+losing precision to cancellation; the GPU path upcasts first and is the more
+accurate of the two. Apple's MPS backend has no float64 at all and runs the
+search in float32, so its tolerances are correspondingly wider.
+
+**Performance, honestly.** Measured on an M-series laptop (MPS), not on a
+datacentre GPU, so treat these as directional.
+
+End to end, one ligand through `pandadock dock` at its defaults — the comparison
+a user actually experiences:
+
+| | time | best score |
+|---|---|---|
+| `--device cpu` | 61.2 s | −7.55 |
+| `--device mps --n-chains 256` | 23.3 s | −7.34 |
+
+Both returned 9 clustered poses through the identical output path.
+
+Like for like, though — the same batched search on CPU versus on the device —
+the picture is more mixed, and it is the honest one to plan against:
+
+| workload | device vs. batched CPU |
+|---|---|
+| one ligand, few hundred chains | slower — the device is not filled |
+| several ligands, mixed sizes | ~1.9× |
+| several ligands, size-matched | ~3.6× |
+
+The gain comes from filling the device, so batching *ligands* matters more than
+batching chains, and grouping ligands of similar atom and torsion count roughly
+doubles it. On a single small ligand the batched search can be slower than
+running it batched on the CPU: it is many small sequential kernels, and launch
+overhead dominates. The end-to-end win above comes from the device absorbing a
+much larger search, not from each step being faster.
+
+**Status.** Numerical parity is tested on every supported device; throughput on
+CUDA is not yet characterised, and the 814-complex benchmark in the manuscript
+was run on the CPU path. No pose-accuracy claim is made for the GPU path beyond
+its agreement with the CPU objective.
 
 ---
 

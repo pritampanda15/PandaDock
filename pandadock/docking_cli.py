@@ -209,9 +209,16 @@ def main(ctx, verbose, version, help):
               help='Disable torsional search and dock the ligand rigidly')
 @click.option('--grid-spacing', type=float, default=0.375,
               help='Affinity grid spacing in Angstrom (default: 0.375)')
+@click.option('--device', type=str, default='cpu',
+              help='Where the conformational search runs: cpu (default), cuda, '
+                   'or mps. Non-CPU devices need the [gnn] extra for torch. '
+                   'Clustering, scoring of returned poses and all output stay on '
+                   'the CPU either way.')
+@click.option('--n-chains', type=int, default=512,
+              help='Parallel search chains when --device is not cpu (default: 512)')
 def dock(receptor, ligand, grid_config, center, box, scoring,
          output_dir, num_poses, ensemble, rescoring, visualize, fast,
-         exhaustiveness, seed, rigid_ligand, grid_spacing):
+         exhaustiveness, seed, rigid_ligand, grid_spacing, device, n_chains):
     """Perform molecular docking with Vina-style scoring"""
 
     click.echo("PandaDock Molecular Docking")
@@ -263,6 +270,8 @@ def dock(receptor, ligand, grid_config, center, box, scoring,
         'seed': seed,
         'rigid_ligand': rigid_ligand,
         'grid_spacing': grid_spacing,
+        'device': device,
+        'n_chains': n_chains,
     }
     if fast:
         click.echo("Fast mode enabled - reduced sampling for quick testing")
@@ -271,6 +280,12 @@ def dock(receptor, ligand, grid_config, center, box, scoring,
         # Fast mode is for smoke-testing a setup, not for producing results.
         dock_params['exhaustiveness'] = 2
         dock_params['n_steps'] = 40
+
+    if device != 'cpu':
+        click.echo(f"Search device: {device} | {n_chains} parallel chains")
+        click.echo("  The batched search reproduces the CPU objective to within "
+                   "floating-point tolerance, but the CPU path is the one "
+                   "benchmarked in the manuscript.")
 
     shown = dock_params['exhaustiveness']
     click.echo(f"Exhaustiveness: {shown if shown is not None else 'auto (scales with flexibility)'}"
