@@ -19,6 +19,7 @@ from typing import List, Optional, Sequence
 import numpy as np
 from scipy.optimize import minimize
 
+from ...analysis.rmsd import min_rmsd_over_permutations
 from .objective import DockingObjective
 from .rotations import compose_rotvecs, random_rotvec, wrap_rotvec
 from .torsion_tree import TorsionTree
@@ -200,6 +201,7 @@ def cluster_poses(
     heavy_atoms: np.ndarray,
     rmsd_cutoff: float = 2.0,
     max_poses: int = 20,
+    automorphisms: Optional[np.ndarray] = None,
 ) -> List[SearchResult]:
     """
     Reduce local minima to distinct binding modes by greedy RMSD clustering.
@@ -208,6 +210,14 @@ def cluster_poses(
     `rmsd_cutoff` heavy-atom RMSD away from every pose already kept, so the
     returned list represents genuinely different binding modes rather than many
     near-identical copies of the same one.
+
+    `automorphisms`, from `pandadock.analysis.rmsd.heavy_atom_automorphisms`,
+    makes the comparison symmetry-corrected. Without it, two poses related by a
+    symmetry of the ligand -- a flipped phenyl, a swapped carboxylate -- compare
+    as far apart under fixed atom indices despite being the same structure, and
+    both are kept, spending the `max_poses` budget on duplicates. It is optional
+    only so that callers without the molecule can still cluster; passing it is
+    the correct behaviour.
     """
     kept: List[SearchResult] = []
     for candidate in results:
@@ -215,7 +225,7 @@ def cluster_poses(
         distinct = True
         for existing in kept:
             e_heavy = existing.coords[heavy_atoms]
-            rmsd = float(np.sqrt(np.mean(np.sum((c_heavy - e_heavy) ** 2, axis=1))))
+            rmsd = min_rmsd_over_permutations(c_heavy, e_heavy, automorphisms)
             if rmsd < rmsd_cutoff:
                 distinct = False
                 break

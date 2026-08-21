@@ -32,6 +32,7 @@ from pandadock.docking.search import (  # noqa: E402
     TorsionTree,
     cluster_poses,
 )
+from pandadock.docking.search.monte_carlo import SearchResult
 from pandadock.docking.search.rotations import (
     compose_rotvecs,
     matrix_to_rotvec,
@@ -384,3 +385,47 @@ def test_clustering_returns_distinct_modes(objective, box):
         for b in clustered[i + 1 :]:
             rmsd = np.sqrt(np.mean(np.sum((a.coords[heavy] - b.coords[heavy]) ** 2, axis=1)))
             assert rmsd >= 2.0 - 1e-9
+
+
+def test_automorphisms_identify_ring_symmetry():
+    """A benzene ring can be labelled twelve ways that are the same structure."""
+    from pandadock.analysis.rmsd import heavy_atom_automorphisms
+
+    assert len(heavy_atom_automorphisms(build_mol("c1ccccc1", seed=1))) == 12
+    # No symmetry: the identity alone, so callers can use the result unguarded.
+    assert len(heavy_atom_automorphisms(build_mol("CCO", seed=1))) == 1
+
+
+def test_clustering_treats_symmetry_equivalent_poses_as_duplicates():
+    """
+    A ring flipped onto itself is the same physical pose and must not consume a
+    second slot in the returned ensemble. Under fixed atom indices the flip
+    reports a large RMSD, so without symmetry correction both copies are kept.
+    """
+    from pandadock.analysis.rmsd import heavy_atom_automorphisms
+
+    mol = build_mol("c1ccccc1", seed=1)
+    heavy_idx = np.array(
+        [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() > 1], dtype=np.int64
+    )
+    coords = np.asarray(mol.GetConformer().GetPositions())
+
+    flipped = coords.copy()
+    flipped[heavy_idx] = coords[heavy_idx][[3, 4, 5, 0, 1, 2]]
+
+    original = SearchResult(coords=coords, energy=-9.0, dof=np.zeros(6))
+    relabelled = SearchResult(coords=flipped, energy=-8.9, dof=np.zeros(6))
+    results = [original, relabelled]
+
+    plain = cluster_poses(results, heavy_idx, rmsd_cutoff=2.0, max_poses=5)
+    assert len(plain) == 2, "precondition: the flip is far apart under fixed indices"
+
+    corrected = cluster_poses(
+        results,
+        heavy_idx,
+        rmsd_cutoff=2.0,
+        max_poses=5,
+        automorphisms=heavy_atom_automorphisms(mol),
+    )
+    assert len(corrected) == 1
+    assert corrected[0].energy == -9.0, "the lower-energy copy is the one kept"

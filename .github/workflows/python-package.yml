@@ -65,5 +65,7 @@ jobs:
       shell: bash -el {0}
       run: |
         export PYTHONPATH=$PYTHONPATH:$GITHUB_WORKSPACE
-        # Run tests with better error reporting
-        python -m pytest tests/ --maxfail=5 -v --tb=short --strict-markers
+        # Both test trees: pandadock/gnn/tests covers inference, site extraction
+        # and the shard cache, and was previously not run by CI at all.
+        python -m pytest tests/ pandadock/gnn/tests/ \
+          --maxfail=5 -v --tb=short --strict-markers

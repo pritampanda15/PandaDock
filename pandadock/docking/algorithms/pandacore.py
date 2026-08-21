@@ -22,6 +22,7 @@ from ..search.rotations import quaternion_from_rotvec
 
 from ..core import BaseDockingAlgorithm, DockingResult, Pose
 from ..scoring.vina_scoring import VinaScoring
+from ...analysis.rmsd import heavy_atom_automorphisms
 from ..search import (
     AffinityGrids,
     DockingObjective,
@@ -157,7 +158,11 @@ class PandaCoreDocker(BaseDockingAlgorithm):
             )
 
         clustered = cluster_poses(
-            minima, tree.heavy_atoms, rmsd_cutoff=rmsd_cutoff, max_poses=num_poses
+            minima,
+            tree.heavy_atoms,
+            rmsd_cutoff=rmsd_cutoff,
+            max_poses=num_poses,
+            automorphisms=heavy_atom_automorphisms(mol),
         )
 
         poses = self._build_poses(clustered, tree, objective, mol, receptor_structure)
