@@ -125,6 +125,54 @@ class RigidBatchedSearch:
             coords, self.type_ids, need_gradient=need_gradient
         )
 
+    # ------------------------------------------------------- local relaxation
+
+    def energy_and_dof_gradient(self, x: "torch.Tensor"):
+        """
+        Energy and d(energy)/d(DOF) for packed parameters, (B, 6) -> (B,), (B, 6).
+
+        The two halves of the chain rule come from different places on purpose.
+        The Cartesian part, d(energy)/d(coord), is the analytic grid gradient
+        already validated against the CPU. The pose part, d(coord)/d(DOF), comes
+        from autograd through `build_coords`, which reproduces the hand-derived
+        SO(3) exponential-map derivative the CPU objective computes -- to about
+        4e-7 on this ligand, the same scale as the float32 map cancellation
+        described in grids.py.
+
+        Doing it this way means the interpolation never has to be made
+        differentiable: `floor` and integer indexing sit safely behind a
+        `detach`, and only the smooth pose construction is traversed by autograd.
+        """
+        translation = x[:, :3].detach().requires_grad_(True)
+        rotvec = x[:, 3:6].detach().requires_grad_(True)
+
+        coords = self.build_coords(translation, rotvec)
+        energy, grad_coords = self.grids.score_and_gradient(
+            coords.detach(), self.type_ids, need_gradient=True
+        )
+        grad_t, grad_r = torch.autograd.grad(
+            coords, [translation, rotvec], grad_outputs=grad_coords
+        )
+        return energy, torch.cat([grad_t, grad_r], dim=-1)
+
+    def local_optimize(self, translation, rotvec, config: "LBFGSConfig" = None):
+        """
+        Relax a batch of poses to their nearest local minima.
+
+        The CPU counterpart is `MonteCarloSearch.local_optimize`, and this
+        follows it including the final `wrap_rotvec`: the optimiser moves the
+        orientation parameters continuously and can drift many turns from the
+        origin, which costs precision in the rotation gradient without changing
+        the pose.
+        """
+        from .optimize import LBFGSConfig, batched_lbfgs
+
+        x0 = torch.cat([translation, rotvec], dim=-1)
+        x, energy, _ = batched_lbfgs(
+            x0, self.energy_and_dof_gradient, config or LBFGSConfig()
+        )
+        return x[:, :3], wrap_rotvec(x[:, 3:6]), energy
+
     # ----------------------------------------------------------------- search
 
     def _generator(self):
@@ -178,6 +226,60 @@ class RigidBatchedSearch:
         new_rotvec = torch.where(reorient, fresh, perturbed)
 
         return new_translation, wrap_rotvec(new_rotvec)
+
+    def run_basin_hopping(self, box_min, box_max, lbfgs_config=None):
+        """
+        Monte Carlo over local minima, mirroring `MonteCarloSearch._single_run`.
+
+        The CPU relaxes the starting pose, then relaxes every proposal and
+        applies Metropolis to the relaxed energies, so the chain walks between
+        local minima rather than over the raw surface. That is the validated
+        algorithm and this reproduces it, with every chain relaxed at once.
+
+        Stage two measured why this matters: raw Monte Carlo at 3.3M evaluations
+        did not reach what the CPU reaches with far fewer, because the CPU's
+        moves land in minima and these did not.
+
+        Returns the same triple as `run`.
+        """
+        cfg = self.config
+        gen = self._generator()
+
+        translation, rotvec = self.initial_state(box_min, box_max, gen)
+        translation, rotvec, energy = self.local_optimize(
+            translation, rotvec, lbfgs_config
+        )
+
+        best_translation = translation.clone()
+        best_rotvec = rotvec.clone()
+        best_energy = energy.clone()
+
+        temperature = max(cfg.temperature, 1e-6)
+
+        for _ in range(cfg.n_steps):
+            trial_t, trial_r = self.propose(translation, rotvec, gen)
+            trial_t, trial_r, trial_e = self.local_optimize(
+                trial_t, trial_r, lbfgs_config
+            )
+
+            delta = trial_e - energy
+            u = self._to_device(
+                torch.rand(cfg.n_chains, generator=gen, dtype=torch.float64)
+            )
+            accept = u < torch.exp(-delta / temperature)
+
+            keep = accept.unsqueeze(-1)
+            translation = torch.where(keep, trial_t, translation)
+            rotvec = torch.where(keep, trial_r, rotvec)
+            energy = torch.where(accept, trial_e, energy)
+
+            improved = trial_e < best_energy
+            keep_best = improved.unsqueeze(-1)
+            best_translation = torch.where(keep_best, trial_t, best_translation)
+            best_rotvec = torch.where(keep_best, trial_r, best_rotvec)
+            best_energy = torch.where(improved, trial_e, best_energy)
+
+        return best_translation, best_rotvec, best_energy
 
     def run(self, box_min, box_max):
         """
