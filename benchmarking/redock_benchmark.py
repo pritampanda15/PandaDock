@@ -237,6 +237,8 @@ def redock_one(
     padding: float,
     rigid_ligand: bool,
     save_poses_dir: Optional[Path] = None,
+    device: str = "cpu",
+    n_chains: int = 512,
 ) -> ComplexResult:
     """Dock one complex and score the result against its crystal pose."""
     start = time.time()
@@ -280,6 +282,8 @@ def redock_one(
             exhaustiveness=exhaustiveness,
             seed=seed,
             rigid_ligand=rigid_ligand,
+            device=device,
+            n_chains=n_chains,
         )
 
         if not result.poses:
@@ -533,6 +537,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--seed", type=int, default=42,
                         help="Search seed; fixed by default for reproducibility")
     parser.add_argument("--rigid-ligand", action="store_true")
+    parser.add_argument("--device", default="cpu",
+                        help="Where the conformational search runs: cpu "
+                             "(default), cuda or mps. Grid construction and "
+                             "RMSD scoring stay on the CPU either way, so this "
+                             "accelerates only part of a redocking run.")
+    parser.add_argument("--n-chains", type=int, default=512,
+                        help="Parallel search chains when --device is not cpu")
     parser.add_argument("--limit", type=int, default=None,
                         help="Only process the first N complexes")
     parser.add_argument("--per-family", type=int, default=None,
@@ -579,6 +590,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         padding=args.padding,
         rigid_ligand=args.rigid_ligand,
         save_poses_dir=poses_dir,
+        device=args.device,
+        n_chains=args.n_chains,
     )
 
     if args.jobs > 1:

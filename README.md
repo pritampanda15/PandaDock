@@ -66,7 +66,10 @@ so a full search costs seconds to minutes rather than hours.
 - **Flexible-ligand search** — all rotatable bonds searched, uniform SO(3)
   orientation sampling, L-BFGS relaxation with analytic gradients
 - **Optional GPU search** *(experimental)* — `--device cuda|mps` runs the same
-  algorithm batched over thousands of chains, verified against the CPU objective
+  algorithm batched over thousands of chains, verified against the CPU objective.
+  Wall time is nearly flat in ligand flexibility where the CPU's is not: up to
+  **26× faster on 21+ torsion ligands**, though currently at reduced pose
+  accuracy — see [CPU vs GPU](#benchmark-cpu-vs-gpu-on-the-redocking-set)
 - **Virtual screening** — `pandadock screen` batches a library onto the device,
   reusing grids across ligands and bucketing them by size
 - **Grid-accelerated scoring** — AutoDock Vina functional form, precomputed per
@@ -225,21 +228,69 @@ losing precision to cancellation; the GPU path upcasts first and is the more
 accurate of the two. Apple's MPS backend has no float64 at all and runs the
 search in float32, so its tolerances are correspondingly wider.
 
-**Performance, honestly.** Measured on an M-series laptop (MPS), not on a
-datacentre GPU, so treat these as directional.
+### Benchmark: CPU vs GPU on the redocking set
 
-End to end, one ligand through `pandadock dock` at its defaults — the comparison
-a user actually experiences:
+Measured on 14 complexes, one from each protein family of the 815-complex
+benchmark, docked from scratch on both devices with identical inputs and seeds.
+MPS on an M-series laptop — **not** a datacentre GPU.
+
+**The headline is not the total, it is how the two scale with ligand flexibility:**
+
+| Ligand flexibility | CPU | GPU (MPS) | Speedup |
+|---|---:|---:|---:|
+| 0–2 torsions | 33 s | 30 s | 1.1× |
+| 3–8 torsions | 159 s | 47 s | 3.4× |
+| 9–20 torsions | 513 s | 61 s | 8.5× |
+| **21+ torsions** | **1974 s** | **76 s** | **26.1×** |
+| **all 14 complexes** | **133 min** | **12 min** | **11.1×** |
+
+GPU wall time is nearly flat in flexibility — 16 s to 84 s across the whole set —
+while CPU time spans 15 s to 2522 s. CPU cost scales with exhaustiveness × torsion
+count; the batched search absorbs that into one wider batch instead. The worst
+complex in the set, a 32-torsion ligand, went from **42 minutes to 84 seconds**.
+
+Extrapolated to all 815 complexes: **~129 h on CPU against ~11.6 h on MPS.**
+
+> **⚠️ That speedup is not like-for-like, and should not be quoted as if it were.**
+> The GPU ran a fixed budget (256 chains × 8 basin hops) while the CPU used its
+> auto exhaustiveness, which scales with torsion count. The GPU is therefore
+> partly faster because it searched *less* — and the accuracy below is the
+> evidence:
+>
+> | | CPU | GPU (MPS) |
+> |---|---:|---:|
+> | top-1 ≤ 2 Å | **42.9%** | 28.6% |
+> | best-of-9 ≤ 2 Å | **57.1%** | 35.7% |
+> | best-of-9 median RMSD | **1.62 Å** | 2.13 Å |
+>
+> A citable speedup requires raising the GPU budget until the success rate
+> matches the CPU, then comparing time. Given how flat GPU time is in the table
+> above, that may cost little — but it has to be measured, not assumed.
+
+As a check on the harness, the CPU best-of-9 figure here (57.1%) agrees with the
+57.0% reported for the full 815-complex set in the manuscript.
+
+To reproduce, or to run the full set on CUDA:
+
+```bash
+python benchmarking/redock_benchmark.py \
+    --manifest benchmark_prepared/manifest.csv \
+    --device cuda --n-chains 512 \
+    --output results_gpu/
+```
+
+### Other measurements
+
+End to end, one ligand through `pandadock dock` at its defaults:
 
 | | time | best score |
 |---|---|---|
 | `--device cpu` | 61.2 s | −7.55 |
 | `--device mps --n-chains 256` | 23.3 s | −7.34 |
 
-Both returned 9 clustered poses through the identical output path.
-
-Like for like, though — the same batched search on CPU versus on the device —
-the picture is more mixed, and it is the honest one to plan against:
+Like for like — the same batched search on CPU versus on the device — a single
+small ligand is *slower* on the device, because it is many small sequential
+kernels and launch overhead dominates. The gain comes from filling the device:
 
 | workload | device vs. batched CPU |
 |---|---|
@@ -247,17 +298,15 @@ the picture is more mixed, and it is the honest one to plan against:
 | several ligands, mixed sizes | ~1.9× |
 | several ligands, size-matched | ~3.6× |
 
-The gain comes from filling the device, so batching *ligands* matters more than
-batching chains, and grouping ligands of similar atom and torsion count roughly
-doubles it. On a single small ligand the batched search can be slower than
-running it batched on the CPU: it is many small sequential kernels, and launch
-overhead dominates. The end-to-end win above comes from the device absorbing a
-much larger search, not from each step being faster.
+So batching *ligands* matters more than batching chains, and grouping ligands of
+similar atom and torsion count roughly doubles the gain — which is what
+`pandadock screen` does automatically.
 
-**Status.** Numerical parity is tested on every supported device; throughput on
-CUDA is not yet characterised, and the 814-complex benchmark in the manuscript
-was run on the CPU path. No pose-accuracy claim is made for the GPU path beyond
-its agreement with the CPU objective.
+**Status.** Numerical parity is tested on every supported device. Throughput on
+CUDA is not yet characterised — every number above is CPU or MPS. The
+815-complex benchmark in the manuscript was run on the CPU path, and the GPU
+path makes no pose-accuracy claim beyond its agreement with the CPU objective;
+on the subset above it is currently *less* accurate at equal wall-clock settings.
 
 ---
 
