@@ -315,3 +315,37 @@ def test_basin_hopping_over_a_batch_improves_every_ligand(library):
     # Reported energies belong to the reported poses.
     rescored, _ = search.energy_and_dof_gradient(best_x)
     assert torch.allclose(rescored, best_energy, rtol=1e-6, atol=1e-6)
+
+
+def test_bucketing_groups_similar_sizes_and_keeps_everything(library):
+    """
+    Bucketing is what turns stage five's measured gain into a real one.
+
+    Everything in a batch is padded to the batch maximum, so a fragment sharing
+    a batch with a large flexible ligand wastes most of the work on padding.
+    Sorting by (torsions, atoms) puts similar ligands together; it must not lose
+    or duplicate a ligand while doing so.
+    """
+    from pandadock.docking.gpu.screening import bucket_by_size
+
+    _, trees, _ = library
+
+    buckets = bucket_by_size(trees, max_batch=2)
+    flat = [i for b in buckets for i in b]
+    assert sorted(flat) == list(range(len(trees))), "bucketing lost or duplicated a ligand"
+    assert all(len(b) <= 2 for b in buckets)
+
+    # Within a bucket the torsion counts are adjacent in the sorted order, which
+    # is the property that bounds the padding.
+    counts = [trees[i].n_torsions for i in flat]
+    assert counts == sorted(counts)
+
+    # A single batch when it fits.
+    assert len(bucket_by_size(trees, max_batch=64)) == 1
+
+
+def test_bucketing_handles_an_empty_library():
+    """A screen over nothing should produce nothing, not raise."""
+    from pandadock.docking.gpu.screening import bucket_by_size
+
+    assert bucket_by_size([], max_batch=8) == []

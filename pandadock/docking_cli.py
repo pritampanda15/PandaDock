@@ -26,11 +26,13 @@ Other Tools (separate CLIs):
 
 import click
 import logging
+import csv
 import json
 import numpy as np
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from rdkit import Chem
+from rdkit.Geometry import Point3D
 from rdkit.Chem import AllChem
 import time
 import sys
@@ -739,6 +741,140 @@ def hybrid(receptor, ligand, grid_config, center, box, model, output_dir, num_po
     click.echo("\nBest pose:")
     click.echo(f"  pEC50: {top_poses[0]['gnn_pec50']:.3f}")
     click.echo(f"  Predicted binding energy: {top_poses[0]['gnn_energy']:.3f} kcal/mol")
+
+
+@main.command()
+@click.option('--receptor', '-r', required=True, type=click.Path(exists=True),
+              help='Receptor PDB file, shared by every ligand')
+@click.option('--ligands', '-l', required=True, type=click.Path(exists=True),
+              help='Directory of ligand files, or a single multi-molecule SDF')
+@click.option('--grid-config', '-g', type=click.Path(exists=True),
+              help='Grid box JSON from pandadock-gridbox')
+@click.option('--center', nargs=3, type=float, metavar='X Y Z',
+              help='Binding site centre in Angstrom')
+@click.option('--box', nargs=3, type=float, metavar='X Y Z',
+              help='Box dimensions in Angstrom')
+@click.option('--output-dir', '-o', type=click.Path(), default='screening_output',
+              help='Output directory')
+@click.option('--device', type=str, default=None,
+              help='cuda, mps, or cpu. Defaults to the best available. '
+                   'Batching several ligands is what fills a device, so this '
+                   'is where a GPU pays off.')
+@click.option('--n-chains', type=int, default=128,
+              help='Search chains per ligand (default: 128)')
+@click.option('--n-steps', type=int, default=8,
+              help='Basin-hopping steps (default: 8)')
+@click.option('--max-batch', type=int, default=64,
+              help='Ligands per batch; bounds device memory (default: 64)')
+@click.option('--grid-spacing', type=float, default=0.375,
+              help='Affinity grid spacing in Angstrom (default: 0.375)')
+@click.option('--rigid-ligand', is_flag=True, default=False,
+              help='Disable torsional search')
+@click.option('--seed', type=int, default=None,
+              help='Seed for reproducible runs')
+@click.option('--top', type=int, default=None,
+              help='Write poses for the top N ligands only (default: all)')
+def screen(receptor, ligands, grid_config, center, box, output_dir, device,
+           n_chains, n_steps, max_batch, grid_spacing, rigid_ligand, seed, top):
+    """
+    Dock a ligand library into one site, batching ligands onto the device.
+
+    Grids are built once per atom signature and reused across the library, and
+    ligands are bucketed by size so each batch pads as little as possible.
+
+    Scores rank ligands; they are not measured binding free energies. Use
+    pandadock-gnn for affinity.
+    """
+    from .docking.search.grid_maps import GridCache  # noqa: F401
+
+    if not grid_config and not (center and box):
+        click.echo("Error: Must specify either --grid-config or --center/--box")
+        sys.exit(1)
+
+    if grid_config:
+        with open(grid_config, 'r') as f:
+            grid_data = json.load(f)
+        grid_center = np.array(grid_data['center'])
+        grid_dimensions = np.array(grid_data['dimensions'])
+    else:
+        grid_center = np.array(center)
+        grid_dimensions = np.array(box)
+
+    mols, names = load_ligand_library(ligands)
+    if not mols:
+        click.echo(f"Error: no readable ligands in {ligands}")
+        sys.exit(1)
+
+    click.echo("PandaDock Virtual Screening")
+    click.echo(f"Receptor: {receptor}")
+    click.echo(f"Ligands:  {len(mols)} from {ligands}")
+    click.echo(f"Site:     centre {grid_center} box {grid_dimensions}")
+
+    try:
+        from .docking.gpu.screening import screen_library
+    except ImportError as exc:
+        click.echo(f"Error: the batched screen needs the [gnn] extra for torch ({exc})")
+        sys.exit(1)
+
+    receptor_structure = load_receptor(receptor)
+
+    with click.progressbar(length=len(mols), label='Docking') as bar:
+        seen = [0]
+
+        def progress(done, total):
+            bar.update(done - seen[0])
+            seen[0] = done
+
+        start = time.time()
+        try:
+            results = screen_library(
+                receptor_structure, mols, grid_center, grid_dimensions,
+                names=names, device=device, n_chains=n_chains, n_steps=n_steps,
+                max_batch=max_batch, grid_spacing=grid_spacing,
+                rigid_ligand=rigid_ligand, seed=seed, progress=progress,
+            )
+        except Exception as exc:
+            click.echo(f"\nScreening failed: {type(exc).__name__}: {exc}")
+            sys.exit(1)
+    elapsed = time.time() - start
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    csv_path = output_path / 'screening_results.csv'
+    with open(csv_path, 'w', newline='') as fh:
+        writer = csv.writer(fh)
+        writer.writerow(['rank', 'ligand', 'score_kcal_per_mol', 'n_torsions'])
+        for rank, r in enumerate(results, 1):
+            writer.writerow([rank, r.name, f"{r.energy:.4f}", r.n_torsions])
+
+    keep = results if top is None else results[:top]
+    pose_dir = output_path / 'poses'
+    pose_dir.mkdir(exist_ok=True)
+    by_name = {n: m for n, m in zip(names, mols)}
+    written = 0
+    for r in keep:
+        mol = by_name.get(r.name)
+        if mol is None:
+            continue
+        posed = Chem.Mol(mol)
+        conf = posed.GetConformer()
+        for i, xyz in enumerate(r.coords):
+            conf.SetAtomPosition(i, Point3D(float(xyz[0]), float(xyz[1]), float(xyz[2])))
+        posed.SetProp('_Name', r.name)
+        posed.SetProp('pandadock_score', f"{r.energy:.4f}")
+        writer_sdf = Chem.SDWriter(str(pose_dir / f"{_safe_name(r.name)}.sdf"))
+        writer_sdf.write(posed)
+        writer_sdf.close()
+        written += 1
+
+    click.echo(f"\nScreened {len(results)} ligands in {elapsed:.1f}s "
+               f"({len(results) / max(elapsed, 1e-9):.1f} ligands/s)")
+    click.echo(f"Results: {csv_path}")
+    click.echo(f"Poses:   {pose_dir} ({written} written)")
+    click.echo("\nTop hits:")
+    for rank, r in enumerate(results[:10], 1):
+        click.echo(f"  {rank:2d}. {r.name:<30s} {r.energy:8.3f} kcal/mol")
 
 
 @main.command()
@@ -1727,6 +1863,69 @@ def download_model(output, version, force):
 # =============================================================================
 # Helper Functions
 # =============================================================================
+
+def _safe_name(name: str) -> str:
+    """A filename that survives a ligand title containing spaces or slashes."""
+    return "".join(c if c.isalnum() or c in "-_." else "_" for c in name)[:120] or "ligand"
+
+
+def load_receptor(receptor_file: str):
+    """Parse a receptor once, to be shared across a whole library."""
+    from Bio.PDB import PDBParser
+
+    return PDBParser(QUIET=True).get_structure("receptor", receptor_file)
+
+
+def load_ligand_library(source: str):
+    """
+    Read a screening library from a directory or a multi-molecule SDF.
+
+    Molecules without a conformer are skipped with a warning rather than
+    silently docked from nothing: a ligand with no coordinates has no torsion
+    tree, and failing loudly here is cheaper than debugging it later.
+    """
+    path = Path(source)
+    mols, names = [], []
+
+    def accept(mol, fallback):
+        if mol is None:
+            return
+        if mol.GetNumConformers() == 0:
+            click.echo(f"  skipping {fallback}: no 3D conformer")
+            return
+        if mol.GetNumAtoms() < 20:
+            mol = Chem.AddHs(mol, addCoords=True)
+        mols.append(mol)
+        names.append(mol.GetProp("_Name") if mol.HasProp("_Name") and mol.GetProp("_Name") else fallback)
+
+    if path.is_dir():
+        patterns = ("*.sdf", "*.mol", "*.mol2", "*.pdb")
+        files = sorted(f for pattern in patterns for f in path.glob(pattern))
+        for f in files:
+            if f.suffix.lower() == ".sdf":
+                for i, mol in enumerate(Chem.SDMolSupplier(str(f), removeHs=False)):
+                    accept(mol, f.stem if i == 0 else f"{f.stem}_{i}")
+            else:
+                accept(load_ligand(str(f)), f.stem)
+    else:
+        if path.suffix.lower() == ".sdf":
+            for i, mol in enumerate(Chem.SDMolSupplier(str(path), removeHs=False)):
+                accept(mol, f"{path.stem}_{i}")
+        else:
+            accept(load_ligand(str(path)), path.stem)
+
+    # Names must be unique: they become filenames and CSV keys.
+    seen = {}
+    unique = []
+    for n in names:
+        if n in seen:
+            seen[n] += 1
+            unique.append(f"{n}_{seen[n]}")
+        else:
+            seen[n] = 0
+            unique.append(n)
+    return mols, unique
+
 
 def load_ligand(ligand_file: str) -> Optional[Chem.Mol]:
     """Load ligand molecule from file"""

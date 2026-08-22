@@ -67,6 +67,8 @@ so a full search costs seconds to minutes rather than hours.
   orientation sampling, L-BFGS relaxation with analytic gradients
 - **Optional GPU search** *(experimental)* — `--device cuda|mps` runs the same
   algorithm batched over thousands of chains, verified against the CPU objective
+- **Virtual screening** — `pandadock screen` batches a library onto the device,
+  reusing grids across ligands and bucketing them by size
 - **Grid-accelerated scoring** — AutoDock Vina functional form, precomputed per
   atom type
 - **PandaDock-GNN** — SE(3)-equivariant affinity scoring, R = 0.53 on PDBbind
@@ -372,6 +374,53 @@ Metal parameters fall back to built-in approximations when no AutoDock-format
 parameter file is supplied. Those are adequate for identifying coordination
 geometry but not for quantitative metal binding energies; pass a parameter file
 for that.
+
+---
+
+## Virtual Screening
+
+```bash
+pandadock screen -r receptor.pdb -l library.sdf \
+                 --center 10 12 8 --box 22 22 22 \
+                 --device cuda --n-chains 128 -o results/
+```
+
+`--ligands` takes a multi-molecule SDF or a directory of ligand files. This is
+where batching pays: one ligand never fills a device, and a library is many such
+runs.
+
+Two things happen automatically. Affinity grids are built once per atom
+*signature* and reused across the library, so grid construction becomes a
+per-campaign cost rather than a per-ligand one. And ligands are bucketed by
+torsion and atom count before batching, because everything in a batch is padded
+to the batch maximum — mixing a 9-atom fragment with a 48-atom ligand wastes
+most of the work on padding, and size-matched batches measured roughly twice the
+throughput of mixed ones.
+
+| Option | Default | Description |
+|---|---|---|
+| `-r, --receptor` | *required* | Receptor PDB, shared by every ligand |
+| `-l, --ligands` | *required* | Multi-molecule SDF, or a directory |
+| `--device` | *auto* | `cuda`, `mps`, `cpu` |
+| `--n-chains` | `128` | Search chains per ligand |
+| `--n-steps` | `8` | Basin-hopping steps |
+| `--max-batch` | `64` | Ligands per batch; bounds device memory |
+| `--top` | *all* | Write poses for the top N only |
+| `--seed` | *random* | Reproducible runs |
+
+Output is deliberately thin — writing a full report per ligand would dominate
+the runtime of the thing this command exists to speed up:
+
+```
+screening_results.csv     rank, ligand, score, torsion count
+poses/{ligand}.sdf        best pose per ligand, score in a tag
+```
+
+Scores rank ligands against each other. They are docking scores in kcal/mol, not
+measured binding free energies, and should not be converted to a Kd — use
+`pandadock-gnn` for affinity. Note also that docking scores correlate with
+ligand size, so a ranked list of mixed-size compounds will favour the larger
+ones; compare within a series where you can.
 
 ---
 
