@@ -280,9 +280,18 @@ on the GPU**.
 them slightly worse, costing 3.9 points of top-1 accuracy. That is a ranking
 difference, not a sampling one, and it is the honest cost of the speedup as
 configured here (512 chains × 8 basin hops against the CPU's auto
-exhaustiveness). Raising `--n-chains` should narrow it: GPU utilisation during
-these runs was only ~23%, so there is substantial headroom before wall time
-responds.
+exhaustiveness).
+
+Raising `--n-chains` does **not** obviously close that gap, which is worth
+recording because it is the intuitive fix. Measured on 14 complexes at 512,
+2048 and 4096 chains: wall time rose 1.21x and 1.62x, while top-1 within 2 A
+went 50.0%, 42.9%, 50.0% — no trend. Per complex the rigid ligands are
+bit-identical across all three settings, and the flexible ones swing
+non-monotonically (one 7-torsion ligand gave 3.23, 12.48 and 1.56 A). More
+chains changes the random stream as much as it deepens the search, so at this
+sample size the run-to-run variance swamps any systematic effect. Establishing
+whether more chains help would take a far larger matched run; it should not be
+assumed in the meantime.
 
 For reference, the manuscript's CPU figures on the full set are 33.7% top-1 and
 57.0% best-of-N, which the paired CPU arm here reproduces closely.
