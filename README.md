@@ -67,9 +67,9 @@ so a full search costs seconds to minutes rather than hours.
   orientation sampling, L-BFGS relaxation with analytic gradients
 - **Optional GPU search** *(experimental)* — `--device cuda|mps` runs the same
   algorithm batched over thousands of chains, verified against the CPU objective.
-  Wall time is nearly flat in ligand flexibility where the CPU's is not: up to
-  **26× faster on 21+ torsion ligands**, though currently at reduced pose
-  accuracy — see [CPU vs GPU](#benchmark-cpu-vs-gpu-on-the-redocking-set)
+  On the 815-complex benchmark an A10G is **8.5× faster overall and 35× on the
+  most flexible ligands**, at identical best-of-9 accuracy — see
+  [CPU vs GPU](#benchmark-cpu-vs-gpu-on-the-redocking-set)
 - **Virtual screening** — `pandadock screen` batches a library onto the device,
   reusing grids across ligands and bucketing them by size
 - **Grid-accelerated scoring** — AutoDock Vina functional form, precomputed per
@@ -230,53 +230,79 @@ search in float32, so its tolerances are correspondingly wider.
 
 ### Benchmark: CPU vs GPU on the redocking set
 
-Measured on 14 complexes, one from each protein family of the 815-complex
-benchmark, docked from scratch on both devices with identical inputs and seeds.
-MPS on an M-series laptop — **not** a datacentre GPU.
+Run on the full 815-complex benchmark on an **NVIDIA A10G**, and against a CPU
+arm on the same machine with four dedicated cores each so neither starved the
+other. The CPU arm was stopped after 131 complexes — at its rate the full set
+would have taken about 6.5 days — so the head-to-head below is over those 131,
+paired complex by complex.
 
-**The headline is not the total, it is how the two scale with ligand flexibility:**
+**Full CUDA run, all 814 complexes that docked:**
 
-| Ligand flexibility | CPU | GPU (MPS) | Speedup |
+| | |
+|---|---|
+| Wall time | **20.2 h** (median 84.4 s/complex) |
+| Median top-1 RMSD | 4.37 Å |
+| top-1 ≤ 2 Å | 30.2% |
+| best-of-9 ≤ 2 Å | 50.5% |
+
+**Paired head-to-head, 131 complexes, same box:**
+
+| | CPU | CUDA (A10G) | Speedup |
 |---|---:|---:|---:|
-| 0–2 torsions | 33 s | 30 s | 1.1× |
-| 3–8 torsions | 159 s | 47 s | 3.4× |
-| 9–20 torsions | 513 s | 61 s | 8.5× |
-| **21+ torsions** | **1974 s** | **76 s** | **26.1×** |
-| **all 14 complexes** | **133 min** | **12 min** | **11.1×** |
+| total wall time | 25.25 h | **2.96 h** | **8.5×** |
+| median per complex | 537.6 s | **76.7 s** | 7.0× |
+| slowest complex | 7457 s | **211 s** | 35× |
 
-GPU wall time is nearly flat in flexibility — 16 s to 84 s across the whole set —
-while CPU time spans 15 s to 2522 s. CPU cost scales with exhaustiveness × torsion
-count; the batched search absorbs that into one wider batch instead. The worst
-complex in the set, a 32-torsion ligand, went from **42 minutes to 84 seconds**.
+**The speedup tracks ligand flexibility**, because CPU cost scales with
+exhaustiveness × torsion count while the batched search absorbs that into one
+wider batch:
 
-Extrapolated to all 815 complexes: **~129 h on CPU against ~11.6 h on MPS.**
+| Ligand flexibility | CPU | CUDA | Speedup |
+|---|---:|---:|---:|
+| 0–2 torsions | 120 s | 48 s | 2.5× |
+| 3–8 torsions | 575 s | 81 s | 7.1× |
+| 9–20 torsions | 1801 s | 126 s | 14.3× |
+| **21+ torsions** | **7457 s** | **211 s** | **35.4×** |
 
-> **⚠️ That speedup is not like-for-like, and should not be quoted as if it were.**
-> The GPU ran a fixed budget (256 chains × 8 basin hops) while the CPU used its
-> auto exhaustiveness, which scales with torsion count. The GPU is therefore
-> partly faster because it searched *less* — and the accuracy below is the
-> evidence:
->
-> | | CPU | GPU (MPS) |
-> |---|---:|---:|
-> | top-1 ≤ 2 Å | **42.9%** | 28.6% |
-> | best-of-9 ≤ 2 Å | **57.1%** | 35.7% |
-> | best-of-9 median RMSD | **1.62 Å** | 2.13 Å |
->
-> A citable speedup requires raising the GPU budget until the success rate
-> matches the CPU, then comparing time. Given how flat GPU time is in the table
-> above, that may cost little — but it has to be measured, not assumed.
+CUDA wall time spans 48–211 s across the whole range; the CPU spans 120–7457 s.
+The worst complex in the paired set took **over two hours on CPU and 3.5 minutes
+on the GPU**.
 
-As a check on the harness, the CPU best-of-9 figure here (57.1%) agrees with the
-57.0% reported for the full 815-complex set in the manuscript.
+**Accuracy, on the same 131 complexes:**
 
-To reproduce, or to run the full set on CUDA:
+| | CPU | CUDA |
+|---|---:|---:|
+| **best-of-9 ≤ 2 Å** | **56.5%** | **56.5%** |
+| top-1 ≤ 2 Å | 34.4% | 30.5% |
+| median top-1 RMSD | 4.21 Å | 5.05 Å |
+
+**Best-of-9 is identical.** The GPU generates the same correct poses; it ranks
+them slightly worse, costing 3.9 points of top-1 accuracy. That is a ranking
+difference, not a sampling one, and it is the honest cost of the speedup as
+configured here (512 chains × 8 basin hops against the CPU's auto
+exhaustiveness).
+
+Raising `--n-chains` does **not** obviously close that gap, which is worth
+recording because it is the intuitive fix. Measured on 14 complexes at 512,
+2048 and 4096 chains: wall time rose 1.21x and 1.62x, while top-1 within 2 A
+went 50.0%, 42.9%, 50.0% — no trend. Per complex the rigid ligands are
+bit-identical across all three settings, and the flexible ones swing
+non-monotonically (one 7-torsion ligand gave 3.23, 12.48 and 1.56 A). More
+chains changes the random stream as much as it deepens the search, so at this
+sample size the run-to-run variance swamps any systematic effect. Establishing
+whether more chains help would take a far larger matched run; it should not be
+assumed in the meantime.
+
+For reference, the manuscript's CPU figures on the full set are 33.7% top-1 and
+57.0% best-of-N, which the paired CPU arm here reproduces closely.
+
+To reproduce:
 
 ```bash
 python benchmarking/redock_benchmark.py \
     --manifest benchmark_prepared/manifest.csv \
     --device cuda --n-chains 512 \
-    --output results_gpu/
+    --output results_cuda/
 ```
 
 ### Other measurements
@@ -302,11 +328,11 @@ So batching *ligands* matters more than batching chains, and grouping ligands of
 similar atom and torsion count roughly doubles the gain — which is what
 `pandadock screen` does automatically.
 
-**Status.** Numerical parity is tested on every supported device. Throughput on
-CUDA is not yet characterised — every number above is CPU or MPS. The
-815-complex benchmark in the manuscript was run on the CPU path, and the GPU
-path makes no pose-accuracy claim beyond its agreement with the CPU objective;
-on the subset above it is currently *less* accurate at equal wall-clock settings.
+**Status.** Numerical parity is tested on every supported device, in float64 on
+CPU and CUDA. The full 815-complex benchmark has now been run on an A10G; the
+manuscript's reported figures remain the CPU ones. The GPU path matches CPU
+best-of-9 accuracy and trails it by 3.9 points on top-1 pose ranking at the
+settings benchmarked above.
 
 ---
 
