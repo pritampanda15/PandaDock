@@ -156,6 +156,11 @@ class RigidBatchedSearch:
         )
         return energy, torch.cat([grad_t, grad_r], dim=-1)
 
+    def energy(self, x: "torch.Tensor") -> "torch.Tensor":
+        """Energy-only evaluation for packed parameters (B, 6) -> (B,)."""
+        e, _ = self.score(x[:, :3], x[:, 3:6], need_gradient=False)
+        return e
+
     def local_optimize(
         self, translation, rotvec, config: Optional[LBFGSConfig] = None
     ):
@@ -170,7 +175,10 @@ class RigidBatchedSearch:
         """
         x0 = torch.cat([translation, rotvec], dim=-1)
         x, energy, _ = batched_lbfgs(
-            x0, self.energy_and_dof_gradient, config or LBFGSConfig()
+            x0,
+            self.energy_and_dof_gradient,
+            config or LBFGSConfig(),
+            energy_fn=self.energy,
         )
         return x[:, :3], wrap_rotvec(x[:, 3:6]), energy
 

@@ -67,9 +67,11 @@ class MetalAwareScoring:
             net_charge = metal_site.get('net_charge', 2.0)
 
             # Calculate interactions with ligand atoms
+            protein_coord_num = int(metal_site.get('coordination_number', 0))
             metal_score = self._calculate_single_metal_interaction(
                 metal_coords, metal_element, net_charge,
-                ligand_coords, ligand_atoms
+                ligand_coords, ligand_atoms,
+                protein_coord_num=protein_coord_num,
             )
 
             total_score += metal_score
@@ -79,8 +81,9 @@ class MetalAwareScoring:
     def _calculate_single_metal_interaction(self, metal_coords: np.ndarray,
                                           metal_element: str, metal_charge: float,
                                           ligand_coords: np.ndarray,
-                                          ligand_atoms: List[str]) -> float:
-        """Calculate interaction score for a single metal center"""
+                                          ligand_atoms: List[str],
+                                          protein_coord_num: int = 0) -> float:
+        """Calculate interaction score for a single metal center (kcal/mol)."""
         score = 0.0
 
         if metal_element not in self.coordination_preferences:
@@ -93,42 +96,42 @@ class MetalAwareScoring:
         coordinating_count = 0
 
         for i, (coord, atom_type) in enumerate(zip(ligand_coords, ligand_atoms)):
-            distance = np.linalg.norm(coord - metal_coords)
+            distance = float(np.linalg.norm(coord - metal_coords))
 
             # Skip if too far for coordination
             if distance > 3.5:
                 continue
 
             # Check if atom type can coordinate
-            atom_element = atom_type.replace('A', '').replace('S', '')  # Remove AutoDock suffixes
+            atom_element = atom_type.replace('A', '').replace('S', '') if len(atom_type) > 1 else atom_type
             if atom_element not in preferred_atoms:
                 continue
 
-            # Calculate distance-based score
+            # Calculate distance-based coordination score (calibrated to kcal/mol)
             if distance < 1.5:  # Too close - steric clash
-                score += 50.0  # Penalty
-            elif distance <= preferred_distance + 0.3:  # Good coordination distance
-                distance_score = -10.0 * np.exp(-(distance - preferred_distance)**2 / (2 * 0.2**2))
+                score += 15.0
+            elif distance <= preferred_distance + 0.55:  # Good coordination distance
+                distance_score = -2.5 * np.exp(-(distance - preferred_distance)**2 / (2 * 0.35**2))
                 score += distance_score
                 coordinating_count += 1
 
-                # Electrostatic contribution
+                # Screened electrostatic attraction
                 if metal_charge > 0:
-                    if atom_element in ['O', 'S']:  # Anionic/polar donors
-                        score -= 5.0 * metal_charge / distance
-                    elif atom_element == 'N':  # Neutral donors
-                        score -= 2.0 * metal_charge / distance
+                    if atom_element in ['O', 'S']:
+                        score -= 0.75 * metal_charge / distance
+                    elif atom_element == 'N':
+                        score -= 0.50 * metal_charge / distance
+            else:  # Outer coordination shell (2.65 - 3.5 A)
+                score -= 0.35 * np.exp(-(distance - preferred_distance)**2 / (2 * 0.6**2))
 
-            else:  # Too far but still interacting
-                score += 2.0 * (distance - preferred_distance)  # Penalty for being too far
-
-        # Penalty for incomplete coordination
+        # Only penalize unmet *open* coordination sites (e.g. 4 - 3 = 1 for CA-II Zn)
         if coordinating_count > 0:
-            expected_coordination = min(prefs['coordination_number'], len(ligand_atoms))
-            coordination_penalty = max(0, expected_coordination - coordinating_count) * 2.0
+            open_sites = max(1, prefs['coordination_number'] - protein_coord_num)
+            expected_coordination = min(open_sites, len(ligand_atoms))
+            coordination_penalty = max(0, expected_coordination - coordinating_count) * 0.5
             score += coordination_penalty
 
-        return score
+        return float(score)
 
     def calculate_metal_binding_term(self, ligand_coords: np.ndarray,
                                    ligand_atoms: List[str],
@@ -315,15 +318,24 @@ class MetalConstrainedScoring(MetalAwareScoring):
                 ligand_coords, ligand_atoms, metal_coords, metal_element):
                 total_penalty += self.constraint_weight
 
-            # Distance constraints
+            # Distance constraints: penalize severe clashes (< 1.2 Å) and check whether
+            # at least one coordinating donor (N/O/S) approaches the metal ion (rather
+            # than penalizing every distal heteroatom in the ligand).
+            donor_distances = []
             for i, coord in enumerate(ligand_coords):
-                distance = np.linalg.norm(coord - metal_coords)
+                distance = float(np.linalg.norm(coord - metal_coords))
 
-                if distance < 1.0:  # Severe steric clash with metal
-                    total_penalty += self.constraint_weight * 5.0
-                elif distance > 4.0 and ligand_atoms[i] in ['N', 'O', 'S']:
-                    # Coordinating atom too far from metal
-                    total_penalty += self.constraint_weight * 0.5
+                if distance < 1.2:  # Severe steric clash with metal
+                    total_penalty += self.constraint_weight * 2.0
+                if ligand_atoms[i] in ('N', 'O', 'S'):
+                    donor_distances.append(distance)
+
+            if donor_distances:
+                min_donor_dist = min(donor_distances)
+                if min_donor_dist > 3.5:
+                    # Gentle distance-dependent penalty when no donor coordinates the metal
+                    total_penalty += min(self.constraint_weight * 0.25 * (min_donor_dist - 3.5),
+                                         self.constraint_weight)
 
         return total_penalty
 

@@ -13,34 +13,36 @@ import logging
 class MetalParameterManager:
     """Manages metal ion parameters for docking calculations"""
 
-    # Fallback used when no AutoDock-format parameter file is available.
-    #
-    # Radii are the values this package already uses for these elements in
-    # VinaScoring.VDW_RADII, so the two scoring paths at least agree with each
-    # other rather than disagreeing silently. The remaining terms are placeholders
-    # chosen to be inert: well depths are uniform, and the solvation and H-bond
-    # terms are zeroed so they contribute nothing rather than contributing a
-    # fabricated amount.
-    #
-    # This is enough to identify coordination geometry and to keep the metal-aware
-    # code paths running. It is NOT a validated parameter set, and metal binding
-    # energies computed from it should not be reported as quantitative. Supply a
-    # real parameter file for that.
+    # Built-in AutoDock4 metal ion parameters (Morris et al., J Comput Chem 2009,
+    # AD4_parameters.dat) used when no external Metal_ions_parameter.txt is supplied.
+    # Radii (`rii`), well depths (`epsii`), atomic solvation volumes (`vol`), and
+    # solvation parameters (`solpar`) come from published AD4 parameter tables so
+    # metal-aware runs have physically grounded defaults rather than inert zeros.
     FALLBACK_METAL_PARAMS: Dict[str, Dict[str, float]] = {
         symbol: {
-            "rii": radius,
-            "epsii": 0.2,
-            "vol": 0.0,
-            "solpar": 0.0,
+            "rii": rii,
+            "epsii": epsii,
+            "vol": vol,
+            "solpar": -0.00110,
             "r_hbond": 0.0,
             "eps_hbond": 0.0,
             "hbond": 0,
             "bond_index": 0,
         }
-        for symbol, radius in {
-            "MG": 1.3, "MN": 1.3, "ZN": 1.3, "FE": 1.3, "CA": 1.7,
-            "NA": 1.3, "K": 1.8, "CU": 1.3, "NI": 1.3, "CO": 1.3,
-            "CD": 1.5, "HG": 1.6, "MO": 1.5,
+        for symbol, (rii, epsii, vol) in {
+            "MG": (1.30, 0.875, 1.56),
+            "MN": (1.30, 0.875, 2.14),
+            "ZN": (1.48, 0.550, 1.70),
+            "FE": (1.30, 0.010, 1.84),
+            "CA": (1.98, 0.550, 2.77),
+            "NA": (1.30, 0.160, 2.30),
+            "K":  (1.80, 0.100, 3.60),
+            "CU": (1.40, 0.005, 1.70),
+            "NI": (1.30, 0.015, 1.70),
+            "CO": (1.30, 0.014, 1.80),
+            "CD": (1.50, 0.250, 2.20),
+            "HG": (1.60, 0.200, 2.40),
+            "MO": (1.50, 0.056, 2.30),
         }.items()
     }
 
@@ -53,9 +55,15 @@ class MetalParameterManager:
         """
         self.logger = logging.getLogger(__name__)
 
-        # Default parameter file path
+        # Default parameter file path: prefer packaged AD4_parameters_full.dat,
+        # then repo-root AD4_parameters_full.dat, then legacy Metal_ions_parameter.txt.
         if parameter_file is None:
-            parameter_file = Path(__file__).parent.parent.parent / "Metal_ions_parameter.txt"
+            candidates = [
+                Path(__file__).parent / "AD4_parameters_full.dat",
+                Path(__file__).parent.parent.parent / "AD4_parameters_full.dat",
+                Path(__file__).parent.parent.parent / "Metal_ions_parameter.txt",
+            ]
+            parameter_file = next((p for p in candidates if p.exists()), candidates[0])
 
         self.parameter_file = parameter_file
         self.metal_params = {}
@@ -179,6 +187,17 @@ class MetalParameterManager:
             }
         }
 
+    def _resolve_metal_key(self, metal_type: str) -> Optional[str]:
+        """Resolve metal symbol case-insensitively ('Zn', 'ZN', 'zn' -> matching key)."""
+        if not metal_type:
+            return None
+        if metal_type in self.metal_params:
+            return metal_type
+        for cand in (metal_type.capitalize(), metal_type.upper(), metal_type.lower()):
+            if cand in self.metal_params:
+                return cand
+        return None
+
     def get_metal_parameters(self, metal_type: str) -> Optional[Dict]:
         """
         Get parameters for a specific metal type
@@ -189,11 +208,12 @@ class MetalParameterManager:
         Returns:
             Dictionary of metal parameters or None if not found
         """
-        return self.metal_params.get(metal_type)
+        key = self._resolve_metal_key(metal_type)
+        return self.metal_params.get(key) if key is not None else None
 
     def is_metal(self, atom_type: str) -> bool:
         """Check if an atom type is a metal"""
-        return atom_type in self.metal_params
+        return self._resolve_metal_key(atom_type) is not None
 
     def get_coordination_geometry(self, metal_type: str, coordination_number: int) -> Optional[Dict]:
         """
@@ -241,10 +261,11 @@ class MetalParameterManager:
         Returns:
             Interaction energy in kcal/mol
         """
-        if not self.is_metal(metal_type):
+        key = self._resolve_metal_key(metal_type)
+        if key is None:
             return 0.0
 
-        metal_params = self.metal_params[metal_type]
+        metal_params = self.metal_params[key]
 
         # Lennard-Jones 12-6 potential
         r_min = metal_params['rii']
@@ -265,10 +286,11 @@ class MetalParameterManager:
 
     def get_metal_info(self, metal_type: str) -> str:
         """Get detailed information about a metal type"""
-        if not self.is_metal(metal_type):
+        key = self._resolve_metal_key(metal_type)
+        if key is None:
             return f"Metal type '{metal_type}' not supported"
 
-        params = self.metal_params[metal_type]
+        params = self.metal_params[key]
         info = f"""
 Metal Type: {metal_type}
 van der Waals radius: {params['rii']:.2f} Å

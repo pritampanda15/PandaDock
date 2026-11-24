@@ -18,6 +18,7 @@ from .core import FlexiblePose, RefinedComplex, FlexibleResidue
 from ..docking.core import Pose, DockingResult
 from ..docking.algorithms.monte_carlo_cpu import MonteCarloDocker
 from ..docking.scoring.physics_based import PhysicsBasedScoring
+from ..docking.scoring.vina_scoring import VinaScoring
 
 
 class SoftRigidDocker:
@@ -220,7 +221,8 @@ class ReceptorRefiner:
             # Find the residue in structure
             try:
                 residue = structure[0][chain_id][(' ', res_num, ' ')]
-                original_coords = np.array([atom.get_coord() for atom in residue.get_atoms()])
+                atoms = list(residue.get_atoms())
+                original_coords = np.array([atom.get_coord() for atom in atoms], dtype=np.float64)
 
                 flex_residue = FlexibleResidue(
                     chain_id=chain_id,
@@ -230,6 +232,7 @@ class ReceptorRefiner:
                     refined_conformations=[],
                     energy_change=0.0
                 )
+                flex_residue.atom_names = [atom.get_name().strip().upper() for atom in atoms]
                 flex_res_objects.append(flex_residue)
 
             except KeyError:
@@ -308,40 +311,109 @@ class ReceptorRefiner:
 
         return structure, total_energy_cost
 
+    # Backbone and anchor atom names that must NEVER move during chi1 rotation
+    _BACKBONE_AND_CB = frozenset({'N', 'CA', 'C', 'O', 'OXT', 'CB', 'H', 'HA', 'HA2', 'HA3', 'HB', 'HB2', 'HB3'})
+    # Atoms fixed during chi2 rotation (backbone + CB + CG/CG1)
+    _FIXED_FOR_CHI2 = _BACKBONE_AND_CB | frozenset({'CG', 'CG1', 'HG', 'HG2', 'HG3'})
+
     def _sample_rotamers(self, flexible_residue: FlexibleResidue,
                         pose: Pose) -> List[np.ndarray]:
-        """Sample common rotamer conformations for a residue (simplified)"""
+        """Sample side-chain rotamers by rotating around actual chi1/chi2 bonds.
 
-        # This is a placeholder - in production you'd use:
-        # - Dunbrack rotamer library
-        # - Physics-based side-chain prediction
-        # - SCWRL4-like algorithms
+        Uses canonical Dunbrack-like staggered torsion increments (0, +/-60,
+        +/-120, 180 deg) around the CA->CB bond (chi1) and, for longer side
+        chains, CB->CG/CG1 (chi2). Backbone atoms and CA/CB are kept fixed so
+        peptide geometry is strictly preserved.
+        """
+        original = np.asarray(flexible_residue.original_conformation, dtype=np.float64)
+        resname = flexible_residue.residue_name.strip().upper()
+        atom_names = getattr(flexible_residue, 'atom_names', None)
 
-        rotamers = []
-        original = flexible_residue.original_conformation
+        # GLY, ALA, and PRO have no free chi1 side-chain torsion
+        if resname in ('GLY', 'ALA', 'PRO') or not atom_names or len(atom_names) != len(original):
+            return [original.copy()]
 
-        # Generate some simple rotamer variants
-        for angle in [0, 60, 120, 180, 240, 300]:
-            rotamer = self._rotate_side_chain(original, angle)
-            rotamers.append(rotamer)
+        name_to_idx = {name: i for i, name in enumerate(atom_names)}
+        if 'CA' not in name_to_idx or 'CB' not in name_to_idx:
+            return [original.copy()]
+
+        ca_idx = name_to_idx['CA']
+        cb_idx = name_to_idx['CB']
+        chi1_moving = np.array(
+            [name not in self._BACKBONE_AND_CB for name in atom_names], dtype=bool
+        )
+        if not np.any(chi1_moving):
+            return [original.copy()]
+
+        chi1_angles = [0.0, 60.0, -60.0, 120.0, -120.0, 180.0]
+        cg_name = 'CG' if 'CG' in name_to_idx else ('CG1' if 'CG1' in name_to_idx else None)
+        chi2_moving = None
+        if cg_name is not None:
+            mask2 = np.array(
+                [name not in self._FIXED_FOR_CHI2 for name in atom_names], dtype=bool
+            )
+            if np.any(mask2):
+                chi2_moving = mask2
+
+        rotamers: List[np.ndarray] = []
+        for a1 in chi1_angles:
+            c1 = self._rotate_side_chain(
+                original, a1,
+                axis_origin=original[ca_idx],
+                axis_end=original[cb_idx],
+                moving_mask=chi1_moving,
+            )
+            rotamers.append(c1)
+            if chi2_moving is not None and cg_name is not None:
+                cg_idx = name_to_idx[cg_name]
+                for a2 in (-60.0, 60.0, 180.0):
+                    c2 = self._rotate_side_chain(
+                        c1, a2,
+                        axis_origin=c1[cb_idx],
+                        axis_end=c1[cg_idx],
+                        moving_mask=chi2_moving,
+                    )
+                    rotamers.append(c2)
 
         return rotamers
 
-    def _rotate_side_chain(self, coords: np.ndarray, angle_deg: float) -> np.ndarray:
-        """Rotate side chain around main-chain bond (simplified)"""
-        # Simplified rotation - in production use proper dihedral rotation
-        angle_rad = np.deg2rad(angle_deg)
-        rotation_matrix = np.array([
-            [np.cos(angle_rad), -np.sin(angle_rad), 0],
-            [np.sin(angle_rad), np.cos(angle_rad), 0],
-            [0, 0, 1]
-        ])
+    def _rotate_side_chain(
+        self,
+        coords: np.ndarray,
+        angle_deg: float,
+        axis_origin: Optional[np.ndarray] = None,
+        axis_end: Optional[np.ndarray] = None,
+        moving_mask: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """Rotate distal side-chain atoms around a covalent bond axis (Rodrigues formula)."""
+        out = np.asarray(coords, dtype=np.float64).copy()
+        if abs(angle_deg) < 1e-12:
+            return out
 
-        # Rotate coordinates (simplified - should be around proper bond axis)
-        center = np.mean(coords, axis=0)
-        centered_coords = coords - center
-        rotated_coords = centered_coords @ rotation_matrix.T
-        return rotated_coords + center
+        angle_rad = np.deg2rad(angle_deg)
+        if axis_origin is None or axis_end is None:
+            if len(out) < 2:
+                return out
+            axis_origin = out[0]
+            axis_end = out[1]
+
+        axis = np.asarray(axis_end, dtype=np.float64) - np.asarray(axis_origin, dtype=np.float64)
+        norm = float(np.linalg.norm(axis))
+        if norm < 1e-8:
+            return out
+        k = axis / norm
+
+        if moving_mask is None:
+            moving_mask = np.ones(len(out), dtype=bool)
+
+        pts = out[moving_mask] - axis_end
+        cos_a = float(np.cos(angle_rad))
+        sin_a = float(np.sin(angle_rad))
+        k_dot_v = pts @ k
+        k_cross_v = np.cross(k, pts)
+        rotated = pts * cos_a + k_cross_v * sin_a + np.outer(k_dot_v, k) * (1.0 - cos_a)
+        out[moving_mask] = rotated + axis_end
+        return out
 
     def _select_best_rotamer(self, rotamers: List[np.ndarray], pose: Pose,
                            structure: Structure) -> Tuple[Optional[np.ndarray], float]:
@@ -424,20 +496,88 @@ class ReceptorRefiner:
 
     def _monte_carlo_side_chains(self, structure: Structure, pose: Pose,
                                flexible_residues: List[FlexibleResidue]) -> Tuple[Structure, float]:
-        """Monte Carlo sampling of side-chain conformations"""
+        """Metropolis Monte Carlo sampling over side-chain rotamer states."""
         self.logger.debug("Performing Monte Carlo side-chain sampling")
 
-        # Simplified MC implementation
-        # In production: use proper MC with temperature schedule
-        return self._minimize_side_chains(structure, pose, flexible_residues)
+        if not flexible_residues:
+            return structure, 0.0
+
+        rng = np.random.default_rng(42)
+        rotamer_pools = [self._sample_rotamers(fr, pose) for fr in flexible_residues]
+        current_idx = [0 for _ in flexible_residues]
+        current_energies = [
+            self._calculate_rotamer_energy(pool[0], pose.coordinates, return_strain=True)
+            for pool in rotamer_pools
+        ]
+
+        best_idx = list(current_idx)
+        best_total_e = sum(e for e, _ in current_energies)
+        best_strains = [s for _, s in current_energies]
+
+        n_steps = max(10, int(self.refinement_cycles) * max(1, len(flexible_residues)) * 5)
+        temperature = 1.2
+
+        for _ in range(n_steps):
+            r_i = int(rng.integers(0, len(flexible_residues)))
+            pool = rotamer_pools[r_i]
+            if len(pool) <= 1:
+                continue
+            cand = int(rng.integers(0, len(pool)))
+            cand_e, cand_s = self._calculate_rotamer_energy(
+                pool[cand], pose.coordinates, return_strain=True
+            )
+            cur_e, _ = current_energies[r_i]
+            delta = cand_e - cur_e
+            if delta <= 0.0 or rng.random() < np.exp(-delta / temperature):
+                current_idx[r_i] = cand
+                current_energies[r_i] = (cand_e, cand_s)
+                total_e = sum(e for e, _ in current_energies)
+                if total_e < best_total_e:
+                    best_total_e = total_e
+                    best_idx = list(current_idx)
+                    best_strains = [s for _, s in current_energies]
+
+        total_strain = 0.0
+        for fr, pool, idx, strain in zip(flexible_residues, rotamer_pools, best_idx, best_strains):
+            chosen = pool[idx]
+            fr.refined_conformations = [chosen]
+            fr.energy_change = strain
+            total_strain += strain
+            self._update_residue_conformation(structure, fr, chosen)
+
+        return structure, float(total_strain)
 
     def _calculate_receptor_rmsd(self, original_pdb: str, refined_pdb: str,
                                flexible_residues: List[str]) -> float:
-        """Calculate RMSD of flexible residues between original and refined structures"""
+        """Calculate heavy-atom RMSD of flexible residues between original and refined PDBs."""
+        parser = PDBParser(QUIET=True)
+        orig_struct = parser.get_structure('orig', original_pdb)
+        ref_struct = parser.get_structure('ref', refined_pdb)
 
-        # Simplified RMSD calculation
-        # In production: use proper structural alignment
-        return 1.5  # Placeholder value
+        orig_coords = []
+        ref_coords = []
+        for res_id in flexible_residues:
+            try:
+                chain_id, res_num_str = res_id.split(':')
+                key = (' ', int(res_num_str), ' ')
+                r_orig = orig_struct[0][chain_id][key]
+                r_ref = ref_struct[0][chain_id][key]
+            except (ValueError, KeyError):
+                continue
+
+            for atom in r_orig.get_atoms():
+                if atom.element.strip().upper() == 'H':
+                    continue
+                name = atom.get_name()
+                if name in r_ref:
+                    orig_coords.append(atom.get_coord())
+                    ref_coords.append(r_ref[name].get_coord())
+
+        if not orig_coords:
+            return 0.0
+
+        diff = np.asarray(ref_coords, dtype=np.float64) - np.asarray(orig_coords, dtype=np.float64)
+        return float(np.sqrt(np.mean(np.sum(diff * diff, axis=1))))
 
 
     def _ensure_temp_dir(self) -> str:
@@ -479,9 +619,9 @@ class FinalRedocker:
         self.final_scale = 1.0
         self.logger = logging.getLogger("pandadock.flex.phase3")
 
-        # Initialize precise docking engine
+        # Initialize precise docking engine on the same Vina scale as `pandadock dock`
         self.precise_docker = MonteCarloDocker()
-        self.precise_scorer = PhysicsBasedScoring()
+        self.precise_scorer = VinaScoring()
 
     def configure_final_potential(self, final_scale: float = 1.0) -> None:
         """Configure final docking potential (typically 1.0 for full precision)"""
@@ -546,54 +686,125 @@ class IFDScorer:
         self.scoring_function = scoring_function
         self.logger = logging.getLogger("pandadock.flex.phase4")
 
-        # Scoring weights
-        self.binding_weight = 0.7
-        self.refinement_penalty_weight = 0.3
+        # Scoring weights aligned with Schrödinger IFDScore convention:
+        # IFDScore = Binding_Energy + 0.05 * Receptor_Strain + 0.05 * Rel_Ligand_Strain + Interaction_Bonus
+        self.binding_weight = 1.0
+        self.refinement_penalty_weight = 0.05
+        self.ligand_strain_weight = 0.05
 
     def score_ifd_poses(self, poses: List[FlexiblePose], receptor_file: str,
                        ligand_mol: Chem.Mol) -> List[FlexiblePose]:
         """
-        Calculate comprehensive IFD scores for poses
+        Calculate comprehensive IFD scores on the same kcal/mol scale as `pandadock dock`.
 
-        IFD Score = Binding Energy + (Refinement Cost * Penalty Weight)
+        IFD Score = Binding Energy
+                    + 0.05 * Receptor_Refinement_Strain (capped at 2.0 kcal/mol)
+                    + 0.05 * Relative_Ligand_Strain (capped at 1.5 kcal/mol)
+                    + Interaction_Bonus (actual H-bonds & pi-stacking)
         """
         self.logger.info(f"Calculating IFD scores for {len(poses)} poses")
 
         for pose in poses:
-            # Basic IFD score calculation
-            pose.ifd_score = (pose.binding_energy +
-                            pose.refinement_cost * self.refinement_penalty_weight)
+            rec_penalty = min(max(0.0, float(pose.refinement_cost)) * self.refinement_penalty_weight, 2.0)
 
-            # Additional scoring components
             pose.ligand_strain_energy = self._calculate_ligand_strain(pose, ligand_mol)
             pose.interaction_fingerprint = self._calculate_interactions(
                 pose, receptor_file, ligand_mol
             )
 
-            # Adjust IFD score with additional components
-            strain_penalty = pose.ligand_strain_energy * 0.1
-            interaction_bonus = len(pose.interaction_fingerprint) * -0.2
+            strain_penalty = min(max(0.0, pose.ligand_strain_energy) * self.ligand_strain_weight, 1.5)
+            hb = float(pose.interaction_fingerprint.get('hydrogen_bonds', 0.0))
+            pi = float(pose.interaction_fingerprint.get('aromatic_stacking', 0.0))
+            interaction_bonus = -0.15 * min(hb, 4.0) - 0.10 * min(pi, 3.0)
 
-            pose.ifd_score += strain_penalty + interaction_bonus
+            pose.ifd_score = (
+                self.binding_weight * float(pose.binding_energy)
+                + rec_penalty
+                + strain_penalty
+                + interaction_bonus
+            )
 
         return poses
 
     def _calculate_ligand_strain(self, pose: FlexiblePose, ligand_mol: Chem.Mol) -> float:
-        """Calculate ligand strain energy (simplified)"""
-        # In production: compare with lowest energy conformer
-        return 0.5  # Placeholder
+        """Calculate relative ligand conformational strain (kcal/mol) via RDKit MMFF94/UFF.
+
+        Computes `max(0.0, E_FF(pose) - E_FF(reference_conformer))` so differences
+        between external SDF bond lengths and MMFF94 equilibrium values cancel out,
+        leaving genuine torsional/conformational strain introduced during docking.
+        """
+        from rdkit.Chem import AllChem
+
+        def _ff_energy(mol_obj: Chem.Mol) -> Optional[float]:
+            props = AllChem.MMFFGetMoleculeProperties(mol_obj)
+            ff = (
+                AllChem.MMFFGetMoleculeForceField(mol_obj, props)
+                if props is not None
+                else AllChem.UFFGetMoleculeForceField(mol_obj)
+            )
+            return float(ff.CalcEnergy()) if ff is not None else None
+
+        try:
+            coords = np.asarray(pose.coordinates, dtype=np.float64)
+            if ligand_mol.GetNumAtoms() != len(coords):
+                return 0.0
+
+            pose_mol = Chem.Mol(ligand_mol)
+            pose_mol.RemoveAllConformers()
+            conf = Chem.Conformer(pose_mol.GetNumAtoms())
+            for i in range(pose_mol.GetNumAtoms()):
+                conf.SetAtomPosition(i, coords[i].tolist())
+            pose_mol.AddConformer(conf, assignId=True)
+
+            e_pose = _ff_energy(pose_mol)
+            if e_pose is None:
+                return 0.0
+
+            if ligand_mol.GetNumConformers() > 0:
+                e_ref = _ff_energy(Chem.Mol(ligand_mol))
+                if e_ref is not None:
+                    return float(max(0.0, e_pose - e_ref))
+
+            # Fallback if input had no conformer: minimize pose locally
+            props = AllChem.MMFFGetMoleculeProperties(pose_mol)
+            ff = (
+                AllChem.MMFFGetMoleculeForceField(pose_mol, props)
+                if props is not None
+                else AllChem.UFFGetMoleculeForceField(pose_mol)
+            )
+            if ff is None:
+                return 0.0
+            ff.Minimize(maxIts=200)
+            return float(max(0.0, e_pose - float(ff.CalcEnergy())))
+        except Exception as exc:
+            self.logger.debug("Ligand strain calculation fell back to 0.0: %s", exc)
+            return 0.0
 
     def _calculate_interactions(self, pose: FlexiblePose, receptor_file: str,
                               ligand_mol: Chem.Mol) -> Dict[str, float]:
-        """Calculate detailed protein-ligand interactions"""
-        # Simplified interaction calculation
-        interactions = {
-            'hydrogen_bonds': 3.2,
-            'hydrophobic_contacts': 5.1,
-            'electrostatic': 1.8,
-            'aromatic_stacking': 0.5
-        }
-        return interactions
+        """Calculate real protein-ligand interaction counts from structure geometry."""
+        try:
+            from ..docking.analysis.interaction_analysis import InteractionAnalyzer
+
+            parser = PDBParser(QUIET=True)
+            receptor = parser.get_structure('receptor', receptor_file)
+            analyzer = InteractionAnalyzer()
+            details = analyzer.analyze_pose_interactions(pose.coordinates, receptor, ligand_mol)
+            counts = details.get('interaction_types', {})
+            return {
+                'hydrogen_bonds': float(counts.get('hydrogen_bonds', 0)),
+                'hydrophobic_contacts': float(counts.get('hydrophobic', 0)),
+                'electrostatic': float(counts.get('electrostatic', 0)),
+                'aromatic_stacking': float(counts.get('pi_stacking', 0)),
+            }
+        except Exception as exc:
+            self.logger.debug("IFD interaction analysis failed: %s", exc)
+            return {
+                'hydrogen_bonds': 0.0,
+                'hydrophobic_contacts': 0.0,
+                'electrostatic': 0.0,
+                'aromatic_stacking': 0.0,
+            }
 
     def cluster_poses(self, poses: List[FlexiblePose],
                      rmsd_threshold: float = 2.0) -> List[FlexiblePose]:

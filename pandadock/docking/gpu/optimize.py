@@ -73,15 +73,21 @@ def batched_lbfgs(
     x0: "torch.Tensor",
     closure: Callable[["torch.Tensor"], Tuple["torch.Tensor", "torch.Tensor"]],
     config: Optional[LBFGSConfig] = None,
+    energy_fn: Optional[Callable[["torch.Tensor"], "torch.Tensor"]] = None,
 ) -> Tuple["torch.Tensor", "torch.Tensor", "torch.Tensor"]:
     """
     Minimise a batch of independent problems that share a parameter shape.
 
     Args:
         x0: (B, D) starting points, one per chain.
-        closure: maps (B, D) to energy (B,) and gradient (B, D). Called once per
-            iteration plus once per line-search trial.
+        closure: maps (B, D) to energy (B,) and gradient (B, D).
         config: see LBFGSConfig.
+        energy_fn: optional energy-only callable mapping (B, D) to energy (B,).
+            When supplied, backtracking line-search trials call `energy_fn` to
+            avoid computing gradients on rejected steps, and `closure` is called
+            once per iteration on the accepted point. When omitted, `closure`'s
+            gradient from the accepted line-search trial is reused directly so
+            `closure` is never invoked twice for the same point.
 
     Returns:
         x: (B, D) best parameters found for each chain
@@ -167,6 +173,7 @@ def batched_lbfgs(
         accepted = torch.zeros(n_chains, dtype=torch.bool, device=x.device)
         new_x = x.clone()
         new_energy = energy.clone()
+        new_grad = grad.clone()
 
         for _ in range(cfg.max_line_search):
             # Unlike the Monte Carlo loop, this does synchronise, deliberately.
@@ -177,7 +184,11 @@ def batched_lbfgs(
             if not bool((active & ~accepted).any()):
                 break
             trial_x = x + step * direction
-            trial_energy, _ = closure(trial_x)
+            if energy_fn is not None:
+                trial_energy = energy_fn(trial_x)
+                trial_grad = None
+            else:
+                trial_energy, trial_grad = closure(trial_x)
 
             sufficient = trial_energy <= (
                 energy + cfg.c1 * (step * slope).squeeze(-1)
@@ -186,6 +197,8 @@ def batched_lbfgs(
 
             new_x = torch.where(take.unsqueeze(-1), trial_x, new_x)
             new_energy = torch.where(take, trial_energy, new_energy)
+            if trial_grad is not None:
+                new_grad = torch.where(take.unsqueeze(-1), trial_grad, new_grad)
             accepted = accepted | take
 
             # Only chains still searching shrink their step.
@@ -198,8 +211,7 @@ def batched_lbfgs(
 
         x = torch.where(moved.unsqueeze(-1), new_x, x)
         energy = torch.where(moved, new_energy, energy)
-        new_grad = grad
-        if bool(moved.any()):
+        if energy_fn is not None and bool(moved.any()):
             _, new_grad = closure(x)
 
         y = new_grad - grad

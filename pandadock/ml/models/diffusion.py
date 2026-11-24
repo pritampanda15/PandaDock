@@ -125,6 +125,12 @@ class DiffusionDockingModel:
             List of generated poses
         """
         self.logger.debug(f"Generating {num_poses} poses with diffusion model")
+        if not self.is_trained:
+            self.logger.warning(
+                "DiffusionDockingModel has no trained weights loaded (experimental "
+                "scaffolding). Generated poses come from randomly initialized weights "
+                "and should not be used for production docking; use `pandadock dock`."
+            )
 
         try:
             # Prepare ligand features

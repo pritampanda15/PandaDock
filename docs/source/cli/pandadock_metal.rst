@@ -123,7 +123,7 @@ Docking Algorithm
 
     * ``enhanced_hierarchical_cpu`` - Best accuracy
     * ``genetic_algorithm_cpu`` - Good for complex coordination
-    * ``enhanced_hierarchical_gpu`` - GPU acceleration
+    * ``pandadock`` - Flexible-ligand Monte Carlo + L-BFGS search
 
 Scoring Options
 ---------------
@@ -256,7 +256,7 @@ GPU-Accelerated Metal Docking
    pandadock-metal -r metalloprotein.pdb -l library.sdf \\
                    --metal-type ZN \\
                    --metal-residue "A:201" \\
-                   --algorithm enhanced_hierarchical_gpu \\
+                   --algorithm pandadock \\
                    --gpu \\
                    --center 10 20 30 --box 20 20 20 \\
                    -o gpu_metal_docking/

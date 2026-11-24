@@ -37,7 +37,7 @@ class PandaCoreDocker(BaseDockingAlgorithm):
     """Flexible-ligand Monte Carlo docking with grid-accelerated scoring."""
 
     def __init__(self, name: str = "pandacore", grid_cache=None):
-        super().__init__(name, supports_gpu=False)
+        super().__init__(name, supports_gpu=True)
         self.logger = logging.getLogger(f"pandadock.docking.{name}")
         # Off by default: a single dock() gains nothing from it, and holding
         # grids for a receptor that is never revisited only costs memory. Pass a
@@ -107,6 +107,7 @@ class PandaCoreDocker(BaseDockingAlgorithm):
             temperature=float(kwargs.get("temperature", 1.2)),
             max_local_iter=int(kwargs.get("max_local_iter", 60)),
             seed=kwargs.get("seed"),
+            n_workers=int(kwargs.get("n_workers", 1)),
         )
         self.logger.info(
             "Ligand: %d atoms (%d heavy), %d torsional DOF, %d total DOF",
@@ -119,6 +120,7 @@ class PandaCoreDocker(BaseDockingAlgorithm):
         receptor_structure = self._load_receptor(receptor_file)
 
         scoring = self._scoring_function if isinstance(self._scoring_function, VinaScoring) else None
+        grid_scoring = scoring or VinaScoring()
         if self._scoring_function is not None and scoring is None:
             self.logger.info(
                 "Search is driven by the grid-accelerated Vina function; "
@@ -133,59 +135,92 @@ class PandaCoreDocker(BaseDockingAlgorithm):
             grid_center=grid_center,
             grid_dimensions=grid_dimensions,
             spacing=grid_spacing,
-            scoring=scoring or VinaScoring(),
+            scoring=grid_scoring,
             cache=self.grid_cache,
         )
         self.logger.info("Grid construction took %.2f s", time.time() - grid_build_start)
 
-        objective = DockingObjective(
-            tree,
-            grids,
-            tether_center=kwargs.get("tether_center"),
-            tether_radius=float(kwargs.get("tether_radius", 0.0)),
-            tether_force=float(kwargs.get("tether_force", 10.0)),
-        )
+        # Optional ring-conformer enumeration for ligands with flexible
+        # non-aromatic rings (>= 5 atoms), which the torsion tree holds rigid.
+        sample_rings = bool(kwargs.get("sample_rings", False))
+        trees_to_search = [tree]
+        if sample_rings and not rigid_ligand:
+            trees_to_search = self._ring_conformer_trees(
+                mol,
+                rigid=rigid_ligand,
+                max_torsions=max_torsions,
+                max_ring_confs=int(kwargs.get("max_ring_confs", 4)),
+                seed=config.seed,
+            )
+
         box_min = grid_center - grid_dimensions / 2.0
         box_max = grid_center + grid_dimensions / 2.0
 
-        # `device` selects where the search runs, not what happens to its
-        # results: both paths return the same SearchResult list, and everything
-        # below this point is shared. The CPU path remains the default and is
-        # the one validated in the manuscript.
         device = kwargs.get("device")
-        if device in (None, "cpu"):
-            minima = MonteCarloSearch(objective, config).run(box_min, box_max)
-        else:
-            from ..gpu.handoff import run_batched_search
-
-            self.logger.info("Running the batched search on %s", device)
-            minima = run_batched_search(
+        all_minima = []
+        total_evals = 0
+        primary_objective = None
+        for idx, conf_tree in enumerate(trees_to_search):
+            objective = DockingObjective(
+                conf_tree,
                 grids,
-                tree,
-                objective,
-                box_min,
-                box_max,
-                device=device,
-                n_chains=int(kwargs.get("n_chains", 512)),
-                n_steps=int(kwargs.get("gpu_steps", 8)),
-                seed=config.seed,
-                max_local_iter=config.max_local_iter,
+                tether_center=kwargs.get("tether_center"),
+                tether_radius=float(kwargs.get("tether_radius", 0.0)),
+                tether_force=float(kwargs.get("tether_force", 10.0)),
             )
-        if not minima:
+            if primary_objective is None:
+                primary_objective = objective
+
+            conf_seed = None if config.seed is None else int(config.seed) + idx * 1009
+            if device in (None, "cpu"):
+                conf_cfg = SearchConfig(
+                    exhaustiveness=config.exhaustiveness,
+                    n_steps=config.n_steps,
+                    temperature=config.temperature,
+                    max_local_iter=config.max_local_iter,
+                    seed=conf_seed,
+                    n_workers=config.n_workers,
+                )
+                minima = MonteCarloSearch(objective, conf_cfg).run(box_min, box_max)
+            else:
+                from ..gpu.handoff import run_batched_search
+
+                self.logger.info("Running the batched search on %s", device)
+                gpu_steps = kwargs.get("gpu_steps")
+                minima = run_batched_search(
+                    grids,
+                    conf_tree,
+                    objective,
+                    box_min,
+                    box_max,
+                    device=device,
+                    n_chains=int(kwargs.get("n_chains", 512)),
+                    n_steps=int(gpu_steps) if gpu_steps is not None else None,
+                    seed=conf_seed,
+                    max_local_iter=config.max_local_iter,
+                )
+            total_evals += objective.n_evaluations
+            all_minima.extend(minima)
+
+        all_minima.sort(key=lambda r: r.energy)
+        objective = primary_objective
+        if not all_minima:
             self.logger.warning("Search produced no poses")
             return self._empty_result(
                 mol, receptor_file, grid_center, grid_dimensions, config
             )
 
         clustered = cluster_poses(
-            minima,
+            all_minima,
             tree.heavy_atoms,
             rmsd_cutoff=rmsd_cutoff,
             max_poses=num_poses,
             automorphisms=heavy_atom_automorphisms(mol),
         )
 
-        poses = self._build_poses(clustered, tree, objective, mol, receptor_structure)
+        poses = self._build_poses(
+            clustered, tree, objective, mol, receptor_structure, grid_scoring
+        )
 
         result = DockingResult(
             ligand_name=mol.GetProp("_Name") if mol.HasProp("_Name") else "unknown",
@@ -193,7 +228,7 @@ class PandaCoreDocker(BaseDockingAlgorithm):
             grid_center=grid_center,
             grid_dimensions=grid_dimensions,
             algorithm_used=self.name,
-            scoring_function="vina_grid",
+            scoring_function=grid_scoring.preset + "_grid",
             poses=poses,
             runtime_seconds=time.time() - start_time,
             parameters={
@@ -205,7 +240,10 @@ class PandaCoreDocker(BaseDockingAlgorithm):
                 "rigid_ligand": rigid_ligand,
                 "rmsd_cutoff": rmsd_cutoff,
                 "seed": config.seed,
-                "energy_evaluations": objective.n_evaluations,
+                "n_workers": config.n_workers,
+                "sample_rings": sample_rings,
+                "ring_conformers": len(trees_to_search),
+                "energy_evaluations": total_evals,
             },
         )
 
@@ -261,6 +299,83 @@ class PandaCoreDocker(BaseDockingAlgorithm):
         parser = PDBParser(QUIET=True)
         return parser.get_structure("receptor", receptor_file)
 
+    def _ring_conformer_trees(
+        self,
+        mol: Chem.Mol,
+        rigid: bool = False,
+        max_torsions: int = 32,
+        max_ring_confs: int = 4,
+        seed: Optional[int] = None,
+    ) -> List[TorsionTree]:
+        """Generate TorsionTrees across distinct ring puckers for flexible rings.
+
+        Non-aromatic rings of size >= 5 (e.g., cyclohexanes, piperidines,
+        macrocycles) are held rigid by a single TorsionTree. When the ligand
+        contains such rings, embed a small conformer pool with ETKDGv3, retain
+        conformers whose ring-atom geometry differs by >= 0.4 A RMSD from the
+        input conformer, and return one TorsionTree per distinct ring state.
+        """
+        ring_info = mol.GetRingInfo()
+        flex_ring_atoms = set()
+        for ring in ring_info.AtomRings():
+            if len(ring) >= 5 and not all(mol.GetAtomWithIdx(i).GetIsAromatic() for i in ring):
+                flex_ring_atoms.update(ring)
+
+        base_tree = TorsionTree(mol, conf_id=0, rigid=rigid, max_torsions=max_torsions)
+        if not flex_ring_atoms or max_ring_confs <= 1:
+            return [base_tree]
+
+        ring_idx = np.array(sorted(flex_ring_atoms), dtype=np.int64)
+        work = Chem.Mol(mol)
+        params = AllChem.ETKDGv3()
+        params.randomSeed = int(seed) if seed is not None else 0xF00D
+        params.pruneRmsThresh = 0.35
+        n_embed = max(8, max_ring_confs * 4)
+        cids = list(AllChem.EmbedMultipleConfs(work, numConfs=n_embed, params=params))
+        if not cids:
+            return [base_tree]
+
+        # Keep conformer 0 (input geometry) plus conformers with distinct ring puckers
+        def ring_coords(m, cid):
+            pos = np.asarray(m.GetConformer(cid).GetPositions(), dtype=np.float64)[ring_idx]
+            return pos - pos.mean(axis=0)
+
+        kept_ring_coords = [ring_coords(mol, 0)]
+        trees = [base_tree]
+        for cid in cids:
+            if len(trees) >= max_ring_confs:
+                break
+            try:
+                AllChem.MMFFOptimizeMolecule(work, confId=cid, maxIters=200)
+            except Exception:
+                pass
+            rc = ring_coords(work, cid)
+            # Kabsch-aligned RMSD over ring atoms
+            distinct = True
+            for ref in kept_ring_coords:
+                cov = rc.T @ ref
+                u, _, vt = np.linalg.svd(cov)
+                d = np.linalg.det(vt.T @ u.T)
+                rot = vt.T @ np.diag([1.0, 1.0, d]) @ u.T
+                diff = rc @ rot.T - ref
+                rmsd = float(np.sqrt(np.mean(np.sum(diff * diff, axis=1))))
+                if rmsd < 0.4:
+                    distinct = False
+                    break
+            if distinct:
+                kept_ring_coords.append(rc)
+                trees.append(
+                    TorsionTree(work, conf_id=int(cid), rigid=rigid, max_torsions=max_torsions)
+                )
+
+        if len(trees) > 1:
+            self.logger.info(
+                "Sampled %d distinct ring conformers across %d flexible ring atoms",
+                len(trees),
+                len(ring_idx),
+            )
+        return trees
+
     def _build_poses(
         self,
         results,
@@ -268,35 +383,83 @@ class PandaCoreDocker(BaseDockingAlgorithm):
         objective: DockingObjective,
         mol: Chem.Mol,
         receptor_structure,
+        grid_scoring: Optional[VinaScoring] = None,
     ) -> List[Pose]:
-        """Convert search results to Pose objects with per-term energy breakdowns."""
-        poses: List[Pose] = []
-        best_energy = results[0].energy if results else 0.0
+        """Convert search results to Pose objects with per-term energy breakdowns.
 
-        for rank, res in enumerate(results):
+        Applies two corrections over the raw search objective:
+        1. Only repulsive intramolecular clashes (`max(0.0, intra)`) are added
+           to the reported docking score, so folded conformations never receive
+           an artificial attractive intramolecular bonus over receptor contacts.
+        2. Applies Vina's torsional entropy denominator `1 + w_rot * n_rot` so
+           scores sit on the standard Vina kcal/mol scale.
+        3. When a non-Vina scoring function (e.g. `PhysicsBasedScoring`) is
+           attached, runs it as a real rescoring pass and re-ranks the poses.
+        """
+        scoring = grid_scoring or VinaScoring()
+        custom_rescorer = (
+            self._scoring_function
+            if self._scoring_function is not None
+            and not isinstance(self._scoring_function, VinaScoring)
+            else None
+        )
+        poses: List[Pose] = []
+
+        for res in results:
             coords = res.coords
             heavy = coords[tree.heavy_atoms]
 
-            inter = objective.grids.score(heavy)
+            inter = float(objective.grids.score(heavy))
             intra, _ = objective._intramolecular(coords, need_gradient=False)
+            intra = float(intra)
+            intra_penalty = max(0.0, intra)
+            vina_score = scoring.normalize_energy(inter + intra_penalty, tree.n_torsions)
+
+            components = {
+                "intermolecular": inter,
+                "intramolecular": intra,
+                "intramolecular_penalty": intra_penalty,
+                "flexibility_factor": 1.0 + scoring.n_rot_weight * tree.n_torsions,
+                "vina_grid": vina_score,
+            }
+
+            if custom_rescorer is not None:
+                try:
+                    rescored = float(
+                        custom_rescorer.calculate_binding_energy(
+                            coords, receptor_structure, mol
+                        )
+                    )
+                except TypeError:
+                    rescored = float(
+                        custom_rescorer.calculate_binding_energy(
+                            coords, receptor_structure
+                        )
+                    )
+                final_energy = rescored
+                components["rescored"] = rescored
+            else:
+                final_energy = vina_score
+
+            components["total"] = final_energy
 
             pose = Pose(
                 coordinates=coords,
                 center=np.mean(heavy, axis=0),
                 rotation=quaternion_from_rotvec(res.dof[3:6]),
                 conformer_id=0,
-                energy=res.energy,
-                internal_strain=intra,
-                energy_components={
-                    "intermolecular": float(inter),
-                    "intramolecular": float(intra),
-                    "total": float(res.energy),
-                },
+                energy=final_energy,
+                internal_strain=intra_penalty,
+                energy_components=components,
             )
-            # Rank-relative confidence: how close this mode is to the best one found.
-            pose.confidence = float(np.exp(-(res.energy - best_energy) / 1.2))
             pose.torsion_angles = res.dof[6:].copy()
             poses.append(pose)
+
+        poses.sort(key=lambda p: p.energy)
+        best_energy = poses[0].energy if poses else 0.0
+        for pose in poses:
+            # Rank-relative confidence: how close this mode is to the best one found.
+            pose.confidence = float(np.exp(-(pose.energy - best_energy) / 1.2))
 
         return poses
 

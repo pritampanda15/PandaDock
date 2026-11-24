@@ -149,10 +149,12 @@ def plots(input_dir, output_dir, title, simple):
         result = load_result_from_dir(Path(input_dir))
 
         if result is not None:
+            from .visualization.report import _load_ligand_mol_from_dir
+
             images = generate_report(
                 result,
                 out,
-                ligand_mol=None,
+                ligand_mol=_load_ligand_mol_from_dir(Path(input_dir)),
                 interaction_analyses=load_interaction_analyses(Path(input_dir)),
                 run_pandamap=True,
             )
@@ -163,7 +165,10 @@ def plots(input_dir, output_dir, title, simple):
                 print(f"   {name}: {Path(images[name]).name}")
             report = out / "report.html"
             if report.exists():
-                print(f"   report: {report}")
+                print(f"   html report: {report}")
+            pdf_report = out / "report.pdf"
+            if pdf_report.exists():
+                print(f"   pdf report:  {pdf_report}")
             print(f"\n✅ Report written to {out}")
             return
 

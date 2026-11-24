@@ -4,7 +4,9 @@ PandaDock docking algorithms.
 Production algorithm:
 - PandaCoreDocker: flexible-ligand Monte Carlo search with local optimization over
   translation, orientation and ligand torsions, scored against precomputed
-  affinity grids. Registered as ``pandadock``.
+  affinity grids. Registered as ``pandadock``. Supports CPU (default) and
+  batched PyTorch GPU search (``--device cuda`` or ``--device mps``) via
+  ``pandadock.docking.gpu``.
 
 `HierarchicalDocker` is the name under which `PandaCoreDocker` is registered for
 the CLI. `MonteCarloDocker`, `GeneticAlgorithmDocker` and
@@ -13,6 +15,8 @@ working; each module's docstring records what was wrong with the implementation 
 replaced. `CrystalGuidedDocker` raises on construction, because it biased poses
 toward a reference structure.
 """
+
+import importlib.util
 
 from .hierarchical_cpu import HierarchicalDocker
 from .pandacore import PandaCoreDocker
@@ -24,12 +28,32 @@ from .monte_carlo_cpu import MonteCarloDocker
 
 PandaDockAlgorithm = HierarchicalDocker
 
-# There is no GPU search path. The conformational search runs on CPU, and the
-# legacy CUDA modules were never wired into the engine: their chromosome encoded
-# only translation and orientation, so they could not vary ligand conformation.
-# The flag is kept because `pandadock-ml` imports it; that import previously
-# raised ImportError, which made the whole command unusable.
-GPU_AVAILABLE = False
+
+def _detect_gpu_available() -> bool:
+    """Return True if PyTorch is installed with a CUDA or Apple MPS device."""
+    if importlib.util.find_spec("torch") is None:
+        return False
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return True
+        mps = getattr(torch.backends, "mps", None)
+        return bool(mps is not None and mps.is_available())
+    except Exception:
+        return False
+
+
+def __getattr__(name: str):
+    # Resolved lazily (PEP 562) so CPU docking workers never pay the RAM and
+    # startup cost of importing PyTorch unless a caller explicitly asks for
+    # `GPU_AVAILABLE` (e.g. `pandadock-ml` or capability checks).
+    if name == "GPU_AVAILABLE":
+        value = _detect_gpu_available()
+        globals()["GPU_AVAILABLE"] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "GPU_AVAILABLE",

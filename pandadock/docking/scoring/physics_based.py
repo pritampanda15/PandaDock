@@ -23,17 +23,19 @@ class PhysicsBasedScoring:
     def __init__(self, **params):
         self.logger = logging.getLogger("pandadock.scoring.physics")
 
-        # Energy term weights (in kcal/mol)
+        # Energy term weights calibrated onto the Vina / kcal/mol binding scale
         self.weights = {
-            'vdw': params.get('vdw_weight', 1.0),
-            'electrostatic': params.get('electrostatic_weight', 1.0),
-            'hbond': params.get('hbond_weight', 1.0),
-            'solvation': params.get('solvation_weight', 0.5)
+            'vdw': params.get('vdw_weight', 0.28),
+            'electrostatic': params.get('electrostatic_weight', 0.15),
+            'hbond': params.get('hbond_weight', 0.587),
+            'hydrophobic': params.get('hydrophobic_weight', 0.035),
+            'solvation': params.get('solvation_weight', 0.08),
         }
 
         # Physical constants
         self.COULOMB_CONSTANT = 332.0637  # kcal·Å/(mol·e²)
-        self.DIELECTRIC_CONSTANT = params.get('dielectric', 80.0)
+        self.DIELECTRIC_CONSTANT = params.get('dielectric', 4.0)
+        self.n_rot_weight = params.get('n_rot_weight', 0.05846)
 
         # Van der Waals parameters (Å, kcal/mol)
         self.vdw_params = self._initialize_vdw_parameters()
@@ -51,68 +53,154 @@ class PhysicsBasedScoring:
                                 receptor_structure: Structure,
                                 ligand_mol: Optional[Chem.Mol] = None) -> float:
         """
-        Calculate total binding energy
+        Calculate physics-based binding energy (kcal/mol) on the same scale as
+        Vina/Vinardo/MM-GBSA:
 
-        Args:
-            ligand_coords: 3D coordinates of ligand atoms (N x 3)
-            receptor_structure: BioPython receptor structure
-            ligand_mol: RDKit molecule object (optional, for detailed analysis)
+          E = (w_vdw * E_vdW + w_elec * E_elec + w_hb * E_hbond
+               + w_hydro * E_hydrophobic + w_solv * E_desolv) / (1 + w_rot * N_rot)
 
-        Returns:
-            Total binding energy in kcal/mol
+        Uses vectorized heavy-atom Lorentz-Berthelot LJ 12-6 (with actual ligand
+        elements and soft-core clash capping), distance-dependent screened
+        Coulomb, and Vina-consistent H-bond / hydrophobic chemistry.
         """
-        # Get receptor information
-        receptor_atoms = list(receptor_structure.get_atoms())
-        receptor_coords = np.array([atom.get_coord() for atom in receptor_atoms])
-        receptor_elements = [atom.element for atom in receptor_atoms]
+        from .vina_scoring import VinaScoring
 
-        # Calculate individual energy terms
-        energy_components = {}
+        lig_coords_full = np.asarray(ligand_coords, dtype=np.float64)
+        if len(lig_coords_full) == 0:
+            return 0.0
 
-        # Van der Waals energy
-        energy_components['vdw'] = self._calculate_vdw_energy(
-            ligand_coords, receptor_coords, receptor_elements
+        # Heavy atoms only (matches Vina & prevents unminimized H-clash noise)
+        if ligand_mol is not None:
+            heavy_idx = np.array(
+                [a.GetIdx() for a in ligand_mol.GetAtoms() if a.GetAtomicNum() > 1 and a.GetIdx() < len(lig_coords_full)],
+                dtype=np.int64,
+            )
+            if len(heavy_idx) == 0:
+                heavy_idx = np.arange(min(len(lig_coords_full), ligand_mol.GetNumAtoms()), dtype=np.int64)
+            lig_coords = lig_coords_full[heavy_idx]
+            lig_elements = [ligand_mol.GetAtomWithIdx(int(i)).GetSymbol() for i in heavy_idx]
+        else:
+            heavy_idx = np.arange(len(lig_coords_full), dtype=np.int64)
+            lig_coords = lig_coords_full
+            lig_elements = ['C'] * len(lig_coords)
+
+        # Prefilter receptor heavy atoms within 10 A bounding box of ligand
+        all_rec_atoms = [
+            a for a in receptor_structure.get_atoms()
+            if (a.element or '').strip().upper() != 'H'
+        ]
+        if not all_rec_atoms:
+            all_rec_atoms = list(receptor_structure.get_atoms())
+        all_rec_coords = np.asarray([a.get_coord() for a in all_rec_atoms], dtype=np.float64)
+        if len(all_rec_coords) == 0:
+            return 0.0
+
+        lo = lig_coords.min(axis=0) - 10.0
+        hi = lig_coords.max(axis=0) + 10.0
+        in_box = np.where(np.all((all_rec_coords >= lo) & (all_rec_coords <= hi), axis=1))[0]
+        if len(in_box) == 0:
+            return 0.0
+
+        rec_atoms = [all_rec_atoms[int(i)] for i in in_box]
+        rec_coords = all_rec_coords[in_box]
+        rec_elements = [(a.element or 'C').strip().capitalize() for a in rec_atoms]
+
+        distances = cdist(lig_coords, rec_coords)
+        vina_helper = VinaScoring()
+
+        # 1. Vectorized Lorentz-Berthelot LJ 12-6 with soft-core cap (8 A cutoff)
+        lig_sig = np.array([self.vdw_params.get(e, {'sigma': 3.4})['sigma'] for e in lig_elements])
+        lig_eps = np.array([self.vdw_params.get(e, {'epsilon': 0.086})['epsilon'] for e in lig_elements])
+        rec_sig = np.array([self.vdw_params.get(e, {'sigma': 3.4})['sigma'] for e in rec_elements])
+        rec_eps = np.array([self.vdw_params.get(e, {'epsilon': 0.086})['epsilon'] for e in rec_elements])
+
+        m_vdw = distances < 8.0
+        if np.any(m_vdw):
+            li, ri = np.where(m_vdw)
+            d = np.maximum(distances[li, ri], 1.0)
+            sig_ij = 0.5 * (lig_sig[li] + rec_sig[ri])
+            eps_ij = np.sqrt(lig_eps[li] * rec_eps[ri])
+            ratio = np.minimum(sig_ij / d, 1.35)
+            r6 = ratio ** 6
+            vdw_e = float(np.sum(np.minimum(4.0 * eps_ij * (r6 * r6 - r6), 2.0)))
+        else:
+            vdw_e = 0.0
+
+        # 2. Vectorized distance-dependent screened Coulomb (10 A cutoff)
+        elec_e = 0.0
+        if ligand_mol is not None:
+            mol_copy = Chem.Mol(ligand_mol)
+            try:
+                AllChem.ComputeGasteigerCharges(mol_copy)
+                raw_q = [float(a.GetProp('_GasteigerCharge')) for a in mol_copy.GetAtoms()]
+            except Exception:
+                raw_q = [0.0] * mol_copy.GetNumAtoms()
+            lig_q = np.array([raw_q[int(i)] if np.isfinite(raw_q[int(i)]) else 0.0 for i in heavy_idx])
+            rec_q = np.asarray(self._get_receptor_charges(rec_atoms), dtype=np.float64)
+            m_el = (distances < 10.0) & (distances >= 2.0)
+            if np.any(m_el):
+                li, ri = np.where(m_el)
+                d = distances[li, ri]
+                diel = np.maximum(self.DIELECTRIC_CONSTANT * d, 4.0)
+                elec_e = float(np.sum((self.COULOMB_CONSTANT * lig_q[li] * rec_q[ri]) / (diel * d)))
+
+        # 3. Vina-consistent H-bonding and hydrophobic burial
+        hbond_e = 0.0
+        hydro_e = 0.0
+        desolv_e = 0.0
+        if ligand_mol is not None:
+            lig_types = vina_helper._get_ligand_atom_types(ligand_mol)
+            rec_types = vina_helper._get_receptor_atom_types(rec_atoms)
+            lig_r = np.array([vina_helper._get_vdw_radius(lig_types[int(i)]) for i in heavy_idx])
+            rec_r = np.array([vina_helper._get_vdw_radius(t) for t in rec_types])
+            surf = distances - lig_r[:, None] - rec_r[None, :]
+
+            lig_don, lig_acc = vina_helper._get_hbond_atoms_ligand(ligand_mol)
+            rec_don, rec_acc = vina_helper._get_hbond_atoms_receptor(rec_atoms)
+            idx_map = {int(orig): pos for pos, orig in enumerate(heavy_idx)}
+            ld = np.array([idx_map[i] for i in lig_don if i in idx_map], dtype=np.int64)
+            la = np.array([idx_map[i] for i in lig_acc if i in idx_map], dtype=np.int64)
+            rd = np.array(rec_don, dtype=np.int64)
+            ra = np.array(rec_acc, dtype=np.int64)
+
+            def _hb_sum(a_idx, b_idx):
+                if len(a_idx) == 0 or len(b_idx) == 0:
+                    return 0.0
+                s = surf[np.ix_(a_idx, b_idx)]
+                contrib = np.clip((0.0 - s) / 0.7, 0.0, 1.0)
+                return float(-np.sum(contrib))
+
+            hbond_e = _hb_sum(ld, ra) + _hb_sum(la, rd)
+
+            lig_h_all = vina_helper._is_hydrophobic_ligand(ligand_mol)
+            lig_h = np.array([i for i, orig in enumerate(heavy_idx) if lig_h_all[int(orig)]], dtype=np.int64)
+            rec_h = np.where(vina_helper._is_hydrophobic_receptor(rec_atoms))[0]
+            if len(lig_h) > 0 and len(rec_h) > 0:
+                s = surf[np.ix_(lig_h, rec_h)]
+                hydro_e = float(-np.sum(np.clip((1.5 - s) / 1.0, 0.0, 1.0)))
+
+            # Mild polar desolvation penalty balanced against H-bonds
+            polar_idx = [p for p, e in enumerate(lig_elements) if e in ('N', 'O')]
+            if polar_idx:
+                buried = np.sum(distances[polar_idx] < 4.5, axis=1)
+                desolv_e = float(np.sum(np.minimum(buried / 12.0, 1.0)))
+
+        raw_total = (
+            self.weights['vdw'] * vdw_e
+            + self.weights['electrostatic'] * elec_e
+            + self.weights['hbond'] * hbond_e
+            + self.weights['hydrophobic'] * hydro_e
+            + self.weights['solvation'] * desolv_e
         )
 
-        # Electrostatic energy
-        energy_components['electrostatic'] = self._calculate_electrostatic_energy(
-            ligand_coords, receptor_coords, ligand_mol, receptor_atoms
+        n_rot = vina_helper._count_rotatable_bonds(ligand_mol) if ligand_mol is not None else 0
+        final_energy = raw_total / (1.0 + self.n_rot_weight * n_rot)
+
+        self.logger.debug(
+            "PhysicsBasedScoring: vdw=%.3f elec=%.3f hb=%.3f hydro=%.3f desolv=%.3f -> %.3f kcal/mol",
+            vdw_e, elec_e, hbond_e, hydro_e, desolv_e, final_energy
         )
-
-        # Hydrogen bonding energy
-        energy_components['hbond'] = self._calculate_hydrogen_bond_energy(
-            ligand_coords, receptor_coords, ligand_mol, receptor_atoms
-        )
-
-        # Solvation energy
-        energy_components['solvation'] = self._calculate_solvation_energy(
-            ligand_coords, receptor_coords, ligand_mol, receptor_elements
-        )
-
-        # Calculate weighted total energy
-        total_energy = sum(
-            self.weights[term] * energy
-            for term, energy in energy_components.items()
-        )
-
-        # Apply scaling to get realistic binding energies
-        # Typical experimental binding energies: -15 to +5 kcal/mol
-        scaled_energy = self._scale_to_binding_energy(total_energy)
-
-        # Additional correction based on likely favorable interactions
-        interaction_corrected_energy = self._apply_interaction_bias(
-            scaled_energy, ligand_coords, receptor_structure
-        )
-
-        # Additional debug info
-        if len(ligand_coords) > 0:
-            self.logger.debug(f"Energy components: {energy_components}")
-            self.logger.debug(f"Raw total energy: {total_energy:.3f} kcal/mol")
-            self.logger.debug(f"Scaled binding energy: {scaled_energy:.3f} kcal/mol")
-            self.logger.debug(f"Interaction-corrected energy: {interaction_corrected_energy:.3f} kcal/mol")
-            self.logger.debug(f"Ligand atoms: {len(ligand_coords)}")
-
-        return interaction_corrected_energy
+        return float(final_energy)
 
     def _calculate_vdw_energy(self, ligand_coords: np.ndarray,
                              receptor_coords: np.ndarray,

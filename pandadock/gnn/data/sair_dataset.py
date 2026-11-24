@@ -842,6 +842,75 @@ class ShardBlockSampler:
             yield from block
 
 
+class TargetGroupedBatchSampler:
+    """
+    Batch sampler that guarantees multiple ligands per target in every batch.
+
+    `within_target_loss` and `pairwise_ranking_loss` require at least two
+    complexes of the same target inside the same batch. Random or shard-block
+    sampling leaves most batches with singletons when there are thousands of
+    targets. Grouping within shard blocks preserves cache locality while
+    packing `ligands_per_target` complexes from each target into each batch.
+    """
+
+    def __init__(
+        self,
+        dataset: "SAIRCachedDataset",
+        batch_size: int = 32,
+        ligands_per_target: int = 4,
+        block_shards: int = 16,
+        seed: int = 42,
+    ):
+        self.batch_size = max(2, int(batch_size))
+        self.ligands_per_target = max(2, min(int(ligands_per_target), self.batch_size))
+        self.block_shards = block_shards
+        self.seed = seed
+        self.epoch = 0
+
+        self.by_shard: Dict[int, List[int]] = {}
+        self.targets: List[int] = []
+        for pos, (shard_id, entry_id) in enumerate(dataset.index):
+            self.by_shard.setdefault(shard_id, []).append(pos)
+            self.targets.append(dataset.entry_target[entry_id])
+        self.n = len(dataset.index)
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = epoch
+
+    def __len__(self) -> int:
+        return (self.n + self.batch_size - 1) // self.batch_size
+
+    def __iter__(self):
+        rng = np.random.default_rng(self.seed + self.epoch)
+        shards = list(self.by_shard)
+        rng.shuffle(shards)
+
+        for start in range(0, len(shards), self.block_shards):
+            by_target: Dict[int, List[int]] = {}
+            for shard_id in shards[start:start + self.block_shards]:
+                for pos in self.by_shard[shard_id]:
+                    by_target.setdefault(self.targets[pos], []).append(pos)
+
+            chunks: List[List[int]] = []
+            for positions in by_target.values():
+                rng.shuffle(positions)
+                for i in range(0, len(positions), self.ligands_per_target):
+                    chunks.append(positions[i:i + self.ligands_per_target])
+            rng.shuffle(chunks)
+
+            batch: List[int] = []
+            for chunk in chunks:
+                if len(batch) + len(chunk) > self.batch_size and batch:
+                    yield batch
+                    batch = []
+                batch.extend(chunk)
+                while len(batch) >= self.batch_size:
+                    yield batch[:self.batch_size]
+                    batch = batch[self.batch_size:]
+            if batch:
+                yield batch
+
+
 def create_sair_dataloaders(
     cache_dir: str,
     batch_size: int = 32,
@@ -851,6 +920,8 @@ def create_sair_dataloaders(
     block_shards: int = 16,
     graph_config=None,
     center_targets: bool = False,
+    target_grouped: bool = False,
+    ligands_per_target: int = 4,
 ):
     """
     Build train/val/test loaders over the shard cache.
@@ -886,12 +957,24 @@ def create_sair_dataloaders(
     if num_workers > 0:
         common["prefetch_factor"] = 4
 
-    train_sampler = ShardBlockSampler(datasets["train"], block_shards, seed)
-    loaders = {
-        "train": PyGDataLoader(
+    if target_grouped:
+        train_batch_sampler = TargetGroupedBatchSampler(
+            datasets["train"],
+            batch_size=batch_size,
+            ligands_per_target=ligands_per_target,
+            block_shards=block_shards,
+            seed=seed,
+        )
+        train_loader = PyGDataLoader(
+            datasets["train"], batch_sampler=train_batch_sampler, **common
+        )
+    else:
+        train_sampler = ShardBlockSampler(datasets["train"], block_shards, seed)
+        train_loader = PyGDataLoader(
             datasets["train"], batch_size=batch_size, sampler=train_sampler, **common
         )
-    }
+
+    loaders = {"train": train_loader}
     # Validation and test run in shard order: no shuffle needed, and sequential
     # access is the cheapest way through the cache.
     for split in ("val", "test"):

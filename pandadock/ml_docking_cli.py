@@ -112,12 +112,7 @@ MAIN COMMANDS:
     train               Train ML models on docking datasets
     hybrid-dock         Use hybrid ML+Physics pipeline
     extract-features    Extract features from protein-ligand complexes
-    predict-poses      Generate poses using trained ML models
-
-MODEL COMMANDS:
     list-models         List available ML models
-    benchmark           Benchmark ML models against physics methods
-    tune-hyperparams    Optimize model hyperparameters
 
 EXAMPLES:
     # ML-enhanced docking
@@ -162,7 +157,7 @@ def main(ctx, verbose, version, help):
         logging.getLogger().setLevel(logging.DEBUG)
 
     if version:
-        click.echo("PandaDock-ML v1.0.0 - Pritam Kumar Panda @ Stanford University")
+        click.echo(f"PandaDock-ML v{__version__} - Pritam Kumar Panda @ Stanford University")
         return
 
     if help:
@@ -611,8 +606,8 @@ def load_ligand(ligand_file: str) -> Optional[Chem.Mol]:
         if mol is None:
             return None
 
-        # Add hydrogens if not present
-        mol = Chem.AddHs(mol)
+        # Add hydrogens if not present (preserving 3D coordinates)
+        mol = Chem.AddHs(mol, addCoords=True)
         return mol
 
     except Exception as e:

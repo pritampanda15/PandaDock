@@ -73,6 +73,7 @@ engine.register_algorithm(HierarchicalDocker())
 
 # Register scoring functions
 engine.register_scoring_function('vina', VinaScoring())
+engine.register_scoring_function('vinardo', VinaScoring.vinardo())
 engine.register_scoring_function('physics_based', PhysicsBasedScoring())
 
 
@@ -188,7 +189,7 @@ def main(ctx, verbose, version, help):
               help='Grid center coordinates (Å)')
 @click.option('--box', nargs=3, type=float, metavar='X Y Z',
               help='Grid box dimensions (Å)')
-@click.option('--scoring', '-s', type=click.Choice(['vina', 'physics_based']),
+@click.option('--scoring', '-s', type=click.Choice(['vina', 'vinardo', 'physics_based']),
               default='vina', help='Scoring function to use (default: vina)')
 @click.option('--output-dir', '-o', type=click.Path(), default='docking_output',
               help='Output directory')
@@ -218,9 +219,14 @@ def main(ctx, verbose, version, help):
                    'the CPU either way.')
 @click.option('--n-chains', type=int, default=512,
               help='Parallel search chains when --device is not cpu (default: 512)')
+@click.option('--workers', '-j', type=int, default=1,
+              help='CPU worker threads across independent MC runs (default: 1)')
+@click.option('--sample-rings', is_flag=True, default=False,
+              help='Enumerate distinct puckers for flexible non-aromatic rings')
 def dock(receptor, ligand, grid_config, center, box, scoring,
          output_dir, num_poses, ensemble, rescoring, visualize, fast,
-         exhaustiveness, seed, rigid_ligand, grid_spacing, device, n_chains):
+         exhaustiveness, seed, rigid_ligand, grid_spacing, device, n_chains,
+         workers, sample_rings):
     """Perform molecular docking with Vina-style scoring"""
 
     click.echo("PandaDock Molecular Docking")
@@ -274,6 +280,8 @@ def dock(receptor, ligand, grid_config, center, box, scoring,
         'grid_spacing': grid_spacing,
         'device': device,
         'n_chains': n_chains,
+        'n_workers': workers,
+        'sample_rings': sample_rings,
     }
     if fast:
         click.echo("Fast mode enabled - reduced sampling for quick testing")
@@ -912,6 +920,16 @@ def gnn():
     pass
 
 
+try:
+    from .gnn.cli import main as _gnn_cli_main
+    if hasattr(_gnn_cli_main, 'commands'):
+        for _cmd_name in ('train-sair', 'list-algorithms'):
+            if _cmd_name in _gnn_cli_main.commands:
+                gnn.add_command(_gnn_cli_main.commands[_cmd_name], name=_cmd_name)
+except Exception:
+    pass
+
+
 @gnn.command()
 @click.option('--dataset', '-d', type=click.Path(exists=True),
               help='Path to ULVSH dataset directory')
@@ -1146,8 +1164,14 @@ def train(dataset, pdbbind, bindingdb, output, epochs, batch_size, lr, hidden_di
               help='Ligand MOL2/SDF file')
 @click.option('--site', '-s', type=click.Path(exists=True),
               help='Optional binding site MOL2 file')
+@click.option('--site-radius', type=float, default=None,
+              help='Binding site cut radius in Angstrom when --site is omitted '
+                   '(defaults to checkpoint metadata or 10.0 A)')
+@click.option('--strip-hydrogens/--keep-hydrogens', default=None,
+              help='Drop hydrogens before scoring (required for SAIR heavy-atom '
+                   'models; defaults to checkpoint metadata when present)')
 @click.option('--output', '-o', type=click.Path(), help='Output JSON file')
-def predict(model, protein, ligand, site, output):
+def predict(model, protein, ligand, site, site_radius, strip_hydrogens, output):
     """Predict binding affinity for a protein-ligand complex."""
     try:
         import json
@@ -1158,7 +1182,11 @@ def predict(model, protein, ligand, site, output):
         return
 
     click.echo("Loading model...")
-    scorer = GNNScoring(model_path=model)
+    scorer = GNNScoring(
+        model_path=model,
+        site_radius=site_radius,
+        strip_hydrogens=strip_hydrogens,
+    )
 
     click.echo("Predicting...")
     result = scorer.predict_affinity(protein, ligand, site)
@@ -1486,23 +1514,16 @@ def compare(model, dataset, output, split):
               help='Optional: Output SDF file with poses ranked by GNN score')
 @click.option('--site-radius', type=float, default=10.0,
               help='Radius around ligand centroid to extract binding site (Angstrom)')
-def rescore(model, receptor, poses, output, output_sdf, site_radius):
+@click.option('--strip-hydrogens/--keep-hydrogens', default=None,
+              help='Drop hydrogens before scoring (required for SAIR heavy-atom '
+                   'models; defaults to checkpoint metadata when present)')
+def rescore(model, receptor, poses, output, output_sdf, site_radius, strip_hydrogens):
     """
     Universal GNN rescorer for poses from any docking tool.
 
-    Takes docked poses (from pandadock-flex, pandadock-metal, pandadock-tethered,
-    or any other docking software like AutoDock Vina, Glide, etc.) and rescores
-    them using the SE(3)-equivariant GNN model.
-
-    Examples:
-        # Rescore poses from pandadock-flex
-        pandadock gnn rescore -m model.pt -r protein.pdb -p flex_poses.sdf
-
-        # Rescore AutoDock Vina output
-        pandadock gnn rescore -m model.pt -r receptor.pdb -p vina_out.sdf -o ranked.csv
-
-        # Get ranked SDF with GNN scores as properties
-        pandadock gnn rescore -m model.pt -r protein.pdb -p poses.sdf --output-sdf ranked.sdf
+    NOTE: Benchmarked against the empirical scoring function, the affinity
+    GNN selects worse poses (median RMSD 5.36 A vs 2.09 A). Prefer
+    `pandadock dock` to pick poses and the GNN to estimate affinity.
     """
     try:
         import numpy as np
@@ -1510,7 +1531,7 @@ def rescore(model, receptor, poses, output, output_sdf, site_radius):
         from rdkit import Chem
 
         from .gnn.scoring import GNNScoring
-        from .gnn.data.graph_builder import HeterogeneousGraphBuilder, parse_molecule_file
+        from .gnn.data.graph_builder import GraphConfig, HeterogeneousGraphBuilder, parse_molecule_file
         from .gnn.data.mol2_parser import ParsedMolecule, Atom, Bond
     except ImportError as e:
         click.echo(f"Missing GNN dependencies: {e}")
@@ -1520,6 +1541,8 @@ def rescore(model, receptor, poses, output, output_sdf, site_radius):
     click.echo("=" * 60)
     click.echo("PandaDock-GNN Universal Rescorer")
     click.echo("=" * 60)
+    click.echo("WARNING: The affinity GNN selects worse poses than the empirical score")
+    click.echo("  (median RMSD 5.36 A vs 2.09 A). Use it to estimate affinity of chosen poses.")
     click.echo(f"Model: {model}")
     click.echo(f"Receptor: {receptor}")
     click.echo(f"Poses: {poses}")
@@ -1528,8 +1551,17 @@ def rescore(model, receptor, poses, output, output_sdf, site_radius):
 
     # Load model
     click.echo("\nLoading GNN model...")
-    scorer = GNNScoring(model_path=model)
-    graph_builder = HeterogeneousGraphBuilder()
+    scorer = GNNScoring(
+        model_path=model,
+        site_radius=site_radius,
+        strip_hydrogens=strip_hydrogens,
+    )
+    graph_builder = HeterogeneousGraphBuilder(
+        GraphConfig(
+            site_radius=scorer.site_radius,
+            strip_hydrogens=scorer.strip_hydrogens,
+        )
+    )
 
     # Load receptor
     click.echo("Parsing receptor...")
@@ -1717,20 +1749,21 @@ def rescore(model, receptor, poses, output, output_sdf, site_radius):
 @click.option('--output', '-o', type=click.Path(), default='models/',
               help='Output directory for the model (default: models/)')
 @click.option('--version', '-v', type=str, default='latest',
-              help='Model version to download (default: latest)')
+              help='Model variant or version to download (latest, sair, v4.0.0, bindingdb)')
 @click.option('--force', '-f', is_flag=True, default=False,
               help='Overwrite existing model file')
-def download_model(output, version, force):
+@click.option('--list', 'list_models', is_flag=True, default=False,
+              help='List available pre-trained models')
+def download_model(output, version, force, list_models):
     """
     Download pre-trained PandaDock-GNN model.
 
-    Downloads the official pre-trained model from GitHub releases.
-    The model was trained on ULVSH + PDBbind combined dataset
-    and achieves R=0.88 on PDBbind validation.
+    Downloads official pre-trained models from GitHub releases.
+    Reported metrics reflect full-dataset evaluations (revised Aug 2026).
 
     Examples:
         pandadock gnn download-model
-        pandadock gnn download-model -o /path/to/models/
+        pandadock gnn download-model --version sair -o /path/to/models/
         pandadock gnn download-model --force
     """
     import urllib.request
@@ -1738,23 +1771,68 @@ def download_model(output, version, force):
 
     # GitHub release URLs
     GITHUB_REPO = "pritampanda15/PandaDock"
-    MODEL_FILENAME = "pandadock_gnn_v4.pt"
 
-    # Model info
+    # Model info (metrics match README.md full-dataset benchmarks)
     MODEL_INFO = {
         'v4.0.0': {
-            'url': f'https://github.com/{GITHUB_REPO}/releases/download/v4.0.0/{MODEL_FILENAME}',
-            'sha256': None,  # Will be set when model is uploaded
+            'filename': 'pandadock_gnn_v4.pt',
+            'url': f'https://github.com/{GITHUB_REPO}/releases/download/v4.0.0/pandadock_gnn_v4.pt',
+            'sha256': None,
             'size_mb': 82,
-            'description': 'Combined ULVSH + PDBbind model (200 epochs)',
+            'description': 'Combined ULVSH + PDBbind model (all-atom; includes hydrogens)',
             'metrics': {
-                'pdbbind_pearson_r': 0.88,
-                'ulvsh_test_pearson_r': 0.82,
-                'gaba_pearson_r': 0.68,
-                'ulvsh_activity_auc': 0.94
+                'pdbbind_full_r (n=4640, partly in train)': 0.387,
             }
-        }
+        },
+        'sair': {
+            'filename': 'pandadock_gnn_sair.pt',
+            'url': f'https://github.com/{GITHUB_REPO}/releases/download/v4.1.1/pandadock_gnn_sair.pt',
+            'sha256': None,
+            'size_mb': 82,
+            'description': 'SAIR 741k target-disjoint model (heavy-atom; use --strip-hydrogens)',
+            'metrics': {
+                'sair_test_r (n=90,219)': 0.407,
+                'crystal_test_r (n=202)': 0.467,
+                'pdbbind_independent_r (n=4,640)': 0.531,
+                'pdbbind_within_target_median_r': 0.31,
+            }
+        },
+        'bindingdb': {
+            'filename': 'pandadock_gnn_bindingdb.pt',
+            'url': f'https://github.com/{GITHUB_REPO}/releases/download/v4.0.0/pandadock_gnn_bindingdb.pt',
+            'sha256': None,
+            'size_mb': 28,
+            'description': 'BindingDB only (8,891 complexes, all-atom)',
+            'metrics': {
+                'pdbbind_independent_r (n=4,640)': 0.277,
+            }
+        },
     }
+
+    if list_models:
+        click.echo("\nAvailable PandaDock-GNN Models:")
+        click.echo("=" * 60)
+        for name, m_info in MODEL_INFO.items():
+            click.echo(f"\n{name}:")
+            click.echo(f"  File: {m_info['filename']}")
+            click.echo(f"  Size: ~{m_info['size_mb']} MB")
+            click.echo(f"  Description: {m_info['description']}")
+            for mk, mv in m_info['metrics'].items():
+                click.echo(f"    {mk}: {mv}")
+        click.echo("\n" + "=" * 60)
+        return
+
+    # Get version info
+    if version == 'latest':
+        version = 'v4.0.0'
+
+    if version not in MODEL_INFO:
+        click.echo(f"Error: Unknown version '{version}'")
+        click.echo(f"Available versions: {', '.join(MODEL_INFO.keys())}")
+        return
+
+    info = MODEL_INFO[version]
+    MODEL_FILENAME = info['filename']
 
     # Create output directory
     output_dir = Path(output)
@@ -1770,17 +1848,6 @@ def download_model(output, version, force):
     click.echo("=" * 60)
     click.echo("PandaDock-GNN Model Download")
     click.echo("=" * 60)
-
-    # Get version info
-    if version == 'latest':
-        version = 'v4.0.0'  # Current latest
-
-    if version not in MODEL_INFO:
-        click.echo(f"Error: Unknown version '{version}'")
-        click.echo(f"Available versions: {', '.join(MODEL_INFO.keys())}")
-        return
-
-    info = MODEL_INFO[version]
     click.echo(f"Version: {version}")
     click.echo(f"Size: ~{info['size_mb']} MB")
     click.echo(f"Description: {info['description']}")

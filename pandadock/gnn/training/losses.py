@@ -368,3 +368,63 @@ def within_target_loss(predictions, targets, groups):
     centred_true = targets - (true_sum / counts)[inverse]
 
     return ((centred_pred - centred_true)[keep] ** 2).mean()
+
+
+def pairwise_ranking_loss(
+    predictions: torch.Tensor,
+    targets: torch.Tensor,
+    groups: torch.Tensor,
+    margin: float = 0.0,
+    min_delta: float = 0.1,
+) -> Optional[torch.Tensor]:
+    """Within-target pairwise margin/logistic ranking loss over same-target pairs.
+
+    For every pair `(i, j)` sharing a target group where `targets[i] > targets[j] + min_delta`,
+    penalizes `predictions[i] <= predictions[j] + margin` via smooth softplus loss.
+    Returns None when the batch has no informative same-target pairs.
+    """
+    pred = predictions.view(-1).float()
+    true = targets.view(-1).float()
+    grp = groups.view(-1)
+
+    same_group = grp.unsqueeze(1) == grp.unsqueeze(0)
+    true_diff = true.unsqueeze(1) - true.unsqueeze(0)
+    valid = same_group & (true_diff > min_delta)
+    if not bool(valid.any()):
+        return None
+
+    pred_diff = pred.unsqueeze(1) - pred.unsqueeze(0)
+    return F.softplus(margin - pred_diff[valid]).mean()
+
+
+def pose_decoy_loss(
+    pred_scores: torch.Tensor,
+    rmsds: torch.Tensor,
+    groups: Optional[torch.Tensor] = None,
+    native_threshold: float = 2.0,
+    decoy_threshold: float = 4.0,
+    margin: float = 1.0,
+) -> Optional[torch.Tensor]:
+    """Contrastive ranking loss for training a GNN to select near-native poses over decoys.
+
+    Higher `pred_scores` indicate better poses (e.g. predicted pK or pose quality).
+    For every pair `(native, decoy)` belonging to the same complex (`groups`) where
+    `rmsds[native] <= native_threshold` and `rmsds[decoy] >= decoy_threshold`,
+    enforces `pred_scores[native] >= pred_scores[decoy] + margin`.
+    """
+    scores = pred_scores.view(-1).float()
+    rmsd = rmsds.view(-1).float()
+    if groups is None:
+        same_complex = torch.ones((scores.numel(), scores.numel()), dtype=torch.bool, device=scores.device)
+    else:
+        g = groups.view(-1)
+        same_complex = g.unsqueeze(1) == g.unsqueeze(0)
+
+    is_native = rmsd <= native_threshold
+    is_decoy = rmsd >= decoy_threshold
+    valid = same_complex & is_native.unsqueeze(1) & is_decoy.unsqueeze(0)
+    if not bool(valid.any()):
+        return None
+
+    diff = scores.unsqueeze(1) - scores.unsqueeze(0)
+    return F.softplus(margin - diff[valid]).mean()

@@ -440,6 +440,28 @@ class MultiLigandSearch:
 
         return torch.cat([translation, rotvec, angles], -1).view(n_lig, n_chain, -1)
 
+    def energy(self, x: "torch.Tensor") -> "torch.Tensor":
+        """Energy-only evaluation for (L, C, 6 + T) -> (L, C), no gradient."""
+        p = self.packed
+        n_lig, n_chain = x.shape[0], x.shape[1]
+        n_atoms = p.base_coords.shape[1]
+
+        coords = self.build_coords(x)
+        flat_coords = coords.reshape(n_lig * n_chain, n_atoms, 3)
+
+        heavy_mask = p.heavy_mask.unsqueeze(1).expand(n_lig, n_chain, -1)
+        types = p.type_ids.unsqueeze(1).expand(n_lig, n_chain, -1)
+
+        inter, _ = self.grids.score_and_gradient(
+            flat_coords,
+            types.reshape(n_lig * n_chain, -1),
+            need_gradient=False,
+            atom_mask=heavy_mask.reshape(n_lig * n_chain, -1),
+        )
+        inter = inter.view(n_lig, n_chain)
+        clash, _ = self._clash(coords, need_gradient=False)
+        return inter + clash
+
     def local_optimize(self, x, config: Optional[LBFGSConfig] = None):
         """Relax every chain of every ligand in one call."""
         n_lig, n_chain, n_dof = x.shape
@@ -448,8 +470,14 @@ class MultiLigandSearch:
             energy, grad = self.energy_and_dof_gradient(flat.view(n_lig, n_chain, n_dof))
             return energy.reshape(-1), grad.reshape(-1, n_dof)
 
+        def energy_only(flat):
+            return self.energy(flat.view(n_lig, n_chain, n_dof)).reshape(-1)
+
         flat, energy, _ = batched_lbfgs(
-            x.reshape(-1, n_dof), closure, config or LBFGSConfig()
+            x.reshape(-1, n_dof),
+            closure,
+            config or LBFGSConfig(),
+            energy_fn=energy_only,
         )
         flat = torch.cat([flat[:, :3], wrap_rotvec(flat[:, 3:6]), flat[:, 6:]], dim=-1)
         return flat.view(n_lig, n_chain, n_dof), energy.view(n_lig, n_chain)

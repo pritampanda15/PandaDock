@@ -326,10 +326,20 @@ class AIBindingSitePredictionGenerator(GridBoxGenerator):
         min_distance = min(dist for _, dist in local_atoms)
         features['cavity_depth'] = min_distance / radius
 
-        # Feature 8-10: Secondary structure features (simplified)
-        features['alpha_helix_density'] = np.random.random() * 0.1  # Placeholder
-        features['beta_sheet_density'] = np.random.random() * 0.1  # Placeholder
-        features['loop_density'] = np.random.random() * 0.1  # Placeholder
+        # Feature 8-10: Deterministic residue-propensity secondary structure proxies
+        helix_res = {'ALA', 'GLU', 'LEU', 'MET', 'GLN', 'LYS'}
+        sheet_res = {'VAL', 'ILE', 'TYR', 'PHE', 'TRP', 'THR'}
+        loop_res = {'GLY', 'PRO', 'SER', 'ASN', 'ASP'}
+        res_names = []
+        for atom, _ in local_atoms:
+            try:
+                res_names.append(atom.get_parent().get_resname().strip().upper())
+            except Exception:
+                pass
+        denom = max(1, len(res_names))
+        features['alpha_helix_density'] = sum(1 for r in res_names if r in helix_res) / denom
+        features['beta_sheet_density'] = sum(1 for r in res_names if r in sheet_res) / denom
+        features['loop_density'] = sum(1 for r in res_names if r in loop_res) / denom
 
         # Features 11-15: Geometric features
         coords = np.array([atom.get_coord() for atom, _ in local_atoms])
@@ -342,20 +352,29 @@ class AIBindingSitePredictionGenerator(GridBoxGenerator):
 
             # Calculate compactness
             center_distances = np.linalg.norm(coords - center, axis=1)
-            features['compactness'] = np.std(center_distances) / np.mean(center_distances)
+            mean_d = float(np.mean(center_distances))
+            features['compactness'] = float(np.std(center_distances) / mean_d) if mean_d > 1e-8 else 0.0
 
             # Calculate eccentricity (shape descriptor)
             cov_matrix = np.cov(coords.T)
-            eigenvals = np.linalg.eigvals(cov_matrix)
-            features['eccentricity'] = (max(eigenvals) - min(eigenvals)) / max(eigenvals)
+            eigenvals = np.real(np.linalg.eigvals(cov_matrix))
+            max_ev = float(np.max(eigenvals))
+            features['eccentricity'] = float((max_ev - float(np.min(eigenvals))) / max_ev) if max_ev > 1e-8 else 0.0
         else:
             features.update({
                 'shape_complexity_x': 0.0, 'shape_complexity_y': 0.0, 'shape_complexity_z': 0.0,
                 'compactness': 0.0, 'eccentricity': 0.0
             })
 
-        # Features 16-20: Advanced chemical features
-        features['metal_binding'] = np.random.random() * 0.1  # Placeholder
+        # Features 16-20: Deterministic chemical features
+        metal_coord_res = {'HIS', 'CYS', 'ASP', 'GLU'}
+        metal_elements = {'ZN', 'MG', 'CA', 'FE', 'MN', 'CU', 'CO', 'NI'}
+        metal_atoms = sum(
+            1 for atom, _ in local_atoms
+            if (atom.element.strip().upper() in metal_elements)
+            or (atom.get_parent() and atom.get_parent().get_resname().strip().upper() in metal_coord_res)
+        )
+        features['metal_binding'] = metal_atoms / len(local_atoms)
         features['hydrogen_bond_potential'] = features['hydrophilic_ratio'] * 0.8
         features['electrostatic_potential'] = features['charged_density'] * 0.6
         features['van_der_waals_surface'] = features['protein_density'] * 0.001
@@ -365,7 +384,7 @@ class AIBindingSitePredictionGenerator(GridBoxGenerator):
         feature_vector = {}
         feature_keys = sorted(features.keys())[:self.feature_dim]
         for i, key in enumerate(feature_keys):
-            feature_vector[f'feature_{i}'] = min(max(features[key], 0.0), 1.0)  # Clamp to [0,1]
+            feature_vector[f'feature_{i}'] = min(max(float(features[key]), 0.0), 1.0)
 
         # Fill remaining features with zeros if needed
         for i in range(len(feature_keys), self.feature_dim):
@@ -374,36 +393,24 @@ class AIBindingSitePredictionGenerator(GridBoxGenerator):
         return feature_vector
 
     def _predict_binding_sites(self, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Predict binding site likelihood using simple heuristics (placeholder for actual AI model)"""
-
+        """Score candidate pockets deterministically from geometric & chemical descriptors."""
         predictions = []
 
         for candidate in candidates:
             features = candidate['features']
 
-            # Simple heuristic scoring (replace with actual AI model)
-            score = 0.0
-
-            # Get basic features
+            # Deterministic heuristic scoring over pocket geometry and druggability
             protein_density = features.get('feature_0', 0.0)
             surface_accessibility = features.get('feature_1', 0.0)
             shape_complexity = features.get('feature_2', 0.0)
 
-            # Score based on protein density (not too high, not too low)
-            density_score = 1.0 - abs(protein_density - 0.3) / 0.3  # Optimal around 0.3
-            score += max(density_score, 0.0) * 0.4
-
-            # Prefer sites with reasonable surface accessibility
-            score += surface_accessibility * 0.3
-
-            # Prefer sites with some shape complexity
-            score += min(shape_complexity, 0.5) * 0.2
-
-            # Add some randomness to simulate model uncertainty
-            score += (np.random.random() - 0.5) * 0.1
-
-            # Clamp to [0,1]
-            confidence = max(0.0, min(1.0, score))
+            density_score = 1.0 - abs(protein_density - 0.3) / 0.3
+            score = (
+                max(density_score, 0.0) * 0.45
+                + surface_accessibility * 0.35
+                + min(shape_complexity, 0.5) * 0.40
+            )
+            confidence = max(0.0, min(1.0, float(score)))
 
             predictions.append({
                 'confidence': confidence,
@@ -411,7 +418,7 @@ class AIBindingSitePredictionGenerator(GridBoxGenerator):
                     'protein_density': protein_density,
                     'surface_accessibility': surface_accessibility,
                     'shape_complexity': shape_complexity,
-                    'model_type': 'simplified_features'
+                    'model_type': 'deterministic_pocket_heuristics'
                 }
             })
 

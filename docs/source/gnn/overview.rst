@@ -72,84 +72,58 @@ Edge Features (23 dimensions)
 Benchmark Performance
 ---------------------
 
-**ULVSH Dataset (942 compounds, 10 protein targets):**
+.. note::
+   Earlier v4.0 figures (R = 0.88 on PDBbind, R = 0.82 on ULVSH) were withdrawn
+   in August 2026. All values below reflect full-dataset evaluations with fixed
+   prediction pipelines.
 
-+------------------+-------------+
-| Metric           | Value       |
-+==================+=============+
-| Activity AUC     | 0.94        |
-+------------------+-------------+
-| Spearman ρ       | 0.80        |
-+------------------+-------------+
-| RMSE             | 0.32        |
-+------------------+-------------+
-| MAE              | 0.12        |
-+------------------+-------------+
+**SAIR Released Model (741,706 co-folded complexes, target-disjoint splits):**
 
-**BindingDB Dataset (8,891 protein-ligand complexes):**
++------------------------------------+--------+-----------+
+| Evaluation                         | N      | Pearson R |
++====================================+========+===========+
+| Held-out SAIR test split           | 90,219 | 0.407     |
++------------------------------------+--------+-----------+
+| Experimental crystal structures    | 202    | 0.467     |
++------------------------------------+--------+-----------+
+| PDBbind v2020 refined (indep.)     | 4,640  | 0.531     |
++------------------------------------+--------+-----------+
 
-+---------------------------+----------------+-----------+
-| Training Configuration    | Test Pearson R | Test RMSE |
-+===========================+================+===========+
-| BindingDB Only            | 0.81           | -         |
-+---------------------------+----------------+-----------+
-| BindingDB + ULVSH         | 0.79           | 0.96      |
-+---------------------------+----------------+-----------+
+**PDBbind v2020 Refined Set (n = 4,640, native crystal poses):**
 
-**PDBbind v2020 (5,316 complexes):**
++----------------------------------------------+-----------+------------+
+| Model                                        | Pearson R | Spearman ρ |
++==============================================+===========+============+
+| SAIR (independent)                           | 0.531     | 0.523      |
++----------------------------------------------+-----------+------------+
+| PDBbind-only (own held-out test, n = 624)    | 0.690     | 0.674      |
++----------------------------------------------+-----------+------------+
+| BindingDB (independent)                      | 0.277     | 0.281      |
++----------------------------------------------+-----------+------------+
 
-+------------------+-------------+
-| Metric           | Value       |
-+==================+=============+
-| Pearson R        | 0.88        |
-+------------------+-------------+
-| Spearman ρ       | 0.88        |
-+------------------+-------------+
-| RMSE             | 0.93 pK     |
-+------------------+-------------+
-
-PandaDock-GNN **outperforms all baseline methods** including:
-VM2, MMPBSA, MMGBSA, Gnina, Hyde, DeltaVina, GFN-FF, and PM6.
+.. warning::
+   **Do not use PandaDock-GNN to select docked poses.** Benchmarked against
+   the empirical scoring function on 50 complexes (20 poses each), GNN
+   rescoring degrades median RMSD from 2.09 A to 5.36 A. Use ``pandadock dock``
+   to select poses and ``pandadock-gnn predict`` to estimate affinity of a
+   chosen pose.
 
 Usage
 -----
 
-**Training on ULVSH:**
+**Training on SAIR:**
 
 .. code-block:: bash
 
-   pandadock gnn train -d ULVSH/ -o models/ --epochs 100
-
-**Training on BindingDB:**
-
-.. code-block:: bash
-
-   python BindingDB_training/train_bindingdb.py \
-       --bindingdb BindingDB_training/bindingdb_affinity.tsv \
-       --output models/ --epochs 100
-
-**Combined Training (BindingDB + ULVSH):**
-
-.. code-block:: bash
-
-   python BindingDB_training/train_bindingdb.py \
-       --bindingdb BindingDB_training/bindingdb_affinity.tsv \
-       --ulvsh ULVSH/ --combined \
-       --output models/ --epochs 100
+   pandadock-gnn train-sair --cache sair_cache/ -o models/sair/ \
+                            --rank-weight 1.0 --target-grouped
 
 **Prediction:**
 
 .. code-block:: bash
 
-   pandadock gnn predict -m model.pt -p protein.mol2 -l ligand.mol2
-
-**Hybrid Docking (Recommended):**
-
-.. code-block:: bash
-
-   pandadock hybrid -r protein.pdb -l ligand.sdf \
-                    --center 10 20 30 --box 20 20 20 \
-                    -m model.pt
+   pandadock-gnn predict -m models/pandadock_gnn_sair.pt \
+                         -p protein.pdb -l ligand.mol2 --strip-hydrogens
 
 References
 ----------

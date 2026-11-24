@@ -186,6 +186,11 @@ if CLICK_AVAILABLE:
                   help='Train on affinity relative to each target mean. Produces '
                        'a ligand ranker that CANNOT emit an absolute pIC50 for an '
                        'unseen target; use --rank-weight instead if you need IC50')
+    @click.option('--target-grouped', is_flag=True,
+                  help='Pack multiple ligands per target into each training batch '
+                       '(recommended whenever --rank-weight > 0)')
+    @click.option('--ligands-per-target', default=4, type=int,
+                  help='Ligands per target per batch when --target-grouped is set')
     @click.option('--num-workers', default=6, type=int,
                   help='Dataloader worker processes')
     @click.option('--block-shards', default=16, type=int,
@@ -194,6 +199,7 @@ if CLICK_AVAILABLE:
     @click.option('--seed', default=42, type=int, help='Random seed')
     def train_sair(cache, output, epochs, batch_size, lr, hidden_dim, num_layers,
                    dropout, patience, scheduler, rank_weight, target_centered,
+                   target_grouped, ligands_per_target,
                    num_workers, block_shards, gpu, seed):
         """
         Train PandaDock-GNN on the SAIR shard cache.
@@ -242,6 +248,8 @@ if CLICK_AVAILABLE:
             num_workers=num_workers,
             block_shards=block_shards,
             center_targets=target_centered,
+            target_grouped=target_grouped or (rank_weight > 0.0),
+            ligands_per_target=ligands_per_target,
         )
         print(f"  train {len(train_loader.dataset):,}  "
               f"val {len(val_loader.dataset):,}  "
@@ -254,6 +262,9 @@ if CLICK_AVAILABLE:
             num_layers=num_layers,
             dropout=dropout,
             predict_activity=False,
+            strip_hydrogens=True,
+            site_radius=10.0,
+            training_dataset='sair',
         )
         model = PandaDockGNN(config)
         print(f"\nModel parameters: {model.count_parameters():,}")
@@ -472,24 +483,19 @@ if CLICK_AVAILABLE:
                   help='Optional: Output SDF file with poses ranked by GNN score')
     @click.option('--site-radius', type=float, default=10.0,
                   help='Radius around ligand centroid to extract binding site (Å)')
+    @click.option('--strip-hydrogens/--keep-hydrogens', default=None,
+                  help='Drop hydrogens before scoring (required for SAIR heavy-atom models; '
+                       'defaults to checkpoint metadata when present)')
     @click.option('--batch-size', type=int, default=1,
                   help='Batch size for processing (1 = safest)')
-    def rescore(model, receptor, poses, output, output_sdf, site_radius, batch_size):
+    def rescore(model, receptor, poses, output, output_sdf, site_radius, strip_hydrogens, batch_size):
         """
         Universal GNN rescorer for poses from any docking tool.
 
-        Takes docked poses (from pandadock-flex, pandadock-metal, pandadock-tethered,
-        or any other docking software) and rescores them using the GNN model.
-
-        Examples:
-            # Rescore poses from pandadock-flex
-            pandadock gnn rescore -m model.pt -r protein.pdb -p flex_output/poses.sdf
-
-            # Rescore with custom output
-            pandadock gnn rescore -m model.pt -r protein.pdb -p poses.sdf -o ranked.csv --output-sdf ranked.sdf
-
-            # Rescore poses from AutoDock Vina
-            pandadock gnn rescore -m model.pt -r receptor.pdb -p vina_out.sdf
+        NOTE: Benchmarked against the empirical scoring function, the affinity
+        GNN ranks ligands rather than poses of a single ligand (median RMSD
+        5.36 A vs 2.09 A). Prefer `pandadock dock` to select poses and the GNN
+        to estimate affinity of a chosen pose.
         """
         check_dependencies()
 
@@ -501,11 +507,13 @@ if CLICK_AVAILABLE:
         from rdkit.Chem import AllChem
 
         from .scoring import GNNScoring
-        from .data.graph_builder import HeterogeneousGraphBuilder, parse_molecule_file
+        from .data.graph_builder import GraphConfig, HeterogeneousGraphBuilder, parse_molecule_file
 
         print("=" * 60)
         print("PandaDock-GNN Universal Rescorer")
         print("=" * 60)
+        print("WARNING: The affinity GNN selects worse poses than the empirical score")
+        print("  (median RMSD 5.36 A vs 2.09 A). Use it to estimate affinity of chosen poses.")
         print(f"Model: {model}")
         print(f"Receptor: {receptor}")
         print(f"Poses: {poses}")
@@ -514,8 +522,17 @@ if CLICK_AVAILABLE:
 
         # Load model
         print("\nLoading GNN model...")
-        scorer = GNNScoring(model_path=model)
-        graph_builder = HeterogeneousGraphBuilder()
+        scorer = GNNScoring(
+            model_path=model,
+            site_radius=site_radius,
+            strip_hydrogens=strip_hydrogens,
+        )
+        graph_builder = HeterogeneousGraphBuilder(
+            GraphConfig(
+                site_radius=scorer.site_radius,
+                strip_hydrogens=scorer.strip_hydrogens,
+            )
+        )
 
         # Load receptor
         print("Parsing receptor...")
@@ -733,7 +750,7 @@ if CLICK_AVAILABLE:
     @main.command('download-model')
     @click.option('--output', '-o', type=click.Path(), default='models/',
                   help='Output directory for the model (default: models/)')
-    @click.option('--model', '-m', type=click.Choice(['default', 'bindingdb', 'bindingdb-ulvsh']),
+    @click.option('--model', '-m', type=click.Choice(['default', 'sair', 'bindingdb', 'bindingdb-ulvsh']),
                   default='default', help='Model type to download')
     @click.option('--force', '-f', is_flag=True, default=False,
                   help='Overwrite existing model file')
@@ -744,63 +761,65 @@ if CLICK_AVAILABLE:
         Download pre-trained PandaDock-GNN model.
 
         Downloads official pre-trained models from GitHub releases.
+        Reported metrics reflect full-dataset evaluations (revised Aug 2026).
 
         Available models:
 
         \b
-          default       - ULVSH + PDBbind (82 MB, R=0.88 on PDBbind)
-          bindingdb     - BindingDB only (28 MB, R=0.81 on BindingDB)
-          bindingdb-ulvsh - BindingDB + ULVSH (28 MB, R=0.79 combined)
+          default         - ULVSH + PDBbind combined (82 MB, full PDBbind R=0.39)
+          sair            - SAIR 741k co-folded model (heavy-atom; full PDBbind R=0.53 out-of-distribution)
+          bindingdb       - BindingDB only (28 MB, full PDBbind R=0.28 independent)
+          bindingdb-ulvsh - BindingDB + ULVSH combined (28 MB; ULVSH labels are censored)
 
         Examples:
-            # Download default model (recommended)
-            pandadock gnn download-model
-
-            # Download BindingDB-trained model
-            pandadock gnn download-model --model bindingdb
-
-            # Download BindingDB + ULVSH combined model
-            pandadock gnn download-model --model bindingdb-ulvsh
-
-            # List available models
-            pandadock gnn download-model --list
+            pandadock-gnn download-model
+            pandadock-gnn download-model --model sair
+            pandadock-gnn download-model --list
         """
         import urllib.request
 
         # GitHub release URLs
         GITHUB_REPO = "pritampanda15/PandaDock"
 
-        # Available models
+        # Available models (metrics match the full-dataset evaluations in README.md)
         MODELS = {
             'default': {
                 'filename': 'pandadock_gnn_v4.pt',
                 'url': f'https://github.com/{GITHUB_REPO}/releases/download/v4.0.0/pandadock_gnn_v4.pt',
                 'size_mb': 82,
-                'description': 'ULVSH + PDBbind combined (recommended)',
+                'description': 'ULVSH + PDBbind combined (all-atom; includes hydrogens)',
                 'metrics': {
-                    'PDBbind R': 0.88,
-                    'ULVSH R': 0.82,
-                    'Activity AUC': 0.94
+                    'PDBbind v2020 full (n=4640, partly in train)': 0.387,
+                }
+            },
+            'sair': {
+                'filename': 'pandadock_gnn_sair.pt',
+                'url': f'https://github.com/{GITHUB_REPO}/releases/download/v4.1.1/pandadock_gnn_sair.pt',
+                'size_mb': 82,
+                'description': 'SAIR 741k target-disjoint model (heavy-atom; use --strip-hydrogens)',
+                'metrics': {
+                    'SAIR held-out test (n=90,219)': 0.407,
+                    'Independent crystal complexes (n=202)': 0.467,
+                    'PDBbind v2020 independent (n=4,640)': 0.531,
+                    'Median within-target R (PDBbind)': 0.31,
                 }
             },
             'bindingdb': {
                 'filename': 'pandadock_gnn_bindingdb.pt',
                 'url': f'https://github.com/{GITHUB_REPO}/releases/download/v4.0.0/pandadock_gnn_bindingdb.pt',
                 'size_mb': 28,
-                'description': 'BindingDB only (8,891 complexes)',
+                'description': 'BindingDB only (8,891 complexes, all-atom)',
                 'metrics': {
-                    'BindingDB R': 0.81,
-                    'Test RMSE': 0.96
+                    'PDBbind v2020 independent (n=4,640)': 0.277,
                 }
             },
             'bindingdb-ulvsh': {
                 'filename': 'pandadock_gnn_bindingdb_ulvsh.pt',
                 'url': f'https://github.com/{GITHUB_REPO}/releases/download/v4.0.0/pandadock_gnn_bindingdb_ulvsh.pt',
                 'size_mb': 28,
-                'description': 'BindingDB + ULVSH combined',
+                'description': 'BindingDB + ULVSH combined (not recommended; ULVSH is 96.1% censored)',
                 'metrics': {
-                    'BindingDB R': 0.79,
-                    'Test RMSE': 0.96
+                    'PDBbind v2020 independent (n=4,640)': -0.079,
                 }
             }
         }
@@ -922,25 +941,39 @@ if CLICK_AVAILABLE:
 
     @main.command('list-algorithms')
     def list_algorithms():
-        """List available algorithms and their status."""
-        print("\nPandaDock-GNN Algorithms")
+        """List available PandaDock-GNN models and commands."""
+        print("\nPandaDock-GNN Scoring")
         print("=" * 50)
-        print("\nML-Based (this module):")
-        print("  - pandadock_gnn: SE(3)-equivariant GNN scoring")
+        print("\nML-Based (affinity prediction — not recommended for pose selection):")
+        print("  - pandadock_gnn: 6-layer heterogeneous SE(3)-equivariant EGNN")
         print("    Status: Available")
-        print("    Use: pandadock-gnn predict -m model.pt -p protein.mol2 -l ligand.mol2")
+        print("    Use: pandadock-gnn predict -m model.pt -p protein.pdb -l ligand.mol2")
 
-        print("\nPre-trained Model:")
-        print("  - Download: pandadock gnn download-model")
-        print("  - Trained on ULVSH + PDBbind (R = 0.88)")
+        print("\nPre-trained Models:")
+        print("  - Download: pandadock-gnn download-model --list")
+        print("  - SAIR 741k model: R = 0.531 independent on PDBbind v2020 refined (use --strip-hydrogens)")
+        print("  - PDBbind-only target-disjoint model: R = 0.690 on held-out test")
 
         print("\nTraining:")
-        print("  - ULVSH dataset: 943 compounds, 10 targets")
-        print("  - Use: pandadock-gnn train -d ULVSH/ -o output/")
+        print("  - SAIR shard cache: pandadock-gnn train-sair --cache sair_cache/ -o output/ --rank-weight 1.0")
+        print("  - ULVSH/PDBbind:    pandadock gnn train -p PDBbind/ -o output/")
 
-        print("\nRescoring (NEW):")
-        print("  - Universal rescorer for poses from any docking tool")
-        print("  - Use: pandadock gnn rescore -m model.pt -r receptor.pdb -p poses.sdf")
+        print("\nUniversal Rescorer:")
+        print("  - Use: pandadock-gnn rescore -m model.pt -r receptor.pdb -p poses.sdf")
+
+    @main.command('compare')
+    @click.option('--model', '-m', required=True, type=click.Path(exists=True),
+                  help='Path to trained model checkpoint')
+    @click.option('--dataset', '-d', required=True, type=click.Path(exists=True),
+                  help='Path to dataset directory')
+    @click.option('--output', '-o', required=True, type=click.Path(),
+                  help='Output directory for comparison report')
+    @click.option('--split', default='test', type=click.Choice(['train', 'val', 'test']),
+                  help='Dataset split to evaluate')
+    def compare(model, dataset, output, split):
+        """Compare PandaDock-GNN against baseline scoring methods."""
+        from ..docking_cli import compare as _docking_compare
+        _docking_compare.callback(model=model, dataset=dataset, output=output, split=split)
 
 else:
     def main():

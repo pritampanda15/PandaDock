@@ -239,7 +239,9 @@ class FlexibleBatchedSearch:
             if use_autograd
             else self.analytic_energy_and_dof_gradient
         )
-        x, energy, _ = batched_lbfgs(x, gradient_fn, config or LBFGSConfig())
+        x, energy, _ = batched_lbfgs(
+            x, gradient_fn, config or LBFGSConfig(), energy_fn=self.energy
+        )
         x = torch.cat([x[:, :3], wrap_rotvec(x[:, 3:6]), x[:, 6:]], dim=-1)
         return x, energy
 
@@ -326,13 +328,18 @@ class FlexibleBatchedSearch:
 
         return torch.cat([translation, rotvec, angles], dim=-1)
 
-    def run_basin_hopping(self, box_min, box_max, lbfgs_config=None):
+    def run_basin_hopping(
+        self, box_min, box_max, lbfgs_config=None, collect_all: bool = False
+    ):
         """
         Monte Carlo over local minima, as `MonteCarloSearch._single_run` does.
 
-        Returns:
-            x: (n_chains, 6 + k) best DOF vector per chain
-            energy: (n_chains,) energy at those parameters
+        Args:
+            collect_all: When False (default), returns `(best_x, best_energy)`
+                of shape `(n_chains, D)` and `(n_chains,)`. When True, returns
+                every relaxed local minimum visited across all hops, matching
+                `MonteCarloSearch.run` so downstream clustering sees distinct
+                modes visited earlier in a trajectory.
         """
         cfg = self.config
         gen = self._generator()
@@ -342,11 +349,16 @@ class FlexibleBatchedSearch:
 
         best_x = x.clone()
         best_energy = energy.clone()
+        collected_x = [x] if collect_all else None
+        collected_e = [energy] if collect_all else None
         temperature = max(cfg.temperature, 1e-6)
 
         for _ in range(cfg.n_steps):
             trial = self.propose(x, gen)
             trial, trial_energy = self.local_optimize(trial, lbfgs_config)
+            if collect_all:
+                collected_x.append(trial)
+                collected_e.append(trial_energy)
 
             delta = trial_energy - energy
             u = self._to_device(
@@ -361,6 +373,8 @@ class FlexibleBatchedSearch:
             best_x = torch.where(improved.unsqueeze(-1), trial, best_x)
             best_energy = torch.where(improved, trial_energy, best_energy)
 
+        if collect_all:
+            return torch.cat(collected_x, dim=0), torch.cat(collected_e, dim=0)
         return best_x, best_energy
 
 

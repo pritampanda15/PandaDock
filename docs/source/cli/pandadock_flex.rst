@@ -132,7 +132,7 @@ Performance Options
 ``--cpuworkers N``
     Number of CPU worker threads. Default: auto-detect
 
-``--gpu``
+````
     Enable GPU acceleration for docking steps (requires CUDA)
 
 ``--fast``
@@ -219,8 +219,8 @@ GPU-Accelerated Flexible Docking
 
    pandadock-flex -r protein.pdb -l ligand.sdf \\
                   --center 10 20 30 --radius 12.0 \\
-                  --algorithm enhanced_hierarchical_gpu \\
-                  --gpu \\
+                  --algorithm pandadock \\
+                   \\
                   -o gpu_flex/
 
 Custom Flexible Residues
@@ -330,7 +330,7 @@ Optimization Tips
 
 .. code-block:: bash
 
-   --algorithm enhanced_hierarchical_gpu --gpu
+   --algorithm pandadock 
 
 Troubleshooting
 ---------------
@@ -346,7 +346,7 @@ Slow Performance
 2. Reduce refinement steps: ``--refinement-steps 500``
 3. Use ``--fast`` mode
 4. Disable loop refinement
-5. Use GPU: ``--gpu``
+5. Use GPU: ````
 
 Poor Results
 ^^^^^^^^^^^^

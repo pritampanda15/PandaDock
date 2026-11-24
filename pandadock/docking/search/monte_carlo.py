@@ -12,6 +12,8 @@ the search space is privileged by the input conformer's coordinates or by any
 reference structure.
 """
 
+import copy
+from concurrent.futures import ThreadPoolExecutor
 import logging
 from dataclasses import dataclass, field
 from typing import List, Optional, Sequence
@@ -68,6 +70,7 @@ class SearchConfig:
     rotation_amplitude: float = 0.5
     torsion_amplitude: float = 0.7
     seed: Optional[int] = None
+    n_workers: int = 1
 
     def steps_for(self, n_dof: int) -> int:
         if self.n_steps is not None:
@@ -86,10 +89,13 @@ class MonteCarloSearch:
 
     # ------------------------------------------------------------------ local opt
 
-    def local_optimize(self, dof: np.ndarray) -> SearchResult:
+    def local_optimize(
+        self, dof: np.ndarray, objective: Optional[DockingObjective] = None
+    ) -> SearchResult:
         """Relax a pose to the nearest local minimum with L-BFGS-B."""
+        obj = objective if objective is not None else self.objective
         result = minimize(
-            self.objective.scipy_objective,
+            obj.scipy_objective,
             dof,
             jac=True,
             method="L-BFGS-B",
@@ -98,7 +104,7 @@ class MonteCarloSearch:
         opt_dof = np.asarray(result.x, dtype=np.float64)
         opt_dof[3:6] = wrap_rotvec(opt_dof[3:6])
         energy = float(result.fun)
-        return SearchResult(dof=opt_dof, energy=energy, coords=self.objective.coords(opt_dof))
+        return SearchResult(dof=opt_dof, energy=energy, coords=obj.coords(opt_dof))
 
     # ----------------------------------------------------------------- mutation
 
@@ -136,20 +142,34 @@ class MonteCarloSearch:
 
     # --------------------------------------------------------------------- runs
 
+    def _clone_objective_for_worker(self) -> DockingObjective:
+        """Shallow-copy the objective so concurrent runs share grids without racing on caches."""
+        obj = copy.copy(self.objective)
+        obj._cached_angles = None
+        obj._cached_torsioned = None
+        obj.n_evaluations = 0
+        return obj
+
     def _single_run(
-        self, run_index: int, seed: int, box_min: np.ndarray, box_max: np.ndarray
+        self,
+        run_index: int,
+        seed: int,
+        box_min: np.ndarray,
+        box_max: np.ndarray,
+        objective: Optional[DockingObjective] = None,
     ) -> List[SearchResult]:
+        obj = objective if objective is not None else self.objective
         rng = np.random.default_rng(seed)
         n_steps = self.config.steps_for(self.tree.n_dof)
         temperature = max(self.config.temperature, 1e-6)
 
-        current = self.local_optimize(self.tree.random_dof(rng, box_min, box_max))
+        current = self.local_optimize(self.tree.random_dof(rng, box_min, box_max), obj)
         minima: List[SearchResult] = [current]
         best = current
 
         for _ in range(n_steps):
             trial_dof = self._mutate(current.dof, rng)
-            trial = self.local_optimize(trial_dof)
+            trial = self.local_optimize(trial_dof, obj)
             minima.append(trial)
 
             delta = trial.energy - current.energy
@@ -181,8 +201,23 @@ class MonteCarloSearch:
         seeds = np.random.SeedSequence(base_seed).generate_state(cfg.exhaustiveness)
 
         all_minima: List[SearchResult] = []
-        for i in range(cfg.exhaustiveness):
-            all_minima.extend(self._single_run(i, int(seeds[i]), box_min, box_max))
+        n_workers = max(1, int(cfg.n_workers))
+        if n_workers == 1 or cfg.exhaustiveness <= 1:
+            for i in range(cfg.exhaustiveness):
+                all_minima.extend(self._single_run(i, int(seeds[i]), box_min, box_max))
+        else:
+            def _worker(args):
+                idx, run_seed = args
+                worker_obj = self._clone_objective_for_worker()
+                res = self._single_run(idx, run_seed, box_min, box_max, worker_obj)
+                return res, worker_obj.n_evaluations
+
+            with ThreadPoolExecutor(max_workers=min(n_workers, cfg.exhaustiveness)) as pool:
+                for res, n_evals in pool.map(
+                    _worker, [(i, int(seeds[i])) for i in range(cfg.exhaustiveness)]
+                ):
+                    all_minima.extend(res)
+                    self.objective.n_evaluations += n_evals
 
         all_minima.sort(key=lambda r: r.energy)
         logger.info(

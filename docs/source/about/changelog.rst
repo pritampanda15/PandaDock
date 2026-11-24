@@ -1,17 +1,22 @@
 Changelog
 =========
 
+Version 4.1.1+ (2026)
+---------------------
+
+**Major Improvements:**
+
+* **Real Flexible-Ligand Conformational Search**: Replaced legacy rigid/biased search with torsion-tree + Vina/Vinardo affinity grids + analytic-gradient MC/L-BFGS search (CPU and experimental PyTorch CUDA/MPS GPU backends).
+* **Virtual Screening**: Added ``pandadock screen`` for multi-ligand GPU batching with automatic size bucketing and signature-keyed grid caching.
+* **SAIR GNN Training & Scientific Audit**: Trained on 741,706 co-folded SAIR complexes under target-disjoint splits (R = 0.531 independent on PDBbind v2020 refined, n = 4,640; PDBbind-only model R = 0.690 on held-out test, n = 624). Withdrew earlier v4.0 R = 0.88 / R = 0.82 claims and documented pose-rescoring limitations.
+* **Scoring, GPU & Flex Fixes**: Corrected Vina receptor/ligand hydrophobic and H-bond atom typing, eliminated redundant L-BFGS closure calls on GPU, added CPU multi-worker MC, implemented real chi-angle side-chain rotation and strain/RMSD calculations in ``pandadock-flex``, and unified checkpoint metadata across ``pandadock gnn`` and ``pandadock-gnn``.
+
 Version 4.0.0 (2026)
 --------------------
 
 **Major Features:**
 
-* **State-of-the-Art Performance**: Improved GNN training achieves:
-
-  - Pearson R = 0.88 on PDBbind (5,316 complexes)
-  - Activity classification AUC = 0.94 on the ULVSH held-out test set
-  - Pearson R = 0.81 on BindingDB (8,891 complexes)
-  - Pearson R = 0.68 on novel GABA receptor dataset (30 compounds)
+* **PandaDock-GNN Release**: Initial SE(3)-equivariant GNN architecture, ``pandadock gnn rescore``, ``pandadock gnn download-model``, and multi-dataset training pipeline. *(Note: original v4.0 benchmark figures were subsequently revised downward in v4.1.1 after full-dataset re-evaluation; see README.md.)*
 
 * **Universal GNN Rescorer**: New ``pandadock gnn rescore`` command
 

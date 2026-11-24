@@ -174,12 +174,18 @@ def screen_library(
             from ..search.rotations import wrap_rotvec
 
             dof[3:6] = wrap_rotvec(dof[3:6])
+            coords = objective.coords(dof)
+            inter = float(objective.grids.score(coords[tree.heavy_atoms]))
+            intra, _ = objective._intramolecular(coords, need_gradient=False)
+            norm_energy = scoring.normalize_energy(
+                inter + max(0.0, float(intra)), tree.n_torsions
+            )
             results.append(
                 ScreenResult(
                     name=names[ligand_index],
-                    energy=float(objective.energy(dof)),
+                    energy=norm_energy,
                     dof=dof,
-                    coords=objective.coords(dof),
+                    coords=coords,
                     n_torsions=tree.n_torsions,
                 )
             )

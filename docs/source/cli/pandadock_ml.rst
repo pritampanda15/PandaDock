@@ -342,7 +342,7 @@ Performance Characteristics
 **Accuracy:**
 
 * R = 0.91 correlation with experimental data (hybrid model, ensemble)
-* R = 0.88 (GNN model)
+* R = 0.531 independent on PDBbind v2020 refined (SAIR model; R = 0.690 PDBbind-only target-disjoint test)
 * R = 0.89 (3D CNN model)
 
 **Speed:**

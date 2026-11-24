@@ -106,7 +106,7 @@ High-Throughput Screening
 .. code-block:: bash
 
    pandadock dock -r target.pdb -l library_100k.sdf \\
-                  --algorithm enhanced_hierarchical_gpu \\
+                  --device cuda \\
                   --scoring gpu_precision \\
                   --gpu \\
                   --gpu-batch-size 2000 \\
@@ -188,7 +188,7 @@ As Rescoring Function
 .. code-block:: bash
 
    pandadock dock -r protein.pdb -l ligands.sdf \\
-                  --algorithm enhanced_hierarchical_gpu \\
+                  --device cuda \\
                   --scoring gpu_precision \\
                   --rescoring mmgbsa \\
                   --gpu \\
@@ -376,7 +376,7 @@ Expected: 100,000 ligands in 10-20 hours
 
    # Use GPU MM-GBSA for top candidates
    pandadock dock -r target.pdb -l candidates.sdf \\
-                  --algorithm enhanced_hierarchical_gpu \\
+                  --device cuda \\
                   --scoring gpu_mmgbsa \\
                   --gpu \\
                   --num-poses 100 \\
@@ -533,7 +533,7 @@ GPU-Accelerated Lead Optimization
 .. code-block:: bash
 
    pandadock dock -r target.pdb -l analogs_200.sdf \\
-                  --algorithm enhanced_hierarchical_gpu \\
+                  --device cuda \\
                   --scoring gpu_mmgbsa \\
                   --gpu \\
                   --num-poses 50 \\

@@ -103,6 +103,10 @@ version = { attr = "pandadock.__version__" }
 [tool.setuptools.packages.find]
 include = ["pandadock*"]
 
+[tool.setuptools.package-data]
+"pandadock.metal_docking" = ["AD4_parameters_full.dat"]
+"pandadock.visualization" = ["assets/*.png"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [

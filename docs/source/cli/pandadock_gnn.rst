@@ -29,7 +29,7 @@ Download the official pre-trained PandaDock-GNN model from GitHub releases.
 The model was trained on the combined ULVSH + PDBbind dataset (200 epochs)
 and achieves:
 
-* **PDBbind Pearson R: 0.88**
+* **PDBbind v2020 Refined Pearson R: 0.531** (SAIR independent, n=4,640; 0.690 PDBbind-only held-out test)
 * **ULVSH Test activity AUC: 0.94** (affinity labels are censored; see note)
 * **ULVSH Activity AUC: 0.94**
 
@@ -298,7 +298,7 @@ the SE(3)-equivariant GNN scoring function.
 
    pose_name,pose_index,gnn_pKd,gnn_energy,activity_prob,predicted_active,gnn_rank
    pose_3,3,7.234,-9.88,0.92,True,1
-   pose_1,1,6.891,-9.41,0.88,True,2
+   pose_1,1,6.891,-9.41,0.85,True,2
    pose_5,5,6.543,-8.93,0.81,True,3
    ...
 

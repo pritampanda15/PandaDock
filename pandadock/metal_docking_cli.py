@@ -115,7 +115,7 @@ def main(ctx, verbose, version, help):
         logging.basicConfig(level=logging.INFO)
 
     if version:
-        click.echo("PandaDock-Metal v1.0.0 - Pritam Kumar Panda @ Stanford University")
+        click.echo(f"PandaDock-Metal v{__version__} - Pritam Kumar Panda @ Stanford University")
         return
 
     if help:

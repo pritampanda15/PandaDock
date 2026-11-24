@@ -52,6 +52,11 @@ class ModelConfig:
     predict_activity: bool = True
     predict_confidence: bool = False
 
+    # Inference / training preprocessing contract (optional for backward compat)
+    strip_hydrogens: Optional[bool] = None
+    site_radius: Optional[float] = None
+    training_dataset: Optional[str] = None
+
 
 class AffinityHead(nn.Module):
     """
@@ -318,19 +323,31 @@ class PandaDockGNN(nn.Module):
             'interaction': self.pooling.interaction_pool.get_edge_attention()
         }
 
-    def save(self, path: str) -> None:
-        """Save model weights and config."""
+    def save(self, path: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+        """Save model weights, config, and optional preprocessing metadata."""
         path = Path(path)
+        meta = dict(getattr(self, 'metadata', {}) or {})
+        if self.config.strip_hydrogens is not None:
+            meta.setdefault('strip_hydrogens', self.config.strip_hydrogens)
+        if self.config.site_radius is not None:
+            meta.setdefault('site_radius', self.config.site_radius)
+        if self.config.training_dataset is not None:
+            meta.setdefault('training_dataset', self.config.training_dataset)
+        if metadata:
+            meta.update(metadata)
         torch.save({
             'config': self.config,
-            'state_dict': self.state_dict()
+            'state_dict': self.state_dict(),
+            'metadata': meta,
         }, path)
 
     @classmethod
     def load(cls, path: str, map_location: str = 'cpu') -> 'PandaDockGNN':
         """Load model from checkpoint.
 
-        Handles both model.save() format and trainer checkpoint format.
+        Handles both model.save() format and trainer checkpoint format, and
+        attaches any stored preprocessing metadata (e.g. strip_hydrogens,
+        site_radius) to `model.metadata`.
         """
         path = Path(path)
         checkpoint = torch.load(path, map_location=map_location, weights_only=False)
@@ -354,6 +371,15 @@ class PandaDockGNN(nn.Module):
 
         model = cls(config=config)
         model.load_state_dict(state_dict)
+
+        meta = dict(checkpoint.get('metadata') or {})
+        if getattr(config, 'strip_hydrogens', None) is not None:
+            meta.setdefault('strip_hydrogens', config.strip_hydrogens)
+        if getattr(config, 'site_radius', None) is not None:
+            meta.setdefault('site_radius', config.site_radius)
+        if getattr(config, 'training_dataset', None) is not None:
+            meta.setdefault('training_dataset', config.training_dataset)
+        model.metadata = meta
 
         return model
 

@@ -118,6 +118,10 @@ def main(receptor, ligand, binding_site_coordinates, binding_site_radius,
     logging.basicConfig(level=log_level, format='%(levelname)s: %(message)s')
     logger = logging.getLogger("pandadock.flex")
 
+    if not binding_site_coordinates:
+        click.echo("Error: Must specify --binding-site-coordinates / --center X Y Z")
+        sys.exit(1)
+
     click.echo("🧬 PandaDock-Flex: Professional Induced-Fit Docking")
     click.echo("=" * 60)
     click.echo(f"Receptor: {receptor}")
@@ -134,10 +138,6 @@ def main(receptor, ligand, binding_site_coordinates, binding_site_radius,
 
     try:
         # Validate inputs
-        if not binding_site_coordinates:
-            click.echo("Error: Must specify --binding-site-coordinates")
-            sys.exit(1)
-
         binding_site = np.array(binding_site_coordinates)
         output_dir = Path(f"{output_prefix}_results")
         output_dir.mkdir(exist_ok=True)

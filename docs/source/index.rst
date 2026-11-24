@@ -8,18 +8,19 @@ Welcome to PandaDock Documentation
 
 |
 
-PandaDock is a next-generation molecular docking platform featuring an **SE(3)-equivariant Graph Neural Network** scoring function that achieves **R > 0.8** correlation with experimental binding affinities.
+PandaDock is an open-source molecular docking suite combining a flexible-ligand conformational search with an **SE(3)-equivariant Graph Neural Network** affinity scoring function trained on 741,706 co-folded complexes (SAIR) under target-disjoint splits.
 
 .. note::
-   **PandaDock v4.1** pairs a flexible-ligand conformational search with the PandaDock-GNN scoring function: Pearson R = 0.88 on PDBbind and R = 0.81 on BindingDB for affinity prediction, and AUC = 0.94 for activity classification on the ULVSH test set.
+   **PandaDock v4.1+** provides flexible-ligand Monte Carlo + L-BFGS search with analytic gradients (CPU and experimental CUDA/MPS GPU backends), multi-ligand virtual screening (``pandadock screen``), and PandaDock-GNN affinity prediction (Pearson R = 0.531 independent on PDBbind v2020 refined, n = 4,640; R = 0.690 for a dedicated target-disjoint PDBbind model on its held-out test split).
 
 Quick Start
 -----------
 
-Install PandaDock using pip:
+Install PandaDock:
 
 .. code-block:: bash
 
+   conda install -c conda-forge rdkit
    git clone https://github.com/pritampanda15/PandaDock.git
    cd PandaDock
    pip install -e ".[gnn]"
@@ -28,85 +29,71 @@ Basic usage:
 
 .. code-block:: bash
 
-   # Traditional docking with Vina-style scoring
+   # Flexible-ligand docking with Vina-style scoring (CPU or --device cuda|mps)
    pandadock dock -r protein.pdb -l ligand.sdf \
                   --center 10 20 30 --box 20 20 20
 
-   # Hybrid docking with GNN rescoring (RECOMMENDED)
-   pandadock hybrid -r protein.pdb -l ligand.sdf \
-                    --center 10 20 30 --box 20 20 20 \
-                    --model models/best_model.pt
+   # Multi-ligand virtual screening on GPU
+   pandadock screen -r protein.pdb -l library.sdf \
+                    --center 10 20 30 --box 20 20 20 --device cuda
+
+   # Estimate binding affinity of a chosen pose with PandaDock-GNN
+   pandadock-gnn predict -m models/pandadock_gnn_sair.pt \
+                         -p protein.pdb -l pose1.mol2 --strip-hydrogens
 
 Key Features
 ------------
 
-🧠 **SE(3)-Equivariant GNN Scoring (NEW)**
-   - Rotation and translation invariant predictions
-   - Heterogeneous graph representation (protein + ligand)
-   - Multi-task learning: pEC50 regression + activity classification
-   - **Pearson R > 0.8** on held-out test sets
-   - Outperforms all traditional scoring methods
+**Flexible-Ligand Conformational Search**
+   - Torsion-tree representation over all rotatable bonds
+   - Uniform SO(3) orientation sampling and L-BFGS relaxation with closed-form analytic gradients
+   - Precomputed affinity grids (AutoDock Vina and Vinardo presets) with signature-keyed caching
+   - Experimental batched GPU search (``--device cuda|mps``) and virtual screening (``pandadock screen``)
 
-🔬 **Advanced Docking Algorithm**
-   - **Hierarchical Search**: Multi-resolution coarse-to-fine sampling
-   - Vina-style empirical scoring function
-   - Physics-based scoring with Lennard-Jones + electrostatics
+**SE(3)-Equivariant GNN Affinity Scoring**
+   - Rotation- and translation-invariant predictions via 6-layer heterogeneous EGNN
+   - Trained on 741,706 SAIR complexes under target-disjoint splits
+   - Separation of concerns: use the empirical function to select poses and the GNN to estimate affinity
 
-⚡ **Hybrid Workflow (Recommended)**
-   - Traditional pose generation + GNN rescoring
-   - Combines speed of physics-based docking with GNN accuracy
-   - Best of both worlds approach
-
-🎯 **Specialized Docking Modes**
-   - **Flexible Docking** (``pandadock-flex``): Induced-fit with receptor flexibility
-   - **Metal Docking** (``pandadock-metal``): Specialized for metalloproteins (Zn, Fe, Mg, Ca, etc.)
-   - **Tethered Docking** (``pandadock-tethered``): Constrained near reference positions
-   - **Analysis & Reporting** (``pandadock-report``): Publication-ready figures
-
-📊 **Benchmark Performance**
-   - PandaDock-GNN outperforms 8+ baseline methods on ULVSH dataset
-   - Better than VM2, MMGBSA, Gnina, Hyde, and other scoring functions
+**Specialized Docking Modes (Experimental)**
+   - **Flexible Docking** (``pandadock-flex``): Induced-fit receptor side-chain refinement
+   - **Metal Docking** (``pandadock-metal``): Metalloprotein coordination scoring
+   - **Tethered Docking** (``pandadock-tethered``): Flat-bottom centroid restraint near a reference pose
+   - **Analysis & Reporting** (``pandadock-report``): HTML reports, plots, and PandaMap 2D diagrams
 
 Performance Benchmarks
 -----------------------
 
-**PDBbind Benchmark** (5,316 complexes):
+.. note::
+   Earlier v4.0 documentation reported R = 0.88 on PDBbind and R = 0.82 on ULVSH.
+   Those numbers were withdrawn in August 2026 (small-subset label-informed rescaling
+   and 96.1% censored ULVSH labels). All figures below are full-dataset evaluations.
 
-+---------------------------------+-----------------+----------------+
-| Method                          | Type            | Pearson R      |
-+=================================+=================+================+
-| **PandaDock-GNN**               | SE(3)-EGNN      | **0.88** ⭐    |
-+---------------------------------+-----------------+----------------+
-| OnionNet-2                      | 3D-CNN          | 0.86           |
-+---------------------------------+-----------------+----------------+
-| RF-Score v3                     | Random Forest   | 0.80           |
-+---------------------------------+-----------------+----------------+
-| AutoDock Vina                   | Empirical       | 0.60           |
-+---------------------------------+-----------------+----------------+
+**Pose Accuracy (814 Complexes, 14 Target Families):**
 
-**ULVSH Benchmark** (942 compounds, 10 targets):
++---------------------------------+------------------+----------------+
+| Backend                         | Top-1 <= 2 A     | Best-of-N <= 2 |
++=================================+==================+================+
+| CPU (auto exhaustiveness)       | 33.7%            | 57.0%          |
++---------------------------------+------------------+----------------+
+| CUDA (A10G, 512 chains, 814)    | 30.2%            | 50.5%          |
++---------------------------------+------------------+----------------+
+| Paired 131-complex (CPU vs GPU) | 34.4% vs 30.5%   | 56.5% vs 56.5% |
++---------------------------------+------------------+----------------+
 
-+---------------------------------+-----------------+----------------+
-| Method                          | Type            | Pearson R      |
-+=================================+=================+================+
-| **PandaDock-GNN (AUC, test)**   | ML Scoring      | **0.94** ⭐    |
-+---------------------------------+-----------------+----------------+
-| VM2                             | Free energy     | 0.15           |
-+---------------------------------+-----------------+----------------+
-| PM6                             | Semi-empirical  | 0.08           |
-+---------------------------------+-----------------+----------------+
-| Gnina, MMPBSA, MMGBSA, Vina     | Baselines       | < 0.02         |
-+---------------------------------+-----------------+----------------+
+**Affinity Prediction (PandaDock-GNN, Native Crystal / Held-out Splits):**
 
-**BindingDB Benchmark** (8,891 complexes):
-
-+---------------------------------+-----------------+----------------+
-| Training Configuration          | Type            | Pearson R      |
-+=================================+=================+================+
-| **BindingDB Only**              | ML Scoring      | **0.81** ⭐    |
-+---------------------------------+-----------------+----------------+
-| **BindingDB + ULVSH**           | ML Scoring      | **0.79**       |
-+---------------------------------+-----------------+----------------+
++---------------------------------+------------------+----------------+
+| Evaluation                      | N                | Pearson R      |
++=================================+==================+================+
+| SAIR held-out test split        | 90,219           | 0.407          |
++---------------------------------+------------------+----------------+
+| Independent crystal complexes   | 202              | 0.467          |
++---------------------------------+------------------+----------------+
+| PDBbind v2020 refined (indep.)  | 4,640            | 0.531          |
++---------------------------------+------------------+----------------+
+| PDBbind-only held-out test      | 624              | 0.690          |
++---------------------------------+------------------+----------------+
 
 Documentation Contents
 ----------------------

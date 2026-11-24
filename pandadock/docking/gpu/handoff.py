@@ -75,15 +75,20 @@ def run_batched_search(
     box_max,
     device=None,
     n_chains: int = 512,
-    n_steps: int = 8,
+    n_steps: Optional[int] = None,
     seed: Optional[int] = None,
     max_local_iter: int = 60,
+    collect_all: bool = True,
+    max_handoff: int = 2048,
 ) -> List:
     """
     Run the batched search and return CPU minima ready for clustering.
 
-    Chooses the rigid or flexible implementation from the tree, so a caller does
-    not have to. Both reduce to the same `SearchResult` list.
+    When `n_steps` is None, scales basin-hopping depth with ligand flexibility
+    (`clip(8 + 2 * n_torsions, 8, 32)`) so flexible ligands get enough
+    sequential hops to cross rotamer barriers. When `collect_all` is True,
+    gathers relaxed minima across every hop (capped to the `max_handoff`
+    lowest-energy candidates before float64 CPU rescoring).
     """
     import torch
 
@@ -91,15 +96,23 @@ def run_batched_search(
     from .optimize import LBFGSConfig
     from .rigid_search import RigidSearchConfig
 
-    config = RigidSearchConfig(n_chains=n_chains, n_steps=n_steps, seed=seed)
+    if n_steps is None:
+        n_steps = int(np.clip(8 + 2 * tree.n_torsions, 8, 32))
+
+    config = RigidSearchConfig(n_chains=n_chains, n_steps=int(n_steps), seed=seed)
     search = build_flexible_search(
         grids, tree, objective, config=config, device=device
     )
-    best, _ = search.run_basin_hopping(
+    all_x, all_energy = search.run_basin_hopping(
         np.asarray(box_min),
         np.asarray(box_max),
         LBFGSConfig(max_iter=max_local_iter, max_line_search=12),
+        collect_all=collect_all,
     )
+    if collect_all and all_energy.shape[0] > max_handoff:
+        _, keep_idx = torch.topk(all_energy, k=max_handoff, largest=False)
+        all_x = all_x[keep_idx]
+
     return gpu_minima_to_search_results(
-        best.detach().cpu().double().numpy(), tree, objective
+        all_x.detach().cpu().double().numpy(), tree, objective
     )

@@ -301,13 +301,26 @@ class ReceptorPreprocessor:
             self.processed_info['hydrogens_added'] = 0
             return structure
 
+    # Standard AMBER ff14SB backbone and polar side-chain partial charges
+    _STANDARD_ATOM_CHARGES = {
+        'N': -0.4157, 'H': 0.2719, 'CA': 0.0337, 'C': 0.5973, 'O': -0.5679,
+        'OXT': -0.8055, 'OD1': -0.8014, 'OD2': -0.8014, 'OE1': -0.8188,
+        'OE2': -0.8188, 'OG': -0.6546, 'OG1': -0.6761, 'OH': -0.5579,
+        'NZ': -0.3854, 'NH1': -0.8627, 'NH2': -0.8627, 'NE': -0.5295,
+        'SG': -0.3119, 'SD': -0.2737, 'ND1': -0.3811, 'NE2': -0.5727,
+    }
+
     def _add_charges(self, fixer):
-        """Add partial charges to the structure"""
+        """Assign standard AMBER-like partial charges to receptor atoms."""
         try:
-            # For now, we'll use a simple approach
-            # In a full implementation, you might use antechamber or other tools
-            # This is a placeholder for charge assignment
-            pass
+            charges = {}
+            if hasattr(fixer, 'topology'):
+                for atom in fixer.topology.atoms():
+                    charges[atom.index] = self._STANDARD_ATOM_CHARGES.get(
+                        atom.name.strip().upper(), 0.0
+                    )
+            self.processed_info['partial_charges_assigned'] = len(charges)
+            self.partial_charges = charges
         except Exception as e:
             self.logger.warning(f"Charge assignment failed: {e}")
 

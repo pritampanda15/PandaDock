@@ -53,6 +53,10 @@ class HybridMLPhysicsPipeline:
             if model_path:
                 self.ml_model.load_weights(model_path)
 
+        # Scoring functions (must be initialized before registering algorithms/scorers)
+        self.physics_scoring = PhysicsBasedScoring()
+        self.precision_scoring = PrecisionScoring()
+
         # Initialize physics components
         self.physics_engine = DockingEngine()
         self._register_physics_algorithms()
@@ -60,21 +64,19 @@ class HybridMLPhysicsPipeline:
         self.physics_refinement = physics_refinement
         self.hybrid_scoring = hybrid_scoring
 
-        # Scoring functions
-        self.physics_scoring = PhysicsBasedScoring()
-        self.precision_scoring = PrecisionScoring()
-
         # Feature extractor for ML scoring
         self.feature_extractor = ComplexFeatureExtractor()
 
     def _register_physics_algorithms(self):
         """Register physics-based algorithms"""
         try:
+            from ..docking.algorithms.pandacore import PandaCoreDocker
             from ..docking.algorithms.monte_carlo_cpu import MonteCarloDocker as MCDocker
             from ..docking.algorithms.genetic_algorithm_cpu import GeneticAlgorithmDocker
             from ..docking.algorithms.hierarchical_cpu import HierarchicalDocker
             from ..docking.algorithms.enhanced_hierarchical_cpu import EnhancedHierarchicalDocker
 
+            self.physics_engine.register_algorithm(PandaCoreDocker(name='pandadock'))
             self.physics_engine.register_algorithm(MCDocker())
             self.physics_engine.register_algorithm(GeneticAlgorithmDocker())
             self.physics_engine.register_algorithm(HierarchicalDocker())
@@ -376,6 +378,7 @@ class HybridMLPhysicsPipeline:
     def _create_mol_with_coordinates(self, mol: Chem.Mol, coordinates: np.ndarray) -> Chem.Mol:
         """Create RDKit molecule with specific coordinates"""
         mol_copy = Chem.Mol(mol)
+        mol_copy.RemoveAllConformers()
 
         # Add a conformer with the specified coordinates
         conf = Chem.Conformer(mol_copy.GetNumAtoms())
@@ -383,7 +386,7 @@ class HybridMLPhysicsPipeline:
         for i, coord in enumerate(coordinates):
             conf.SetAtomPosition(i, (float(coord[0]), float(coord[1]), float(coord[2])))
 
-        mol_copy.AddConformer(conf)
+        mol_copy.AddConformer(conf, assignId=True)
         return mol_copy
 
     def _apply_hybrid_scoring(self,
@@ -391,20 +394,26 @@ class HybridMLPhysicsPipeline:
                             receptor_file: str,
                             ligand_mol: Chem.Mol) -> List[Pose]:
         """Apply hybrid ML+Physics scoring to poses"""
+        from Bio.PDB import PDBParser
+
+        receptor_structure = PDBParser(QUIET=True).get_structure('receptor', receptor_file)
         scored_poses = []
 
         for pose in poses:
             try:
                 # Physics-based score
                 temp_mol = self._create_mol_with_coordinates(ligand_mol, pose.coordinates)
-                physics_score = self.physics_scoring.score_pose(pose, receptor_file, temp_mol)
+                physics_score = float(
+                    self.physics_scoring.calculate_binding_energy(
+                        pose.coordinates, receptor_structure, temp_mol
+                    )
+                )
 
                 # ML-based score (if model supports it)
-                ml_score = getattr(pose, 'ml_confidence', 0.5)
+                ml_score = float(getattr(pose, 'ml_confidence', 0.5))
 
-                # Combine scores (weighted average)
-                # This is a simple combination - could be learned
-                combined_score = 0.7 * physics_score + 0.3 * (1.0 - ml_score)  # Lower is better
+                # Combine scores (weighted average; lower is better)
+                combined_score = 0.7 * physics_score + 0.3 * (1.0 - ml_score)
 
                 # Update pose
                 pose.energy = combined_score
