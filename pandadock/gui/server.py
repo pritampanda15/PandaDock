@@ -1566,13 +1566,29 @@ def create_app(workspace_dir: Optional[str] = None) -> FastAPI:
 
             out_rec = job_prep_dir / f"{rp.stem}_prepared.pdb"
             proc = ReceptorPreprocessor(ph=req.ph)
-            rec_info = proc.process(
-                str(rec_in),
-                str(out_rec),
-                add_hydrogens=req.add_hydrogens,
-                add_charges=req.add_charges,
-                fix_missing_residues=req.fix_missing_residues,
-            )
+            try:
+                rec_info = proc.process(
+                    str(rec_in),
+                    str(out_rec),
+                    add_hydrogens=req.add_hydrogens,
+                    add_charges=req.add_charges,
+                    fix_missing_residues=req.fix_missing_residues,
+                )
+                prep_backend = "openmm_pdbfixer"
+            except (RuntimeError, ImportError) as exc:
+                logger.info("OpenMM/PDBFixer unavailable (%s); using clean PDB fallback", exc)
+                shutil.copy2(str(rec_in), str(out_rec))
+                n_atoms = sum(
+                    1 for ln in out_rec.read_text(encoding="utf-8", errors="ignore").splitlines()
+                    if ln.startswith(("ATOM  ", "HETATM"))
+                )
+                rec_info = {
+                    "original_atoms": n_atoms,
+                    "final_atoms": n_atoms,
+                    "hydrogens_added": 0,
+                    "charges_assigned": False,
+                }
+                prep_backend = "pdb_clean_fallback"
             resp["receptor"] = {
                 "path": str(out_rec),
                 "filename": out_rec.name,
@@ -1581,6 +1597,7 @@ def create_app(workspace_dir: Optional[str] = None) -> FastAPI:
                 "hydrogens_added": rec_info.get("hydrogens_added", 0),
                 "excluded_ligand_atoms": removed_het_atoms,
                 "charges_assigned": bool(rec_info.get("charges_assigned", False)),
+                "backend": prep_backend,
                 "ph": req.ph,
                 "inspection": _inspect_receptor(out_rec),
             }
