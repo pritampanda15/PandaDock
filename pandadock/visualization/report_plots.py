@@ -446,6 +446,65 @@ def compute_report_analytics(
         else:
             checks.append(("warn", f"Ligand has {ro5_violations} Lipinski Rule-of-5 flag(s) (MW {lig_info['mw']:.1f} Da, cLogP {lig_info['logp']:.2f})."))
 
+    # Built-in PoseBusters-style chemistry & geometry audit (v5.0)
+    pb_reports = []
+    pb_pass_count = 0
+    if ligand_mol is not None and poses:
+        try:
+            from ..docking.validation.posebusters import audit_docking_result
+
+            pb_reports = audit_docking_result(
+                result,
+                ligand_mol=ligand_mol,
+                receptor_file=rec_path or None,
+                max_poses=min(len(poses), 10),
+            )
+            pb_pass_count = sum(1 for r in pb_reports if r.all_passed)
+            if pb_reports:
+                top_pb = pb_reports[0]
+                if top_pb.all_passed:
+                    checks.append((
+                        "ok",
+                        f"PoseBusters audit PASS on rank 1 ({top_pb.n_passed}/{top_pb.n_total} checks; "
+                        f"{pb_pass_count}/{len(pb_reports)} audited poses valid; "
+                        f"ΔE_strain = {top_pb.relative_energy_kcal if top_pb.relative_energy_kcal is not None else 0.0:.2f} kcal/mol).",
+                    ))
+                else:
+                    checks.append((
+                        "warn",
+                        f"PoseBusters audit flagged rank 1 ({top_pb.n_passed}/{top_pb.n_total}; "
+                        f"failed: {', '.join(top_pb.failed_checks[:3])}).",
+                    ))
+        except Exception as exc:
+            logger.debug("PoseBusters report audit skipped: %s", exc)
+
+    # Restraint satisfaction & structural water reporting (v5.0)
+    restraint_summary = params.get("restraints")
+    if isinstance(restraint_summary, list) and restraint_summary:
+        n_sat = sum(1 for r in restraint_summary if r.get("satisfied"))
+        if n_sat == len(restraint_summary):
+            checks.append((
+                "ok",
+                f"All {n_sat}/{len(restraint_summary)} user geometric restraints satisfied on rank 1 "
+                f"(first: {restraint_summary[0].get('label')} = {restraint_summary[0].get('distance_A')} Å).",
+            ))
+        else:
+            checks.append((
+                "warn",
+                f"Restraints satisfied on rank 1: {n_sat}/{len(restraint_summary)} "
+                f"(max violation {max(float(r.get('violation_A', 0.0)) for r in restraint_summary):.2f} Å).",
+            ))
+
+    water_info = params.get("water_analysis")
+    if isinstance(water_info, dict) and water_info.get("waters"):
+        checks.append((
+            "ok",
+            f"Structural water protocol ({water_info.get('mode', 'displace')}): "
+            f"selected {water_info.get('selected_state', 'default')} "
+            f"({water_info.get('bridging_count', 0)} bridging, {water_info.get('displaced_count', 0)} displaced, "
+            f"ΔG_water = {water_info.get('delta_g_water', 0.0):+.2f} kcal/mol).",
+        ))
+
     # Executive pull quote
     lig_name = getattr(result, "ligand_name", "ligand")
     rec_stem = Path(rec_path).stem if rec_path else "Receptor"
@@ -518,6 +577,9 @@ def compute_report_analytics(
         "receptor_info": rec_info,
         "ligand_info": lig_info,
         "persistent_contacts": persistent,
+        "posebusters": [r.to_dict() for r in pb_reports],
+        "posebusters_pass_count": pb_pass_count,
+        "posebusters_total_audited": len(pb_reports),
         "n_persistent_30": n_persistent_30,
         "event_totals": event_totals,
         "hotspots": hotspots,

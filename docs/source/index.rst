@@ -8,61 +8,86 @@ Welcome to PandaDock Documentation
 
 |
 
-PandaDock is an open-source molecular docking suite combining a flexible-ligand conformational search with an **SE(3)-equivariant Graph Neural Network** affinity scoring function trained on 741,706 co-folded complexes (SAIR) under target-disjoint splits.
+**PandaDock v5.0** is an open-source molecular docking suite combining analytic-gradient flexible-ligand docking (CPU, NVIDIA CUDA, and Apple Silicon MPS) with a complete medicinal-chemistry workflow, **PandaDock Studio** (Apple-designed web GUI with PandaLens 3D/2D visualization), publication A4 vector PDF/HTML reporting, and an **SE(3)-equivariant Graph Neural Network** affinity scoring function trained on 741,706 co-folded complexes (SAIR) under target-disjoint splits.
+
+.. tip::
+   **Download the Official Plain-Language User Manual (PDF):**
+   :download:`PandaDock v5.0 Official User Manual (24-page A4 PDF with clickable TOC) <_static/PandaDock_v5.0_User_Manual.pdf>`
 
 .. note::
-   **PandaDock v4.1+** provides flexible-ligand Monte Carlo + L-BFGS search with analytic gradients (CPU and experimental CUDA/MPS GPU backends), multi-ligand virtual screening (``pandadock screen``), and PandaDock-GNN affinity prediction (Pearson R = 0.531 independent on PDBbind v2020 refined, n = 4,640; R = 0.690 for a dedicated target-disjoint PDBbind model on its held-out test split).
+   **What's New in PandaDock v5.0:**
+
+   * **PandaDock Studio GUI** (``pandadock gui`` / ``pandadock-gui``): Guided 4-step workflow, Maestro-style X-ray co-crystal ligand pocket selection & auto-exclusion, separate 3D/2D Ligand Window, **PandaLens** 18-class 3D explicit-H interaction viewer + live interactive 2D interaction map, 300-DPI plot gallery, embedded A4 PDF viewer, and HTML report.
+   * **Built-in 11-Point PoseBusters Audit** (``pandadock validate-poses``): Chemistry, geometry, flatness, chirality, MMFF94 strain, and protein clash audit integrated into every run.
+   * **pH-Aware Protonation, Tautomer & Stereo Enumeration** (``--enumerate-states --ph 7.4``): Henderson–Hasselbalch microspecies ranking.
+   * **Differentiable Geometric / H-Bond / Metal / MCS Restraints** (``--restraint``) & **Displaceable Structural Waters** (``--waters strip|keep|displace``).
+   * **Congeneric Series / MCS Core-Tethered Docking & SAR Brochure PDF** (``pandadock series``).
+   * **Covalent Warhead Docking** (``pandadock covalent``): 8 medicinal-chemistry warheads + PandaMap covalent 2D/3D diagrams.
+   * **Few-Shot Per-Target Weight Calibration** (``pandadock calibrate`` + ``--weights-file``) & **One-Command Dock-to-MD Handoff** (``pandadock to-md`` for OpenMM, GROMACS & PandaInsight).
 
 Quick Start
 -----------
 
-Install PandaDock:
+Install PandaDock 5.0:
 
 .. code-block:: bash
 
-   conda install -c conda-forge rdkit
-   git clone https://github.com/pritampanda15/PandaDock.git
-   cd PandaDock
-   pip install -e ".[gnn]"
+   conda create -n pandadock python=3.10 -y && conda activate pandadock
+   conda install -c conda-forge rdkit -y
+   pip install pandadock
+   pip install "pandadock[gui]"    # Optional: PandaDock Studio GUI
+   pip install "pandadock[gnn]"    # Optional: GPU search (CUDA/MPS) & GNN scoring
+   pip install pandamap            # Optional: 2D interaction diagrams
 
-Basic usage:
+Run your first docking workflow or launch Studio:
 
 .. code-block:: bash
 
-   # Flexible-ligand docking with Vina-style scoring (CPU or --device cuda|mps)
-   pandadock dock -r protein.pdb -l ligand.sdf \
-                  --center 10 20 30 --box 20 20 20
+   # 1. Prepare protein & ligand (hydrogens, pH 7.4 protonation, 3D minimization)
+   pandadock-prepare -r receptor.pdb -l ligand.sdf --ph 7.4 -o prepared/
 
-   # Multi-ligand virtual screening on GPU
-   pandadock screen -r protein.pdb -l library.sdf \
-                    --center 10 20 30 --box 20 20 20 --device cuda
+   # 2. Define the binding site grid box (from X-ray ligand, cavities, or residues)
+   pandadock-gridbox -r prepared/receptor.pdb -m similarity \
+                     --reference-ligand xray_ligand.sdf -o box.json
 
-   # Estimate binding affinity of a chosen pose with PandaDock-GNN
-   pandadock-gnn predict -m models/pandadock_gnn_sair.pt \
-                         -p protein.pdb -l pose1.mol2 --strip-hydrogens
+   # 3. Flexible docking with displaceable waters, PoseBusters audit & PDF/HTML reports
+   pandadock dock -r prepared/receptor.pdb -l prepared/ligand.sdf -g box.json \
+                  --waters displace --workers 4 --seed 42 -o results/
 
-Key Features
-------------
+   # 4. Or launch PandaDock Studio (interactive 3D/2D viewer, plots & reports)
+   pandadock-gui --port 8765 --workspace .
 
-**Flexible-Ligand Conformational Search**
-   - Torsion-tree representation over all rotatable bonds
-   - Uniform SO(3) orientation sampling and L-BFGS relaxation with closed-form analytic gradients
-   - Precomputed affinity grids (AutoDock Vina and Vinardo presets) with signature-keyed caching
-   - Experimental batched GPU search (``--device cuda|mps``) and virtual screening (``pandadock screen``)
+CLI Footprint (10 Entry Points · 48 Commands)
+---------------------------------------------
 
-**SE(3)-Equivariant GNN Affinity Scoring**
-   - Rotation- and translation-invariant predictions via 6-layer heterogeneous EGNN
-   - Trained on 741,706 SAIR complexes under target-disjoint splits
-   - Separation of concerns: use the empirical function to select poses and the GNN to estimate affinity
-
-**Specialized Docking Modes (Experimental)**
-   - **Flexible Docking** (``pandadock-flex``): Induced-fit receptor side-chain refinement
-   - **Metal Docking** (``pandadock-metal``): Metalloprotein coordination scoring
-   - **Tethered Docking** (``pandadock-tethered``): Flat-bottom centroid restraint near a reference pose
-   - **Analysis & Reporting** (``pandadock-report``): HTML reports, plots, and PandaMap 2D diagrams
++-----------------------+---------+---------------------------------------------------------------------+
+| Entry Point           | Count   | Purpose                                                             |
++=======================+=========+=====================================================================+
+| ``pandadock``         | 18 cmds | ``dock``, ``screen``, ``series``, ``covalent``, ``validate-poses``, |
+|                       |         | ``calibrate``, ``to-md``, ``gui``, ``hybrid``, ``list-algorithms``, |
+|                       |         | and 8 ``gnn`` subcommands                                           |
++-----------------------+---------+---------------------------------------------------------------------+
+| ``pandadock-gui``     | 1 cmd   | Launch PandaDock Studio Apple-designed web GUI                      |
++-----------------------+---------+---------------------------------------------------------------------+
+| ``pandadock-prepare`` | 1 cmd   | Receptor & ligand preparation (H, pH 7.4, 3D minimization, states)  |
++-----------------------+---------+---------------------------------------------------------------------+
+| ``pandadock-gridbox`` | 1 cmd   | Grid box definition (``similarity``, ``cavities``, ``residues``)    |
++-----------------------+---------+---------------------------------------------------------------------+
+| ``pandadock-flex``    | 1 cmd   | 4-phase induced-fit flexible receptor docking                       |
++-----------------------+---------+---------------------------------------------------------------------+
+| ``pandadock-metal``   | 5 cmds  | Metalloprotein coordination docking (31 bundled metals)             |
++-----------------------+---------+---------------------------------------------------------------------+
+| ``pandadock-tethered``| 4 cmds  | Crystal-ligand extraction, tethered redocking & validation          |
++-----------------------+---------+---------------------------------------------------------------------+
+| ``pandadock-report``  | 4 cmds  | Regenerate 300-DPI plots, PandaMap 2D/3D maps & scoring tables      |
++-----------------------+---------+---------------------------------------------------------------------+
+| ``pandadock-ml``      | 5 cmds  | Classical ML feature extraction, training & hybrid docking          |
++-----------------------+---------+---------------------------------------------------------------------+
+| ``pandadock-gnn``     | 8 cmds  | Standalone SE(3)-equivariant GNN CLI (mirrors ``pandadock gnn *``)  |
++-----------------------+---------+---------------------------------------------------------------------+
 
 Performance Benchmarks
------------------------
+----------------------
 
 .. note::
    Earlier v4.0 documentation reported R = 0.88 on PDBbind and R = 0.82 on ULVSH.
@@ -108,6 +133,31 @@ Documentation Contents
 
 .. toctree::
    :maxdepth: 2
+   :caption: PandaDock v5.0 Suite & Studio GUI
+
+   guide/studio_gui
+   guide/medchem_v5
+   guide/best_practices
+   guide/troubleshooting
+   guide/faq
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Command Line Interface (All 48 Commands)
+
+   cli/pandadock
+   cli/pandadock_gui
+   cli/pandadock_prepare
+   cli/pandadock_gridbox
+   cli/pandadock_gnn
+   cli/pandadock_flex
+   cli/pandadock_metal
+   cli/pandadock_tethered
+   cli/pandadock_report
+   cli/pandadock_ml
+
+.. toctree::
+   :maxdepth: 2
    :caption: PandaDock-GNN
 
    gnn/overview
@@ -118,42 +168,22 @@ Documentation Contents
 
 .. toctree::
    :maxdepth: 2
-   :caption: Algorithms
+   :caption: Algorithms & Scoring
 
    algorithms/overview
-   algorithms/hierarchical
-   algorithms/scoring_functions
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Command Line Interface
-
-   cli/pandadock
-   cli/pandadock_gnn
-   cli/pandadock_flex
-   cli/pandadock_metal
-   cli/pandadock_tethered
-   cli/pandadock_report
+   algorithms/cpu_algorithms
+   algorithms/gpu_algorithms
+   algorithms/specialized_modes
+   scoring/overview
 
 .. toctree::
    :maxdepth: 2
    :caption: Tutorials
 
    tutorials/basic_docking
-   tutorials/gnn_training
-   tutorials/hybrid_workflow
+   tutorials/virtual_screening
    tutorials/flexible_docking
    tutorials/metal_coordination
-   tutorials/virtual_screening
-
-.. toctree::
-   :maxdepth: 2
-   :caption: User Guide
-
-   guide/best_practices
-   guide/performance
-   guide/troubleshooting
-   guide/faq
 
 .. toctree::
    :maxdepth: 2

@@ -594,8 +594,10 @@ def generate_report(
 
 def _run_pandamap(output_dir: Path) -> Optional[Path]:
     """Generate a 2D interaction diagram for the top complex, if PandaMap is present."""
-    candidates = sorted(output_dir.glob("complex1.pdb")) or sorted(
-        output_dir.glob("complex_1.pdb")
+    candidates = (
+        sorted(output_dir.glob("complex1.pdb"))
+        or sorted(output_dir.glob("complex_1.pdb"))
+        or sorted(output_dir.glob("covalent_complex1.pdb"))
     )
     if not candidates:
         return None
@@ -608,7 +610,15 @@ def _run_pandamap(output_dir: Path) -> Optional[Path]:
                     "Install it with: pip install pandamap")
         return None
 
-    integration.analyze_complex_pdbs(str(output_dir), top_n=1, generate_3d=False)
+    if candidates[0].name.startswith("covalent_"):
+        integration.create_interaction_map_for_pose(
+            str(candidates[0]), "complex_1", binding_affinity=0.0, generate_3d=False
+        )
+    else:
+        integration.analyze_complex_pdbs(str(output_dir), top_n=1, generate_3d=False)
+    for candidate in sorted(output_dir.glob("pandamap_2d_*.png")):
+        if not candidate.name.endswith("_classic.png") and not candidate.name.endswith("_3d.png"):
+            return candidate
     for candidate in sorted(output_dir.glob("pandamap_2d_*.png")):
         return candidate
     return None

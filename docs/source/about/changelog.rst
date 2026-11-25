@@ -1,6 +1,22 @@
 Changelog
 =========
 
+Version 5.0.0 (2026)
+--------------------
+
+**Major Release — Medicinal-Chemistry Suite, PandaDock Studio GUI & PandaLens 3D/2D Integration:**
+
+* **PandaDock Studio GUI** (``pandadock gui`` / ``pandadock-gui``): Local Apple-HIG web workspace featuring a guided 4-step docking wizard, native ``/api/prepare`` (hydrogens, pH 7.4, MMFF94, water stripping), ``/api/gridbox`` (cavities, protein center, metal ion, 3D residue clicking, and Maestro-style co-crystal X-ray ligand pocket centering with automatic ligand exclusion), separate floating **3D / 2D Ligand Window** with **Protein/Ligand** hide toggles, **PandaLens** 18-class 3D explicit-H binding-site viewer + interactive 2D interaction map (`map2d.js`) with SVG export, 300-DPI plot gallery, macOS Preview–style PDF.js vector report viewer, editorial HTML report, and SSE live terminal console.
+* **Built-In 11-Point PoseBusters Validity Audit** (``pandadock validate-poses``): Chemistry, geometry, flatness, chirality, MMFF94 strain, and protein clash checks integrated into docking and reports.
+* **pH-Aware Protonation, Tautomer & Stereo Enumeration** (``--enumerate-states --ph 7.4``): Automatic microspecies generation with Henderson–Hasselbalch state penalties.
+* **Differentiable Restraints & Displaceable Structural Waters** (``--restraint``, ``--restraints-file``, ``--waters strip|keep|displace``): Smooth flat-bottom geometric, H-bond, metal, and MCS restraints across CPU and GPU/MPS L-BFGS, plus bridging vs displaced water energetics.
+* **Congeneric Series SAR & MCS Core-Tethered Docking** (``pandadock series``): Scaffold-aligned analog docking with multi-score consensus and A4 vector **SAR Brochure PDF** (``series_report.pdf``).
+* **Covalent Warhead Docking** (``pandadock covalent``): 8 medicinal-chemistry warheads (``michael_acceptor``, ``chloroacetamide``, ``nitrile``, ``epoxide``, ``boronic_acid``, ``aldehyde``, ``sulfonyl_fluoride``, ``disulfide``) with rooted torsion trees, PandaMap 2D/3D covalent diagrams, and PDF/HTML reports.
+* **Few-Shot Per-Target Weight Calibration** (``pandadock calibrate`` + ``--weights-file``): Ridge LOOCV weight calibration from 5–25 experimental IC50/Ki/ΔG measurements.
+* **One-Command Dock-to-MD Handoff** (``pandadock to-md`` / ``--export-md``): Self-contained OpenMM, GROMACS, and PandaInsight starter packages.
+* **Dual-Head PandaDock-GNN v5**: Added pose-RMSD prediction head and within-target ranking loss.
+* **Official v5.0 User Manual PDF**: 24-page plain-language Panda-family A4 manual with clickable TOC links and PDF bookmarks.
+
 Version 4.1.1+ (2026)
 ---------------------
 

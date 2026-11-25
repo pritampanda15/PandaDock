@@ -41,6 +41,7 @@ docking_output/
 *_output/
 results/
 test_output/
+gui_runs/
 
 # Benchmark/test outputs (keep results, ignore temp)
 algorithm_comparison*/

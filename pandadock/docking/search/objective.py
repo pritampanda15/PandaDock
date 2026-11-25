@@ -43,10 +43,12 @@ class DockingObjective:
         tether_center: Optional[np.ndarray] = None,
         tether_radius: float = 0.0,
         tether_force: float = 10.0,
+        restraints=None,
     ):
         self.tree = tree
         self.grids = grids
         self.intra_weight = intra_weight
+        self.restraints = restraints
 
         # Optional flat-bottom restraint on the ligand centroid, used by tethered
         # docking. Zero inside the radius, harmonic outside, so the search is free
@@ -196,7 +198,10 @@ class DockingObjective:
         inter = self.grids.score(coords[self.heavy_atoms])
         intra, _ = self._intramolecular(coords, need_gradient=False)
         tether, _ = self._tether(coords, need_gradient=False)
-        return inter + intra + tether
+        restraint_e = 0.0
+        if self.restraints:
+            restraint_e, _ = self.restraints.energy_and_gradient(coords, need_gradient=False)
+        return inter + intra + tether + restraint_e
 
     def energy_and_gradient(self, dof: np.ndarray) -> Tuple[float, np.ndarray]:
         self.n_evaluations += 1
@@ -212,12 +217,21 @@ class DockingObjective:
         tether, tether_grad = self._tether(coords, need_gradient=True)
         energy += tether
 
+        restraint_grad = None
+        if self.restraints:
+            restraint_e, restraint_grad = self.restraints.energy_and_gradient(
+                coords, need_gradient=True
+            )
+            energy += restraint_e
+
         # Per-atom Cartesian gradient (hydrogens contribute nothing to the score,
         # but they still move, so they simply carry zero gradient).
         grad_atoms = grad_intra
         grad_atoms[self.heavy_atoms] += grad_heavy
         if tether_grad is not None:
             grad_atoms += tether_grad
+        if restraint_grad is not None:
+            grad_atoms += restraint_grad
 
         grad = np.zeros(self.n_dof, dtype=np.float64)
 

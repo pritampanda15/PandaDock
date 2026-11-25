@@ -68,6 +68,7 @@ class FlexibleBatchedSearch:
         config: Optional[RigidSearchConfig] = None,
         torsion_amplitude: float = 0.5,
         torsion_resample_probability: float = 0.25,
+        restraints=None,
     ):
         if not torch_available:  # pragma: no cover
             raise ImportError("the GPU search path needs torch")
@@ -75,6 +76,7 @@ class FlexibleBatchedSearch:
         self.grids = grids
         self.torsions = torsions
         self.clash = clash
+        self.restraints = restraints
         self.config = config or RigidSearchConfig()
         self.device = grids.device
         self.dtype = grids.dtype
@@ -114,7 +116,11 @@ class FlexibleBatchedSearch:
         inter, _ = self.grids.score_and_gradient(
             heavy, self.type_ids, need_gradient=False
         )
-        return inter + self.clash.energy(coords)
+        total = inter + self.clash.energy(coords)
+        if self.restraints:
+            r_e, _ = self.restraints.torch_energy_and_gradient(coords, need_gradient=False)
+            total = total + r_e
+        return total
 
     def energy_and_dof_gradient(self, x: "torch.Tensor"):
         """
@@ -137,9 +143,15 @@ class FlexibleBatchedSearch:
         clash = self.clash.energy(coords)
 
         surrogate = (heavy * grad_heavy.detach()).sum() + clash.sum()
+        r_e = 0.0
+        if self.restraints:
+            r_e, r_grad = self.restraints.torch_energy_and_gradient(
+                coords.detach(), need_gradient=True
+            )
+            surrogate = surrogate + (coords * r_grad.detach()).sum()
         (grad,) = torch.autograd.grad(surrogate, x)
 
-        return inter + clash.detach(), grad
+        return inter + clash.detach() + r_e, grad
 
     def analytic_energy_and_dof_gradient(self, x: "torch.Tensor"):
         """
@@ -184,6 +196,14 @@ class FlexibleBatchedSearch:
         # carry no interaction gradient -- as on the CPU.
         grad_atoms = grad_atoms.index_add(1, heavy_idx, grad_heavy)
 
+        total_e = inter + clash
+        if self.restraints:
+            r_e, r_grad = self.restraints.torch_energy_and_gradient(
+                coords, need_gradient=True
+            )
+            total_e = total_e + r_e
+            grad_atoms = grad_atoms + r_grad
+
         grad = torch.empty_like(x)
         grad[:, :3] = grad_atoms.sum(dim=1)
 
@@ -212,7 +232,7 @@ class FlexibleBatchedSearch:
                 )
                 grad[:, 6 + k] = (grad_atoms[:, moving, :] * velocity).sum((1, 2))
 
-        return inter + clash, grad
+        return total_e, grad
 
     def local_optimize(
         self,
@@ -400,4 +420,5 @@ def build_flexible_search(
         clash=IntramolecularClash(objective, grids.dtype, device),
         type_ids=cpu_grids.typing.type_ids,
         config=config,
+        restraints=getattr(objective, "restraints", None),
     )

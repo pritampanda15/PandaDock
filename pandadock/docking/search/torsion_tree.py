@@ -74,6 +74,7 @@ class TorsionTree:
         rigid: bool = False,
         freeze_amides: bool = True,
         max_torsions: Optional[int] = 32,
+        forced_root_atom: Optional[int] = None,
     ):
         if mol.GetNumConformers() == 0:
             raise ValueError("TorsionTree requires a molecule with a 3D conformer")
@@ -81,6 +82,7 @@ class TorsionTree:
         self.mol = mol
         self.n_atoms = mol.GetNumAtoms()
         self.conf_id = conf_id
+        self.forced_root_atom = forced_root_atom
 
         conf = mol.GetConformer(conf_id)
         self.ref_coords = np.asarray(conf.GetPositions(), dtype=np.float64)
@@ -98,7 +100,9 @@ class TorsionTree:
         else:
             rot_bonds = self._find_rotatable_bonds(freeze_amides)
 
-        self.root_atom, self.torsions = self._build_tree(rot_bonds, max_torsions)
+        self.root_atom, self.torsions = self._build_tree(
+            rot_bonds, max_torsions, forced_root_atom=forced_root_atom
+        )
 
         # Reference geometry anchored so the root atom sits at the origin. Poses are
         # then produced as R * (torsioned coords) + translation, which keeps the
@@ -190,17 +194,22 @@ class TorsionTree:
         return out
 
     def _build_tree(
-        self, rot_bonds: Sequence[Tuple[int, int]], max_torsions: Optional[int]
+        self,
+        rot_bonds: Sequence[Tuple[int, int]],
+        max_torsions: Optional[int],
+        forced_root_atom: Optional[int] = None,
     ) -> Tuple[int, List[Torsion]]:
         """
         Choose a root fragment and order the rotatable bonds root-outward.
 
         The root is the largest rigid fragment (the fragment containing the most
         heavy atoms once every rotatable bond is cut), matching AutoDock's
-        convention. Anchoring the search on the largest rigid piece keeps the
-        best-determined part of the ligand under direct rigid-body control.
+        convention. When `forced_root_atom` is provided (e.g. for covalent
+        warhead docking), the fragment containing that atom is used as the root.
         """
         if not rot_bonds:
+            if forced_root_atom is not None:
+                return int(forced_root_atom), []
             return int(self.heavy_atoms[0]), []
 
         rot_set = {frozenset(b) for b in rot_bonds}
@@ -229,7 +238,10 @@ class TorsionTree:
         def heavy_count(frag: Sequence[int]) -> int:
             return sum(1 for a in frag if self.mol.GetAtomWithIdx(int(a)).GetAtomicNum() > 1)
 
-        root_frag = int(np.argmax([heavy_count(f) for f in fragments]))
+        if forced_root_atom is not None and 0 <= int(forced_root_atom) < self.n_atoms:
+            root_frag = int(frag_id[int(forced_root_atom)])
+        else:
+            root_frag = int(np.argmax([heavy_count(f) for f in fragments]))
 
         # Fragment-level adjacency, so we can walk outward from the root fragment.
         frag_edges: Dict[int, List[Tuple[int, int, int]]] = {i: [] for i in range(len(fragments))}
@@ -265,10 +277,13 @@ class TorsionTree:
             torsions = torsions[:max_torsions]
             torsions.sort(key=lambda t: t.depth)
 
-        root_atom = next(
-            (a for a in fragments[root_frag] if self.mol.GetAtomWithIdx(int(a)).GetAtomicNum() > 1),
-            fragments[root_frag][0],
-        )
+        if forced_root_atom is not None and 0 <= int(forced_root_atom) < self.n_atoms:
+            root_atom = int(forced_root_atom)
+        else:
+            root_atom = next(
+                (a for a in fragments[root_frag] if self.mol.GetAtomWithIdx(int(a)).GetAtomicNum() > 1),
+                fragments[root_frag][0],
+            )
         return int(root_atom), torsions
 
     def _as_mask(self, indices: np.ndarray) -> np.ndarray:

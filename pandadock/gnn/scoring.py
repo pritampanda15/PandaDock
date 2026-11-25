@@ -192,6 +192,9 @@ class GNNScoring:
             result['activity_prob'] = float(1.0 / (1.0 + np.exp(-activity_logit)))
             result['active'] = bool(result['activity_prob'] > 0.5)
 
+        if 'pose_rmsd' in predictions:
+            result['predicted_rmsd_A'] = float(predictions['pose_rmsd'].item())
+
         return result
 
     def predict_from_graph(self, graph) -> Dict[str, float]:
@@ -223,6 +226,9 @@ class GNNScoring:
             activity_logit = predictions['activity'].item()
             result['activity_prob'] = float(1.0 / (1.0 + np.exp(-activity_logit)))
             result['active'] = bool(result['activity_prob'] > 0.5)
+
+        if 'pose_rmsd' in predictions:
+            result['predicted_rmsd_A'] = float(predictions['pose_rmsd'].item())
 
         return result
 

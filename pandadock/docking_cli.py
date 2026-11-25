@@ -102,8 +102,14 @@ USAGE:
     pandadock COMMAND [OPTIONS]
 
 MAIN COMMANDS:
-    dock                Traditional docking with Vina-style scoring
-    hybrid              Dock + GNN rescoring (RECOMMENDED for best accuracy)
+    dock                Flexible docking with restraints, waters, pH states & reports
+    series              Congeneric series / MCS core-tethered docking & SAR brochure PDF
+    covalent            Covalent warhead docking (8 medicinal-chemistry warheads)
+    validate-poses      Built-in PoseBusters chemistry & geometry validity audit
+    calibrate           Per-target few-shot Vina weight calibration (Ridge LOOCV)
+    to-md               One-command Dock-to-MD handoff (OpenMM / GROMACS / PandaInsight)
+    gui                 Launch PandaDock Studio Apple-designed web GUI (3D + Plots + PDF/HTML)
+    hybrid              Dock + GNN rescoring for combined physics/ML accuracy
     list-algorithms     List available algorithms and scoring functions
 
 GNN COMMANDS (Machine Learning):
@@ -223,10 +229,26 @@ def main(ctx, verbose, version, help):
               help='CPU worker threads across independent MC runs (default: 1)')
 @click.option('--sample-rings', is_flag=True, default=False,
               help='Enumerate distinct puckers for flexible non-aromatic rings')
+@click.option('--restraint', multiple=True,
+              help='Differentiable distance restraint (repeatable), e.g. '
+                   '"A:ZN:301:ZN<2.3:donor" or "point:10,20,30<2.5:aromatic"')
+@click.option('--restraints-file', type=click.Path(exists=True), default=None,
+              help='JSON file of distance/pharmacophore restraints')
+@click.option('--waters', type=click.Choice(['strip', 'keep', 'displace']),
+              default='strip', help='Structural pocket water protocol (default: strip)')
+@click.option('--enumerate-states', is_flag=True, default=False,
+              help='Enumerate pH protonation, tautomer, and stereo microspecies')
+@click.option('--ph', type=float, default=7.4,
+              help='Target pH for --enumerate-states (default: 7.4)')
+@click.option('--weights-file', type=click.Path(exists=True), default=None,
+              help='Calibrated scoring weights JSON from `pandadock calibrate`')
+@click.option('--export-md', type=click.Choice(['none', 'openmm', 'gromacs', 'both']),
+              default='none', help='Export top pose as an MD starter package (OpenMM/GROMACS)')
 def dock(receptor, ligand, grid_config, center, box, scoring,
          output_dir, num_poses, ensemble, rescoring, visualize, fast,
          exhaustiveness, seed, rigid_ligand, grid_spacing, device, n_chains,
-         workers, sample_rings):
+         workers, sample_rings, restraint, restraints_file, waters,
+         enumerate_states, ph, weights_file, export_md):
     """Perform molecular docking with Vina-style scoring"""
 
     click.echo("PandaDock Molecular Docking")
@@ -302,21 +324,113 @@ def dock(receptor, ligand, grid_config, center, box, scoring,
                + (f" | seed: {seed}" if seed is not None else "")
                + (" | rigid ligand" if rigid_ligand else ""))
 
-    # Perform docking
-    click.echo("Starting docking...")
-    start_time = time.time()
+    # Load optional calibrated scoring weights (v5.0)
+    if weights_file:
+        from .docking.calibration import load_calibrated_weights
 
-    try:
-        result = engine.dock_ligand(
+        dock_params['weights_override'] = load_calibrated_weights(weights_file)
+        click.echo(f"Loaded calibrated scoring weights from {weights_file}")
+
+    # Helper to build RestraintSet for a given ligand molecule
+    def _build_restraints_for(mol_obj):
+        if not restraint and not restraints_file:
+            return None
+        from .docking.search.restraints import RestraintSet, load_restraints_json, parse_restraint_spec
+
+        rset = RestraintSet()
+        for spec in restraint:
+            rset.add(parse_restraint_spec(spec, receptor, mol_obj))
+        if restraints_file:
+            rset.extend(load_restraints_json(restraints_file, receptor, mol_obj))
+        return rset if len(rset) else None
+
+    # Helper to run single-state docking with water mode
+    def _run_dock_for_mol(mol_obj):
+        local_params = dict(dock_params)
+        rset = _build_restraints_for(mol_obj)
+        if rset is not None:
+            local_params['restraints'] = rset
+        if waters != 'strip':
+            from .docking.search.waters import dock_with_water_mode
+
+            return dock_with_water_mode(
+                engine=engine,
+                receptor_file=receptor,
+                ligand_mol=mol_obj,
+                grid_center=grid_center,
+                grid_dimensions=grid_dimensions,
+                water_mode=waters,
+                dock_kwargs={
+                    'algorithm': 'pandadock',
+                    'scoring_function': scoring,
+                    'num_poses': num_poses,
+                    **local_params,
+                },
+            )
+        return engine.dock_ligand(
             receptor_file=receptor,
-            ligand_mol=ligand_mol,
+            ligand_mol=mol_obj,
             grid_center=grid_center,
             grid_dimensions=grid_dimensions,
             algorithm='pandadock',
             scoring_function=scoring,
             num_poses=num_poses,
-            **dock_params
+            **local_params
         )
+
+    # Perform docking (single state or pH microspecies ensemble)
+    click.echo("Starting docking...")
+    start_time = time.time()
+
+    try:
+        if enumerate_states:
+            from .preprocessing.states import enumerate_ligand_states
+
+            states = enumerate_ligand_states(ligand_mol, ph=ph, max_states=6)
+            click.echo(f"Enumerated {len(states)} microspecies at pH {ph:.1f}; docking each state...")
+            state_summaries = []
+            best_state = None
+            best_res = None
+            best_eff_energy = float('inf')
+
+            for st in states:
+                st_res = _run_dock_for_mol(st.mol)
+                if not st_res.poses:
+                    continue
+                raw_top = float(st_res.poses[0].energy)
+                eff_top = raw_top + float(st.state_penalty)
+                state_summaries.append({
+                    **st.to_dict(),
+                    'raw_docking_score_kcal': round(raw_top, 3),
+                    'effective_score_kcal': round(eff_top, 3),
+                })
+                click.echo(
+                    f"  State {st.state_id} (q={st.formal_charge:+d}, penalty={st.state_penalty:+.2f}): "
+                    f"raw={raw_top:.3f}, effective={eff_top:.3f} kcal/mol"
+                )
+                if eff_top < best_eff_energy:
+                    best_eff_energy = eff_top
+                    best_state = st
+                    best_res = st_res
+
+            if best_res is None or best_state is None:
+                raise RuntimeError("All enumerated ligand microspecies failed to dock")
+
+            ligand_mol = best_state.mol
+            result = best_res
+            result.parameters['state_enumeration'] = {
+                'ph': ph,
+                'n_states_docked': len(state_summaries),
+                'selected_state': best_state.state_id,
+                'selected_formal_charge': best_state.formal_charge,
+                'selected_state_penalty': best_state.state_penalty,
+                'states': state_summaries,
+            }
+            (output_path / "ligand_states_summary.json").write_text(
+                json.dumps(result.parameters['state_enumeration'], indent=2), encoding="utf-8"
+            )
+        else:
+            result = _run_dock_for_mol(ligand_mol)
 
         runtime = time.time() - start_time
         click.echo(f"Docking completed in {runtime:.2f} seconds")
@@ -343,9 +457,42 @@ def dock(receptor, ligand, grid_config, center, box, scoring,
     click.echo("Saving results...")
     result.save_results(output_path)
 
-    # Save PDB outputs
+    # Save PDB & SDF outputs
     save_complex_pdbs(result, receptor, output_path, ligand_mol)
     save_pose_pdbs(result, output_path, ligand_mol)
+    save_poses_sdf(result, output_path, ligand_mol)
+
+    # Built-in PoseBusters audit on returned poses (v5.0)
+    try:
+        from .docking.validation.posebusters import audit_docking_result
+
+        pb_reports = audit_docking_result(
+            result, ligand_mol=ligand_mol, receptor_file=receptor, max_poses=min(len(result.poses), 10)
+        )
+        n_pb_pass = sum(1 for r in pb_reports if r.all_passed)
+        (output_path / "posebusters_audit.json").write_text(
+            json.dumps([r.to_dict() for r in pb_reports], indent=2), encoding="utf-8"
+        )
+        click.echo(f"PoseBusters audit: {n_pb_pass}/{len(pb_reports)} poses passed all chemistry/geometry checks")
+    except Exception as e:
+        click.echo(f"PoseBusters audit skipped: {e}")
+
+    # Optional Dock-to-MD handoff package (v5.0)
+    if export_md != 'none':
+        try:
+            from .md_handoff import export_md_package
+
+            md_dir = output_path / "md_handoff"
+            export_md_package(
+                output_dir=str(md_dir),
+                receptor_file=receptor,
+                ligand_sdf=str(output_path / "poses.sdf"),
+                complex_pdb=str(output_path / "complex1.pdb") if (output_path / "complex1.pdb").exists() else None,
+                engine=export_md,
+            )
+            click.echo(f"Exported MD handoff package ({export_md}) to: {md_dir}")
+        except Exception as e:
+            click.echo(f"MD handoff export failed: {e}")
 
     # MM-GBSA Rescoring for top poses
     if rescoring == 'mmgbsa':
@@ -2160,6 +2307,323 @@ def save_complex_to_pdb(receptor_file: str, pose: Pose, filepath: Path, ligand_m
             f.write("END\n")
     except Exception as e:
         logging.error(f"Error saving complex PDB: {e}")
+
+
+@main.command("validate-poses")
+@click.option('--poses', '-p', required=True, type=click.Path(exists=True),
+              help='Docked poses SDF file to audit')
+@click.option('--receptor', '-r', type=click.Path(exists=True), default=None,
+              help='Optional receptor PDB file for protein-ligand clash checks')
+@click.option('--reference', type=click.Path(exists=True), default=None,
+              help='Optional input/reference ligand SDF for chirality consistency')
+@click.option('--output', '-o', type=click.Path(), default=None,
+              help='Optional output JSON report path')
+@click.option('--max-strain', type=float, default=15.0,
+              help='Maximum allowed MMFF94/UFF strain above minimized conformer (kcal/mol)')
+def validate_poses_cmd(poses, receptor, reference, output, max_strain):
+    """Run built-in PoseBusters chemistry & geometry validity audit on docked poses."""
+    from .docking.validation.posebusters import audit_sdf_file
+
+    click.echo(f"PandaDock PoseBusters Audit -> {poses}")
+    reports = audit_sdf_file(
+        sdf_path=poses,
+        receptor_file=receptor,
+        reference_sdf=reference,
+        max_rel_energy_kcal=max_strain,
+    )
+    if not reports:
+        click.echo("No valid molecules found to audit.")
+        sys.exit(1)
+
+    n_pass = sum(1 for r in reports if r.all_passed)
+    click.echo(f"Summary: {n_pass}/{len(reports)} poses PASS all chemistry & geometry checks")
+    for r in reports:
+        status = "PASS" if r.all_passed else f"FAIL ({', '.join(r.failed_checks)})"
+        strain_s = f"{r.relative_energy_kcal:.2f}" if r.relative_energy_kcal is not None else "n/a"
+        click.echo(f"  Pose {r.pose_index + 1} [{r.ligand_name}]: {r.n_passed}/{r.n_total} | strain={strain_s} kcal/mol | {status}")
+
+    if output:
+        out_p = Path(output)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+        out_p.write_text(json.dumps([r.to_dict() for r in reports], indent=2), encoding="utf-8")
+        click.echo(f"Audit JSON saved to: {out_p}")
+
+
+@main.command("series")
+@click.option('--receptor', '-r', required=True, type=click.Path(exists=True),
+              help='Receptor PDB file')
+@click.option('--ligands', '-l', required=True, type=click.Path(exists=True),
+              help='Analog series file (SDF / SMILES) or directory')
+@click.option('--center', nargs=3, type=float, required=True, metavar='X Y Z',
+              help='Grid center coordinates (Å)')
+@click.option('--box', nargs=3, type=float, required=True, metavar='X Y Z',
+              help='Grid box dimensions (Å)')
+@click.option('--output-dir', '-o', type=click.Path(), default='series_output',
+              help='Output directory for series SAR CSV, poses, PDF & HTML brochure')
+@click.option('--reference-pose', type=click.Path(exists=True), default=None,
+              help='Optional 3D reference ligand SDF for MCS core-tethered docking')
+@click.option('--core-smarts', type=str, default=None,
+              help='Optional SMARTS defining the shared scaffold core')
+@click.option('--core-tolerance', type=float, default=0.75,
+              help='Flat-bottom MCS core tether tolerance in Å (default: 0.75)')
+@click.option('--scoring', '-s', type=click.Choice(['vina', 'vinardo']), default='vina',
+              help='Primary search scoring function (default: vina)')
+@click.option('--exhaustiveness', '-e', type=int, default=8,
+              help='Monte Carlo runs per analog (default: 8)')
+@click.option('--device', type=str, default='cpu', help='Search device (cpu/cuda/mps)')
+@click.option('--workers', '-j', type=int, default=1, help='CPU worker threads per analog (default: 1)')
+@click.option('--seed', type=int, default=42, help='Random seed (default: 42)')
+@click.option('--weights-file', type=click.Path(exists=True), default=None,
+              help='Optional calibrated weights JSON from `pandadock calibrate`')
+@click.option('--gnn-model', type=click.Path(exists=True), default=None,
+              help='Optional trained PandaDock-GNN checkpoint for additional rescoring')
+def series_cmd(receptor, ligands, center, box, output_dir, reference_pose, core_smarts,
+               core_tolerance, scoring, exhaustiveness, device, workers, seed, weights_file, gnn_model):
+    """Congeneric series / MCS core-tethered docking with multi-score SAR brochure PDF."""
+    from .docking.calibration import load_calibrated_weights
+    from .docking.series import run_congeneric_series
+
+    w_override = load_calibrated_weights(weights_file) if weights_file else None
+    click.echo(f"PandaDock v5 Congeneric Series Docking -> {receptor}")
+    summary = run_congeneric_series(
+        receptor_file=receptor,
+        ligands_path=ligands,
+        grid_center=np.array(center, dtype=float),
+        grid_dimensions=np.array(box, dtype=float),
+        output_dir=output_dir,
+        reference_pose_sdf=reference_pose,
+        core_smarts=core_smarts,
+        core_tolerance=core_tolerance,
+        exhaustiveness=exhaustiveness,
+        scoring=scoring,
+        device=device,
+        seed=seed,
+        n_workers=workers,
+        weights_override=w_override,
+        gnn_model_path=gnn_model,
+    )
+    click.echo(
+        f"\nSeries complete ({summary['n_analogs']} analogs, {summary['runtime_seconds']:.1f} s; "
+        f"PoseBusters {summary['posebusters_pass_count']}/{summary['n_analogs']} PASS):"
+    )
+    for r in summary["records"]:
+        pb = "PASS" if r["pb_valid"] else "WARN"
+        click.echo(
+            f"  #{r['consensus_rank']} {r['name']:<16s} | Vina {r['vina_kcal']:6.2f} | "
+            f"Vinardo {r['vinardo_kcal']:6.2f} | MM-GBSA {r['mmgbsa_kcal']:6.1f} | LE {r['ligand_efficiency']:.2f} | PB:{pb}"
+        )
+    click.echo(f"SAR Brochure PDF:  {summary['files']['report_pdf']}")
+    click.echo(f"SAR Brochure HTML: {summary['files']['report_html']}")
+
+
+@main.command("covalent")
+@click.option('--receptor', '-r', required=True, type=click.Path(exists=True),
+              help='Receptor PDB file')
+@click.option('--ligand', '-l', required=True, type=click.Path(exists=True),
+              help='Unreacted covalent inhibitor file (SDF/MOL2/PDB/SMI)')
+@click.option('--residue', required=True, type=str,
+              help='Reactive nucleophile residue, e.g. "A:CYS:145" or "A:SER:200:OG"')
+@click.option('--warhead', type=str, default='auto',
+              help='Warhead type (auto, michael_acceptor, chloroacetamide, nitrile, epoxide, '
+                   'boronic_acid, aldehyde, sulfonyl_fluoride, disulfide)')
+@click.option('--center', nargs=3, type=float, default=None, metavar='X Y Z',
+              help='Optional grid center (defaults to binding cleft near reactive residue)')
+@click.option('--box-size', type=float, default=22.0,
+              help='Cubic grid box size in Å (default: 22.0)')
+@click.option('--scoring', '-s', type=click.Choice(['vina', 'vinardo']), default='vina',
+              help='Scoring function (default: vina)')
+@click.option('--num-poses', '-n', type=int, default=9, help='Number of poses (default: 9)')
+@click.option('--exhaustiveness', '-e', type=int, default=12, help='Multi-start depth (default: 12)')
+@click.option('--seed', type=int, default=42, help='Random seed (default: 42)')
+@click.option('--output-dir', '-o', type=click.Path(), default='covalent_output',
+              help='Output directory')
+def covalent_cmd(receptor, ligand, residue, warhead, center, box_size, scoring,
+                 num_poses, exhaustiveness, seed, output_dir):
+    """Covalent warhead docking anchored to a reactive protein residue."""
+    from .covalent import CovalentDocker, CovalentDockingConfig
+    from .docking.validation.posebusters import audit_docking_result
+
+    out_path = Path(output_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    if Path(ligand).suffix.lower() in ('.smi', '.smiles', '.txt'):
+        smi_line = next(
+            (ln.strip() for ln in Path(ligand).read_text(encoding='utf-8').splitlines() if ln.strip() and not ln.startswith('#')),
+            "",
+        )
+        parts = smi_line.split()
+        lig_mol = Chem.MolFromSmiles(parts[0])
+        if lig_mol is not None:
+            lig_mol.SetProp("_Name", parts[1] if len(parts) > 1 else Path(ligand).stem)
+    else:
+        lig_mol = load_ligand(ligand)
+
+    if lig_mol is None:
+        click.echo(f"Error: Could not load ligand from {ligand}")
+        sys.exit(1)
+
+    cfg = CovalentDockingConfig(
+        warhead=warhead,
+        num_poses=num_poses,
+        exhaustiveness=exhaustiveness,
+        box_size=box_size,
+        scoring=scoring,
+        seed=seed,
+    )
+    docker = CovalentDocker(cfg)
+    click.echo(f"PandaDock v5 Covalent Docking -> {receptor} [{residue}] (warhead={warhead})")
+    result, adduct_mol, cov_meta = docker.dock(
+        receptor_file=receptor,
+        ligand_mol=lig_mol,
+        reactive_residue=residue,
+        grid_center=np.array(center, dtype=float) if center else None,
+    )
+    if not result.poses:
+        click.echo("Covalent docking generated no poses.")
+        sys.exit(1)
+
+    boltzmann = BoltzmannEnsemble()
+    boltzmann.update_docking_result_with_ensemble(result)
+    result.save_results(out_path)
+    save_poses_sdf(result, out_path, adduct_mol)
+    for idx, pose in enumerate(result.get_top_poses(min(5, len(result.poses))), 1):
+        CovalentDocker.write_covalent_complex_pdb(
+            receptor, adduct_mol, pose, cov_meta, str(out_path / f"covalent_complex{idx}.pdb")
+        )
+    (out_path / "covalent_metadata.json").write_text(json.dumps(cov_meta, indent=2), encoding="utf-8")
+
+    # Interaction analysis + publication PDF/HTML report
+    per_pose_interactions = []
+    try:
+        from Bio.PDB import PDBParser
+        from .visualization.report import generate_report
+
+        rec_struct = PDBParser(QUIET=True).get_structure("rec", receptor)
+        analyzer = InteractionAnalyzer()
+        for pose in result.poses:
+            per_pose_interactions.append(
+                analyzer.analyze_pose_interactions(pose.coordinates, rec_struct, adduct_mol)
+            )
+        interactions = per_pose_interactions[0] if per_pose_interactions else {}
+        (out_path / "interaction_analysis.json").write_text(
+            json.dumps({"top_pose": interactions, "all_poses": per_pose_interactions}, indent=2, default=float),
+            encoding="utf-8",
+        )
+        generate_report(
+            result,
+            out_path,
+            ligand_mol=adduct_mol,
+            receptor_file=receptor,
+            interaction_analyses=per_pose_interactions,
+            run_pandamap=True,
+        )
+        try:
+            AffinityPlotter().create_binding_affinity_plot(
+                result, str(out_path / "binding_affinities.png")
+            )
+        except Exception:
+            pass
+    except Exception as exc:
+        click.echo(f"Covalent report generation warning: {exc}")
+
+    pb_reports = audit_docking_result(result, ligand_mol=adduct_mol, receptor_file=receptor, max_poses=len(result.poses))
+    (out_path / "posebusters_audit.json").write_text(
+        json.dumps([r.to_dict() for r in pb_reports], indent=2), encoding="utf-8"
+    )
+    n_pb = sum(1 for r in pb_reports if r.all_passed)
+
+    click.echo(
+        f"Warhead reacted: {cov_meta['warhead']} -> {cov_meta['reactive_residue']} "
+        f"(bond = {cov_meta['measured_bond_length_A']} Å)"
+    )
+    click.echo(
+        f"Top covalent pose: {result.poses[0].energy:.3f} kcal/mol | "
+        f"PoseBusters {n_pb}/{len(pb_reports)} PASS | Outputs -> {out_path}"
+    )
+
+
+@main.command("calibrate")
+@click.option('--receptor', '-r', required=True, type=click.Path(exists=True),
+              help='Receptor PDB file')
+@click.option('--poses', '-p', required=True, type=click.Path(exists=True),
+              help='Multi-ligand 3D poses SDF (one pose per training ligand)')
+@click.option('--labels', '-y', required=True, type=click.Path(exists=True),
+              help='CSV with ligand names and experimental/reference targets (name,dg)')
+@click.option('--output', '-o', type=click.Path(), default='calibrated_weights.json',
+              help='Output calibrated weights JSON path')
+@click.option('--preset', type=click.Choice(['vina', 'vinardo']), default='vina',
+              help='Prior scoring preset (default: vina)')
+@click.option('--higher-is-better', is_flag=True, default=False,
+              help='Set if labels are pIC50/pKi (higher = stronger) rather than ΔG/scores')
+def calibrate_cmd(receptor, poses, labels, output, preset, higher_is_better):
+    """Per-target few-shot scoring weight calibration with Ridge LOOCV."""
+    from .docking.calibration import calibrate_scoring_weights
+
+    click.echo(f"PandaDock v5 Few-Shot Weight Calibration -> {receptor}")
+    res = calibrate_scoring_weights(
+        receptor_file=receptor,
+        poses_sdf=poses,
+        labels_csv=labels,
+        output_json=output,
+        preset=preset,
+        higher_is_better=higher_is_better,
+    )
+    m = res["metrics"]
+    click.echo(f"Matched {res['n_ligands']} ligands (best Ridge α={res['regularization_alpha']})")
+    click.echo(f"  Default Vina:  r={m['default_pearson_r']}, ρ={m['default_spearman_rho']}")
+    click.echo(f"  LOOCV Calib.:  r={m['loocv_pearson_r']}, ρ={m['loocv_spearman_rho']}, RMSE={m['loocv_rmse']}")
+    click.echo(f"  Saved weights: {output}")
+
+
+@main.command("to-md")
+@click.option('--receptor', '-r', required=True, type=click.Path(exists=True),
+              help='Receptor PDB file')
+@click.option('--poses', '-p', required=True, type=click.Path(exists=True),
+              help='Docked ligand poses SDF file')
+@click.option('--output-dir', '-o', type=click.Path(), default='md_handoff',
+              help='Output MD starter directory')
+@click.option('--pose-index', type=int, default=0,
+              help='0-based pose index from SDF to export (default: 0)')
+@click.option('--engine', type=click.Choice(['openmm', 'gromacs', 'both']), default='both',
+              help='MD engine scripts to generate (default: both)')
+@click.option('--duration-ns', type=float, default=10.0,
+              help='Production MD duration in nanoseconds (default: 10.0)')
+@click.option('--temperature', type=float, default=300.0,
+              help='Simulation temperature in Kelvin (default: 300.0)')
+def to_md_cmd(receptor, poses, output_dir, pose_index, engine, duration_ns, temperature):
+    """Export a docked complex as a self-contained OpenMM / GROMACS / PandaInsight MD package."""
+    from .md_handoff import export_md_package
+
+    manifest = export_md_package(
+        output_dir=output_dir,
+        receptor_file=receptor,
+        ligand_sdf=poses,
+        pose_index=pose_index,
+        engine=engine,
+        duration_ns=duration_ns,
+        temperature_k=temperature,
+    )
+    click.echo(
+        f"Exported MD package ({manifest['engine']}, {manifest['duration_ns']:.1f} ns) -> {output_dir}"
+    )
+    click.echo(
+        f"  Ligand: {manifest['ligand_name']} ({manifest['ligand_formula']}, "
+        f"MW {manifest['ligand_mw']}, q={manifest['ligand_formal_charge']:+d})"
+    )
+    click.echo(f"  Files:  {', '.join(manifest['files'])}")
+
+
+@main.command("gui")
+@click.option('--host', default='127.0.0.1', show_default=True, help='Bind host address')
+@click.option('--port', default=8765, type=int, show_default=True, help='Bind port')
+@click.option('--workspace', default='.', type=click.Path(exists=True, file_okay=False),
+              help='Workspace directory containing structures and results')
+@click.option('--no-browser', is_flag=True, default=False, help='Do not auto-open browser')
+def gui_cmd(host, port, workspace, no_browser):
+    """Launch PandaDock Studio — Apple-designed GUI with 3D viewer, plots, PDF & HTML reports."""
+    from .gui.server import launch_gui
+
+    launch_gui(host=host, port=port, workspace=workspace, open_browser=not no_browser)
 
 
 if __name__ == '__main__':

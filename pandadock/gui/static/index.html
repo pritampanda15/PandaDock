@@ -1,0 +1,3889 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PandaDock Studio — Molecular Docking &amp; Structural Biology</title>
+<script src="https://3Dmol.org/build/3Dmol-min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script type="module" src="/static/pandalens/bridge.js"></script>
+<style>
+:root {
+  --bg: #F5F5F7;
+  --surface: #FFFFFF;
+  --surface-elevated: rgba(255, 255, 255, 0.86);
+  --sidebar-bg: rgba(242, 242, 247, 0.82);
+  --glass-bg: rgba(255, 255, 255, 0.78);
+  --ink: #1D1D1F;
+  --ink-secondary: #515154;
+  --ink-tertiary: #86868B;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.14);
+  --accent: #0071E3;
+  --accent-hover: #0077ED;
+  --accent-soft: rgba(0, 113, 227, 0.10);
+  --indigo: #4A3AA8;
+  --teal: #00A087;
+  --green: #248A3D;
+  --green-soft: rgba(52, 199, 89, 0.14);
+  --amber: #C96A00;
+  --amber-soft: rgba(255, 149, 0, 0.15);
+  --red: #D70015;
+  --red-soft: rgba(255, 59, 48, 0.14);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+  --shadow-md: 0 8px 28px rgba(0, 0, 0, 0.07), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 20px 54px rgba(0, 0, 0, 0.14);
+  --viewer-bg: #FBFBFD;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
+}
+
+[data-theme="dark"] {
+  --bg: #0B0C10;
+  --surface: #15171E;
+  --surface-elevated: rgba(24, 26, 34, 0.88);
+  --sidebar-bg: rgba(18, 20, 27, 0.86);
+  --glass-bg: rgba(24, 26, 34, 0.80);
+  --ink: #F5F5F7;
+  --ink-secondary: #A1A1A6;
+  --ink-tertiary: #6E6E73;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --accent: #0A84FF;
+  --accent-hover: #409CFF;
+  --accent-soft: rgba(10, 132, 255, 0.18);
+  --green: #30D158;
+  --green-soft: rgba(48, 209, 88, 0.16);
+  --amber: #FF9F0A;
+  --amber-soft: rgba(255, 159, 10, 0.16);
+  --red: #FF453A;
+  --red-soft: rgba(255, 69, 58, 0.18);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.65);
+  --viewer-bg: #101219;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  height: 100%;
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+/* ---------- Shell Layout ---------- */
+.app-shell {
+  display: grid;
+  grid-template-columns: 268px minmax(0, 1fr) 360px;
+  grid-template-rows: 54px minmax(0, 1fr);
+  height: 100vh;
+  width: 100vw;
+}
+.app-shell.inspector-collapsed {
+  grid-template-columns: 268px minmax(0, 1fr) 0px;
+}
+
+/* ---------- Top Apple Toolbar ---------- */
+.topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border-bottom: 1px solid var(--border);
+  z-index: 40;
+  gap: 16px;
+}
+.brand-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 240px;
+}
+.brand-logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: #FFFFFF;
+  border: 1px solid var(--border);
+  object-fit: cover;
+  box-shadow: var(--shadow-sm);
+}
+.brand-name {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.brand-name span.accent { color: var(--accent); font-weight: 700; }
+.version-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+/* Apple Segmented Control */
+.segmented {
+  display: inline-flex;
+  background: rgba(118, 118, 128, 0.12);
+  padding: 3px;
+  border-radius: 10px;
+  gap: 2px;
+}
+.seg-btn {
+  border: none;
+  background: transparent;
+  color: var(--ink-secondary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 7.5px;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.seg-btn:hover { color: var(--ink); }
+.seg-btn.active {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.10), 0 0.5px 1px rgba(0, 0, 0, 0.06);
+}
+.seg-badge {
+  font-size: 10px;
+  font-weight: 650;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.icon-btn {
+  height: 32px;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+.icon-btn:hover { border-color: var(--border-strong); background: var(--surface-elevated); }
+.icon-btn.primary {
+  background: var(--accent);
+  color: #FFFFFF;
+  border-color: transparent;
+  font-weight: 600;
+}
+.icon-btn.primary:hover { background: var(--accent-hover); }
+
+/* ---------- Left macOS Translucent Sidebar ---------- */
+.sidebar {
+  background: var(--sidebar-bg);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sidebar-scroll {
+  overflow-y: auto;
+  padding: 14px 12px 24px;
+  flex: 1;
+}
+.sidebar-section-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-tertiary);
+  padding: 10px 10px 6px;
+}
+.nav-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 10px;
+  border-radius: 9px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+  transition: background 0.14s ease, color 0.14s ease;
+  margin-bottom: 2px;
+}
+.nav-item:hover { background: rgba(118, 118, 128, 0.10); }
+.nav-item.active {
+  background: var(--accent);
+  color: #FFFFFF;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 113, 227, 0.28);
+}
+.nav-item .nav-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.86;
+  flex-shrink: 0;
+}
+.nav-item .nav-tag {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(118, 118, 128, 0.15);
+  color: var(--ink-secondary);
+}
+.nav-item.active .nav-tag {
+  background: rgba(255, 255, 255, 0.22);
+  color: #FFFFFF;
+}
+
+.run-card {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 10px;
+  padding: 9px 10px;
+  cursor: pointer;
+  text-align: left;
+  margin-bottom: 4px;
+  transition: all 0.15s ease;
+  color: var(--ink);
+  display: block;
+}
+.run-card:hover {
+  background: var(--surface-elevated);
+  border-color: var(--border);
+}
+.run-card.active {
+  background: var(--surface);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+.run-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+.run-card-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ink-tertiary);
+}
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+}
+.status-dot.running {
+  background: var(--accent);
+  animation: pulse 1.2s infinite;
+}
+.status-dot.failed { background: var(--red); }
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.45); opacity: 0.55; }
+}
+.score-chip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--green-soft);
+  color: var(--green);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ---------- Center Main Stage ---------- */
+.stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+.tab-pane {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+.tab-pane.active { display: flex; flex-direction: column; }
+
+/* 3D Viewer Stage */
+.viewer-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--viewer-bg);
+}
+#mol3d-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+/* PandaLens Draggable Residue Labels & Leader Lines */
+.labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 11;
+  overflow: hidden;
+}
+.labels .leaders {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.labels .leaders line {
+  stroke: var(--ink);
+  stroke-opacity: 0.55;
+  stroke-width: 1.1;
+}
+.labels .leaders circle {
+  fill: var(--ink);
+  fill-opacity: 0.65;
+}
+.rlabel {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: auto;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  font: 600 11.5px/1 var(--font-sans);
+  color: var(--ink);
+  white-space: nowrap;
+  padding: 3.5px 6.5px;
+  border-radius: 6px;
+  background: var(--glass-bg);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  will-change: transform;
+}
+.rlabel.strong {
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.rlabel:hover {
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+.rlabel.dragging {
+  cursor: grabbing;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+/* PandaLens Interaction Legend & Expandable Contacts Popover */
+.pl-legend-bar {
+  position: absolute;
+  bottom: 64px;
+  left: 16px;
+  z-index: 15;
+  padding: 6px 10px;
+  font-size: 11px;
+  display: none;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-width: calc(100% - 32px);
+}
+.pl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.14s, transform 0.12s, border-color 0.14s;
+  user-select: none;
+}
+.pl-chip:hover {
+  border-color: var(--accent);
+  transform: translateY(-0.5px);
+}
+.pl-chip.muted {
+  opacity: 0.44;
+  text-decoration: line-through;
+}
+.pl-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pl-contacts-card {
+  position: absolute;
+  bottom: 112px;
+  left: 16px;
+  z-index: 16;
+  width: 310px;
+  max-height: 270px;
+  display: none;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.pl-contacts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+.pl-contacts-list {
+  overflow-y: auto;
+  padding: 4px 6px 8px;
+  max-height: 220px;
+}
+.pl-contact-row {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 7px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.pl-contact-row:hover {
+  background: var(--accent-soft);
+}
+.pl-contact-meta {
+  font-size: 10px;
+  color: var(--ink-tertiary);
+}
+.pl-contact-dist {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-secondary);
+  white-space: nowrap;
+}
+/* Separate Floating Ligand 3D Preview Window (Apple PiP Card) */
+.ligand-pip {
+  position: absolute;
+  right: 16px;
+  bottom: 114px;
+  width: 288px;
+  height: 244px;
+  z-index: 18;
+  display: none;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.16);
+  transition: width 0.2s cubic-bezier(.2,.8,.2,1), height 0.2s cubic-bezier(.2,.8,.2,1);
+}
+.ligand-pip.open {
+  display: flex;
+}
+.ligand-pip.expanded {
+  width: 440px;
+  height: 340px;
+}
+.ligand-pip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--glass-bg);
+  flex-shrink: 0;
+}
+.ligand-pip-title {
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ligand-pip-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.ligand-pip-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--viewer-bg);
+}
+.ligand-pip-2d {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  background: var(--viewer-bg);
+  overflow: hidden;
+  padding: 6px;
+}
+.ligand-pip-2d svg {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  display: block;
+}
+.ligand-pip-2d svg .link { cursor: pointer; }
+.ligand-pip-2d svg .link:hover .vis { stroke-width: 3.4 !important; }
+.ligand-pip-2d svg .atom-hit { cursor: pointer; }
+.pip-seg {
+  display: inline-flex;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 1.5px;
+  gap: 1px;
+}
+.pip-seg button {
+  border: none;
+  background: transparent;
+  color: var(--ink-secondary);
+  font-size: 10px;
+  font-weight: 650;
+  padding: 2px 7px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.pip-seg button.active {
+  background: var(--accent);
+  color: #FFFFFF;
+}
+.ligand-pip-foot {
+  padding: 5px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--glass-bg);
+  font-size: 10.5px;
+  color: var(--ink-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.viewer-hud-top {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  pointer-events: none;
+  z-index: 15;
+  gap: 12px;
+}
+.hud-card {
+  pointer-events: auto;
+  background: var(--glass-bg);
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  box-shadow: var(--shadow-md);
+}
+.hud-title {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+.hud-sub {
+  font-size: 11.5px;
+  color: var(--ink-secondary);
+  margin-top: 2px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pose-drawer {
+  pointer-events: auto;
+  width: 248px;
+  max-height: 330px;
+  overflow-y: auto;
+  background: var(--glass-bg);
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px;
+  box-shadow: var(--shadow-md);
+}
+.pose-drawer-header {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-tertiary);
+  padding: 2px 4px 8px;
+  display: flex;
+  justify-content: space-between;
+}
+.pose-pill {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 8px;
+  padding: 7px 9px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 12px;
+  margin-bottom: 3px;
+  transition: all 0.14s ease;
+}
+.pose-pill:hover { background: rgba(118, 118, 128, 0.10); }
+.pose-pill.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.pb-dot {
+  font-size: 10px;
+  font-weight: 650;
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+.pb-dot.pass { background: var(--green-soft); color: var(--green); }
+.pb-dot.warn { background: var(--amber-soft); color: var(--amber); }
+
+.viewer-hud-bottom {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 5px 8px;
+  box-shadow: var(--shadow-md);
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  max-width: calc(100% - 28px);
+}
+.vbtn {
+  border: none;
+  background: transparent;
+  color: var(--ink-secondary);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 5px 9px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: all 0.14s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pdf-canvas-stack {
+  flex: 1;
+  overflow-y: auto;
+  background: #E8E6E3;
+  padding: 22px 24px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+[data-theme="dark"] .pdf-canvas-stack { background: #14161D; }
+.pdf-page-sheet {
+  background: #FFFFFF;
+  border-radius: 6px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16), 0 1px 3px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  max-width: 100%;
+  flex-shrink: 0;
+}
+.pdf-page-sheet canvas { display: block; max-width: 100%; height: auto; }
+.vbtn:hover { background: rgba(118, 118, 128, 0.12); color: var(--ink); }
+.vbtn.active { background: var(--accent); color: #FFFFFF; font-weight: 600; }
+.vsep { width: 1px; height: 18px; background: var(--border-strong); margin: 0 2px; }
+
+/* ---------- Plots & Analytics Pane ---------- */
+.analytics-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px 40px;
+}
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.kpi-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-sm);
+}
+.kpi-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-tertiary);
+}
+.kpi-val {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-sub {
+  font-size: 11.5px;
+  color: var(--ink-secondary);
+  margin-top: 4px;
+}
+.sheet-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  margin-bottom: 18px;
+  box-shadow: var(--shadow-sm);
+}
+.sheet-title {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.data-table th {
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-tertiary);
+  border-bottom: 1px solid var(--border-strong);
+}
+.data-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.data-table tr:hover td { background: rgba(118, 118, 128, 0.05); }
+
+.plots-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+}
+.plot-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.plot-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+.plot-card img {
+  width: 100%;
+  height: 230px;
+  object-fit: contain;
+  background: #F4F0EF;
+  display: block;
+  padding: 8px;
+}
+.plot-card-cap {
+  padding: 11px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--border);
+}
+.plot-card-cap strong { font-size: 13px; font-weight: 600; }
+.plot-card-cap span {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* ---------- Embedded PDF & HTML Report Viewers ---------- */
+.report-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 18px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+}
+.report-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #FFFFFF;
+}
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px;
+  color: var(--ink-secondary);
+  gap: 10px;
+}
+.empty-state h3 { font-size: 17px; color: var(--ink); font-weight: 650; }
+.empty-state p { max-width: 420px; font-size: 13px; line-height: 1.5; }
+
+/* ---------- Console & Files ---------- */
+.console-wrap {
+  flex: 1;
+  display: grid;
+  grid-template-rows: minmax(260px, 1.3fr) minmax(180px, 1fr);
+  gap: 16px;
+  padding: 18px 22px;
+  overflow: hidden;
+}
+.terminal {
+  background: #11131A;
+  color: #E2E8F0;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+}
+.terminal-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 14px;
+  background: #191C26;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 12px;
+  color: #94A3B8;
+}
+.traffic-lights { display: flex; gap: 6px; }
+.tl { width: 11px; height: 11px; border-radius: 50%; }
+.tl.r { background: #FF5F56; }
+.tl.y { background: #FFBD2E; }
+.tl.g { background: #27C93F; }
+.terminal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.files-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.file-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  text-decoration: none;
+  color: var(--ink);
+  font-size: 12px;
+  transition: border-color 0.14s ease;
+}
+.file-chip:hover { border-color: var(--accent); }
+.file-chip span.sz { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-tertiary); }
+
+/* ---------- Right Apple Inspector Drawer ---------- */
+.inspector {
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 0.2s ease;
+}
+.inspector-header {
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.inspector-header h2 { font-size: 14px; font-weight: 650; letter-spacing: -0.015em; }
+.inspector-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px 24px;
+}
+.inspector-footer {
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(18px);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+/* Guided 4-Step Apple Stepper */
+.stepper-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 10px 14px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.step-pill {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 9px;
+  padding: 6px 4px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 550;
+  color: var(--ink-tertiary);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  transition: all 0.16s ease;
+}
+.step-pill .step-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(118, 118, 128, 0.16);
+  color: var(--ink-secondary);
+  font-size: 10.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.step-pill:hover { color: var(--ink); }
+.step-pill.active {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 650;
+  border-color: var(--border);
+  box-shadow: var(--shadow-sm);
+}
+.step-pill.active .step-num { background: var(--accent); color: #FFFFFF; }
+.step-pill.done .step-num { background: var(--green-soft); color: var(--green); }
+
+.wizard-step { display: none; }
+.wizard-step.active { display: block; }
+.step-heading {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  margin-bottom: 4px;
+}
+.step-caption {
+  font-size: 12px;
+  color: var(--ink-secondary);
+  line-height: 1.45;
+  margin-bottom: 14px;
+}
+
+/* Mode Quick-Pick Segmented Pills */
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.mode-chip {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--ink-secondary);
+  border-radius: 9px;
+  padding: 7px 6px;
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s ease;
+}
+.mode-chip:hover { border-color: var(--border-strong); color: var(--ink); }
+.mode-chip.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Collapsible Apple Disclosure Groups */
+details.apple-disclosure {
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg);
+  margin-bottom: 9px;
+  overflow: hidden;
+}
+details.apple-disclosure summary {
+  list-style: none;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+}
+details.apple-disclosure summary::-webkit-details-marker { display: none; }
+details.apple-disclosure summary::after {
+  content: "›";
+  font-size: 15px;
+  color: var(--ink-tertiary);
+  transition: transform 0.18s ease;
+}
+details.apple-disclosure[open] summary::after { transform: rotate(90deg); }
+details.apple-disclosure .disc-body {
+  padding: 4px 12px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/* Review Summary Card */
+.review-list {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 4px 12px;
+  margin-bottom: 14px;
+}
+.review-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.review-row:last-child { border-bottom: none; }
+.review-row span.rk { color: var(--ink-tertiary); font-weight: 550; }
+.review-row span.rv { color: var(--ink); font-weight: 600; text-align: right; font-family: var(--font-mono); font-size: 11.5px; }
+
+.btn-secondary {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 11px;
+  padding: 10px 14px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.14s ease;
+}
+.btn-secondary:hover { background: var(--bg); }
+.new-job-btn {
+  width: 100%;
+  border: none;
+  border-radius: 10px;
+  padding: 9px 12px;
+  background: var(--accent);
+  color: #FFFFFF;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 2px 10px rgba(0, 113, 227, 0.28);
+  margin-bottom: 12px;
+  transition: all 0.15s ease;
+}
+.new-job-btn:hover { background: var(--accent-hover); }
+.field-group {
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.field-group:last-child { border-bottom: none; }
+.fg-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-tertiary);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.preset-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.preset-pill {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 550;
+  padding: 5px 9px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+.preset-pill:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+
+.dropzone {
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 11px;
+  padding: 11px 12px;
+  background: var(--bg);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-bottom: 8px;
+  position: relative;
+}
+.dropzone:hover, .dropzone.dragover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.dz-label { font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+.dz-file {
+  font-size: 11px;
+  color: var(--ink-secondary);
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dz-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.mini-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--ink-secondary);
+}
+.mini-badge.clickable { cursor: pointer; color: var(--accent); border-color: rgba(0,113,227,0.3); }
+.mini-badge.clickable:hover { background: var(--accent); color: #fff; }
+
+label.fl {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--ink-secondary);
+  margin-bottom: 4px;
+}
+input[type="text"], input[type="number"], select, textarea {
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 12.5px;
+}
+/* Apple iOS Switch */
+.ios-switch {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 22px;
+  flex-shrink: 0;
+}
+.ios-switch input { opacity: 0; width: 0; height: 0; }
+.ios-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: rgba(120, 120, 128, 0.28);
+  border-radius: 999px;
+  transition: 0.2s ease;
+}
+.ios-slider:before {
+  content: "";
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 2px;
+  bottom: 2px;
+  background: #FFFFFF;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.24);
+  transition: 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.ios-switch input:checked + .ios-slider { background: #34C759; }
+.ios-switch input:checked + .ios-slider:before { transform: translateX(16px); }
+
+.cta-run {
+  width: 100%;
+  border: none;
+  border-radius: 11px;
+  padding: 11px 16px;
+  background: linear-gradient(180deg, #0A84FF 0%, #0071E3 100%);
+  color: #FFFFFF;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 113, 227, 0.34);
+  transition: all 0.16s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.cta-run:hover { filter: brightness(1.06); transform: translateY(-0.5px); }
+.cta-run:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+/* Quick Look Lightbox Modal */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 12, 18, 0.72);
+  backdrop-filter: blur(18px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 32px;
+}
+.lightbox.open { display: flex; }
+.lightbox-card {
+  background: var(--surface);
+  border-radius: 18px;
+  max-width: 92vw;
+  max-height: 90vh;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+}
+.lightbox-card img {
+  max-width: 86vw;
+  max-height: 78vh;
+  object-fit: contain;
+  background: #F4F0EF;
+  padding: 12px;
+}
+.lightbox-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 22px;
+  right: 22px;
+  z-index: 120;
+  background: var(--ink);
+  color: var(--bg);
+  padding: 10px 16px;
+  border-radius: 11px;
+  font-size: 12.5px;
+  font-weight: 550;
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+  transition: all 0.22s ease;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+</style>
+</head>
+<body>
+<div class="app-shell" id="app-shell">
+  <!-- Top Apple Unified Titlebar -->
+  <header class="topbar">
+    <div class="brand-group">
+      <img src="/api/logo.png" alt="PandaDock" class="brand-logo" />
+      <div class="brand-name">
+        Panda<span class="accent">Dock</span> Studio
+        <span class="version-pill" id="ver-pill">v5.0.0</span>
+      </div>
+    </div>
+
+    <div class="segmented" role="tablist">
+      <button class="seg-btn active" data-tab="viewer" onclick="switchTab('viewer')">3D Structure</button>
+      <button class="seg-btn" data-tab="analytics" onclick="switchTab('analytics')">Plots &amp; Analytics <span class="seg-badge" id="badge-plots">0</span></button>
+      <button class="seg-btn" data-tab="pdf" onclick="switchTab('pdf')">PDF Report</button>
+      <button class="seg-btn" data-tab="html" onclick="switchTab('html')">HTML Report</button>
+      <button class="seg-btn" data-tab="console" onclick="switchTab('console')">Console &amp; Files</button>
+    </div>
+
+    <div class="topbar-actions">
+      <button class="icon-btn" id="btn-theme" onclick="toggleTheme()" title="Toggle Light / Dark Appearance">◐ Theme</button>
+      <button class="icon-btn" onclick="refreshRuns()" title="Reload workspace runs">↻ Refresh</button>
+      <button class="icon-btn" onclick="toggleInspector()" title="Show / Hide Parameters Inspector">◫ Inspector</button>
+    </div>
+  </header>
+
+  <!-- Left macOS Translucent Sidebar (Clean Finder-style Workspace) -->
+  <aside class="sidebar">
+    <div class="sidebar-scroll">
+      <button class="new-job-btn" onclick="startNewWorkflow()">＋ New Docking Job</button>
+
+      <div class="sidebar-section-label" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>Recent Results</span>
+        <span id="runs-count" style="font-family:var(--font-mono);font-size:10px;">0</span>
+      </div>
+      <div id="runs-list"></div>
+    </div>
+  </aside>
+
+  <!-- Center Stage -->
+  <main class="stage">
+    <!-- TAB 1: 3D Molecular Viewer -->
+    <section class="tab-pane active" id="pane-viewer">
+      <div class="viewer-wrap">
+        <div id="mol3d-canvas"></div>
+        <div class="labels" id="pl-labels"></div>
+
+        <div class="viewer-hud-top">
+          <div class="hud-card" id="viewer-title-card">
+            <div class="hud-title" id="viewer-title">Select a Run or Load a Structure</div>
+            <div class="hud-sub" id="viewer-subtitle">Interactive WebGL 3D Receptor + Docked Ligand + Grid Box</div>
+          </div>
+
+          <div class="pose-drawer" id="pose-drawer" style="display:none;">
+            <div class="pose-drawer-header">
+              <span>Docked Poses</span>
+              <span id="pose-count-lbl">0</span>
+            </div>
+            <div id="pose-list"></div>
+          </div>
+        </div>
+
+        <div class="viewer-hud-bottom">
+          <button class="vbtn active" data-rstyle="pocket" onclick="setReceptorStyle('pocket')" title="Binding Pocket view">Pocket</button>
+          <button class="vbtn" data-rstyle="cartoon" onclick="setReceptorStyle('cartoon')">Cartoon</button>
+          <button class="vbtn" data-rstyle="surface" onclick="setReceptorStyle('surface')">Surface</button>
+          <button class="vbtn" data-rstyle="sticks" onclick="setReceptorStyle('sticks')">Sticks</button>
+          <span class="vsep"></span>
+          <button class="vbtn active" id="btn-vis-rec" onclick="toggleReceptorVisibility()" title="Show or hide the protein/receptor in the main 3D view">Protein</button>
+          <button class="vbtn active" id="btn-vis-lig" onclick="toggleLigandVisibility()" title="Show or hide the ligand">Ligand</button>
+          <button class="vbtn" id="btn-lig-pip" onclick="toggleLigandPip('3d')" title="Open or close a separate 3D window for the ligand">Lig 3D</button>
+          <button class="vbtn" id="btn-lig-2d" onclick="toggleLigandPip('2d')" title="Open 2D interaction map (docked pose) or 2D chemical structure (input ligand)">2D View</button>
+          <span class="vsep"></span>
+          <button class="vbtn active" id="btn-show-h" onclick="toggleShowHydrogens()" title="Show or hide explicit hydrogens">H</button>
+          <button class="vbtn active" id="btn-show-int" onclick="toggleShowInteractions()" title="Show or hide PandaLens binding-site interactions">Contacts</button>
+          <button class="vbtn" id="btn-gridbox" onclick="toggleGridBox()" title="Show or hide the docking grid box">Box</button>
+          <button class="vbtn" id="btn-pick-res" onclick="toggleResiduePicking()" title="Click residues on the 3D protein to center the docking box">Pick</button>
+          <span class="vsep"></span>
+          <button class="vbtn" id="btn-spin" onclick="toggleSpin()">Spin</button>
+          <button class="vbtn" onclick="zoomToLigand()">Zoom</button>
+          <button class="vbtn" onclick="resetCamera()">Reset</button>
+          <button class="vbtn" onclick="snapshotViewer()">PNG</button>
+        </div>
+
+        <!-- Separate Floating 3D / 2D Ligand & Interaction Map Window (Apple PiP) -->
+        <div class="hud-card ligand-pip" id="ligand-pip">
+          <div class="ligand-pip-head">
+            <span class="ligand-pip-title" id="ligand-pip-title">Ligand Preview</span>
+            <div class="ligand-pip-actions">
+              <div class="pip-seg" role="tablist">
+                <button id="btn-pip-mode-3d" class="active" onclick="setLigandPipMode('3d')">3D</button>
+                <button id="btn-pip-mode-2d" onclick="setLigandPipMode('2d')">2D</button>
+              </div>
+              <button class="vbtn" style="padding:2px 6px;font-size:10px;display:none;" id="btn-pip-svg" onclick="downloadPipSvg()" title="Download crisp 2D vector SVG">SVG</button>
+              <button class="vbtn" style="padding:2px 6px;font-size:10px;" id="btn-pip-size" onclick="toggleLigandPipSize()" title="Expand or compact window">⤢</button>
+              <button class="vbtn" style="padding:2px 6px;font-size:10px;" id="btn-pip-reset" onclick="resetLigandPip()" title="Reset camera">⟲</button>
+              <button class="vbtn" style="padding:2px 6px;font-size:10px;" onclick="hideLigandPip()" title="Hide window">✕</button>
+            </div>
+          </div>
+          <div class="ligand-pip-canvas" id="mol3d-ligand-canvas"></div>
+          <div class="ligand-pip-2d" id="ligand-pip-2d"></div>
+          <div class="ligand-pip-foot">
+            <span id="ligand-pip-meta">Drag to rotate · scroll to zoom</span>
+            <span id="ligand-pip-badge" style="color:var(--accent);font-weight:600;">3D View</span>
+          </div>
+        </div>
+
+        <!-- PandaLens Expandable Binding-Site Contacts Inspector -->
+        <div class="hud-card pl-contacts-card" id="pl-contacts-card">
+          <div class="pl-contacts-head">
+            <span id="pl-contacts-title">PandaLens Contacts</span>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <button class="vbtn" style="padding:2px 7px;font-size:10px;" onclick="resetPandaLensLabels()" title="Reset dragged residue labels">Reset Labels</button>
+              <button class="vbtn" style="padding:2px 7px;font-size:10px;" onclick="toggleContactsDrawer()">✕</button>
+            </div>
+          </div>
+          <div class="pl-contacts-list" id="pl-contacts-list"></div>
+        </div>
+
+        <!-- Floating 3D PandaLens Interaction Legend Pill -->
+        <div class="hud-card pl-legend-bar" id="int-legend"></div>
+      </div>
+    </section>
+
+    <!-- TAB 2: Plots & Analytics -->
+    <section class="tab-pane" id="pane-analytics">
+      <div class="analytics-scroll" id="analytics-body">
+        <div class="empty-state">
+          <h3>No Run Selected</h3>
+          <p>Choose any completed run from the left sidebar or launch a new docking job to view 300-DPI diagnostics, PoseBusters checks, and series SAR tables.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: PDF Report (macOS Preview-style Canvas Stack via PDF.js) -->
+    <section class="tab-pane" id="pane-pdf">
+      <div class="report-bar">
+        <div>
+          <strong style="font-size:13.5px;" id="pdf-title">A4 Vector Publication Report (PDF)</strong>
+          <span style="font-size:11.5px;color:var(--ink-secondary);margin-left:8px;" id="pdf-sub"></span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span id="pdf-page-count" style="font-family:var(--font-mono);font-size:11px;color:var(--ink-tertiary);"></span>
+          <a class="icon-btn" id="pdf-open-link" href="#" target="_blank" style="text-decoration:none;">↗ Open Native PDF</a>
+          <a class="icon-btn primary" id="pdf-dl-link" href="#" download style="text-decoration:none;">↓ Download PDF</a>
+        </div>
+      </div>
+      <div class="pdf-canvas-stack" id="pdf-stack" style="display:none;"></div>
+      <div class="empty-state" id="pdf-empty">
+        <h3>No PDF Report in This Run</h3>
+        <p>Docking, Series, and Covalent runs automatically generate a multi-page Panda-family A4 vector PDF brochure (<code>report.pdf</code> or <code>series_report.pdf</code>).</p>
+      </div>
+    </section>
+
+    <!-- TAB 4: HTML Report -->
+    <section class="tab-pane" id="pane-html">
+      <div class="report-bar">
+        <div>
+          <strong style="font-size:13.5px;" id="html-title">Interactive Editorial Report (HTML)</strong>
+          <span style="font-size:11.5px;color:var(--ink-secondary);margin-left:8px;" id="html-sub"></span>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <a class="icon-btn" id="html-open-link" href="#" target="_blank" style="text-decoration:none;">↗ Open in New Tab</a>
+        </div>
+      </div>
+      <iframe class="report-frame" id="html-frame" style="display:none;"></iframe>
+      <div class="empty-state" id="html-empty">
+        <h3>No HTML Report in This Run</h3>
+        <p>Select a Docking, Series, or Covalent run from the sidebar to browse its companion interactive HTML report.</p>
+      </div>
+    </section>
+
+    <!-- TAB 5: Live Console & Downloadable Files -->
+    <section class="tab-pane" id="pane-console">
+      <div class="console-wrap">
+        <div class="terminal">
+          <div class="terminal-bar">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div class="traffic-lights"><span class="tl r"></span><span class="tl y"></span><span class="tl g"></span></div>
+              <span id="term-title">PandaDock Engine Console</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span id="term-status" style="font-family:var(--font-mono);font-size:11px;">Idle</span>
+              <button class="icon-btn" id="btn-cancel-job" style="display:none;height:24px;font-size:11px;" onclick="cancelActiveJob()">Stop Job</button>
+            </div>
+          </div>
+          <div class="terminal-body" id="term-body">Ready. Select a mode on the left, load or drag-and-drop structures on the right, and click Run.</div>
+        </div>
+
+        <div class="sheet-card" style="margin-bottom:0;display:flex;flex-direction:column;overflow:hidden;">
+          <div class="sheet-title">
+            <span>Run Artifacts &amp; Downloads</span>
+            <span id="artifacts-count" style="font-size:11.5px;color:var(--ink-tertiary);font-weight:500;">0 files</span>
+          </div>
+          <div class="files-grid" id="files-grid"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Right Apple Guided 4-Step Docking Wizard -->
+  <aside class="inspector" id="inspector">
+    <div class="inspector-header">
+      <h2 id="inspector-mode-title">Docking Setup</h2>
+      <span class="version-pill" id="device-pill">CPU</span>
+    </div>
+
+    <!-- Stepper Bar: 1 Inputs -> 2 Site -> 3 Options -> 4 Run -->
+    <div class="stepper-bar" role="tablist">
+      <button class="step-pill active" data-step="1" onclick="goStep(1)">
+        <span class="step-num">1</span><span>Inputs</span>
+      </button>
+      <button class="step-pill" data-step="2" onclick="goStep(2)">
+        <span class="step-num">2</span><span>Site</span>
+      </button>
+      <button class="step-pill" data-step="3" onclick="goStep(3)">
+        <span class="step-num">3</span><span>Options</span>
+      </button>
+      <button class="step-pill" data-step="4" onclick="goStep(4)">
+        <span class="step-num">4</span><span>Run</span>
+      </button>
+    </div>
+
+    <div class="inspector-scroll">
+      <!-- ==================== STEP 1: INPUTS ==================== -->
+      <div class="wizard-step active" id="wstep-1">
+        <div class="step-heading">1. Select Workflow &amp; Structures</div>
+        <div class="step-caption">Upload a target protein and a single ligand or multi-ligand series to preview them in 3D.</div>
+
+        <label class="fl">Docking Workflow</label>
+        <div class="mode-grid">
+          <button class="mode-chip active" data-mode="dock" onclick="selectMode('dock')">Single Ligand</button>
+          <button class="mode-chip" data-mode="series" onclick="selectMode('series')">Ligand Series</button>
+          <button class="mode-chip" data-mode="covalent" onclick="selectMode('covalent')">Covalent</button>
+        </div>
+        <select id="in-mode-select" onchange="selectMode(this.value)" style="margin-bottom:14px;">
+          <option value="dock">Flexible Docking (Vina / Vinardo / Physics)</option>
+          <option value="series">Congeneric Series &amp; SAR Brochure PDF</option>
+          <option value="covalent">Covalent Warhead Docking (8 Warheads)</option>
+          <option value="metal">Metal Coordination Docking (31 Metals)</option>
+          <option value="flex">Induced-Fit Flexible Side-Chain Docking</option>
+          <option value="validate-poses">PoseBusters 11-Point Validity Audit</option>
+          <option value="calibrate">Few-Shot Per-Target Weight Calibration</option>
+          <option value="to-md">Dock-to-MD Handoff (OpenMM / GROMACS)</option>
+        </select>
+
+        <div class="dropzone" id="dz-receptor" onclick="document.getElementById('file-receptor').click()">
+          <input type="file" id="file-receptor" accept=".pdb,.cif,.ent" style="display:none" onchange="uploadFile(this.files[0], 'receptor')" />
+          <div class="dz-label"><span>Protein / Receptor (PDB)</span><span style="color:var(--accent);font-size:11px;">Browse / Drop</span></div>
+          <div class="dz-file" id="lbl-receptor">Drop .pdb file or click to browse</div>
+          <div class="dz-badges" id="badges-receptor"></div>
+        </div>
+
+        <div class="dropzone" id="dz-ligand" onclick="document.getElementById('file-ligand').click()">
+          <input type="file" id="file-ligand" accept=".sdf,.mol2,.pdb,.smi,.smiles,.txt" style="display:none" onchange="uploadFile(this.files[0], 'ligand')" />
+          <div class="dz-label"><span id="lbl-ligand-role">Ligand or Series (SDF / MOL2 / SMI)</span><span style="color:var(--accent);font-size:11px;">Browse / Drop</span></div>
+          <div class="dz-file" id="lbl-ligand">Drop .sdf / .smi or click to browse</div>
+          <div class="dz-badges" id="badges-ligand"></div>
+        </div>
+
+        <div class="dropzone" id="dz-extra" style="display:none;" onclick="document.getElementById('file-extra').click()">
+          <input type="file" id="file-extra" accept=".csv,.sdf,.json" style="display:none" onchange="uploadFile(this.files[0], 'extra')" />
+          <div class="dz-label"><span id="lbl-extra-role">Optional Reference / Labels</span><span style="color:var(--accent);font-size:11px;">Browse</span></div>
+          <div class="dz-file" id="lbl-extra">None selected (optional)</div>
+        </div>
+
+        <!-- Protein & Ligand Preparation (pandadock-prepare) -->
+        <details class="apple-disclosure" id="disc-prepare" style="margin-top:10px;">
+          <summary>Prepare Protein &amp; Ligand (H, Protonation, 3D)</summary>
+          <div class="disc-body">
+            <div class="row-2" style="margin-top:4px;">
+              <div>
+                <label class="fl">Target pH</label>
+                <input type="number" step="0.1" id="prep-ph" value="7.4" />
+              </div>
+              <div style="display:flex;align-items:flex-end;padding-bottom:2px;">
+                <button class="icon-btn primary" id="btn-prepare" style="width:100%;justify-content:center;" onclick="runPreparation()">⚡ Prepare Now</button>
+              </div>
+            </div>
+            <div class="toggle-row">
+              <span>Add Hydrogens (Protein &amp; Ligand)</span>
+              <label class="ios-switch"><input type="checkbox" id="prep-add-h" checked /><span class="ios-slider"></span></label>
+            </div>
+            <div class="toggle-row">
+              <span>MMFF94 Minimize Ligand 3D</span>
+              <label class="ios-switch"><input type="checkbox" id="prep-min-lig" checked /><span class="ios-slider"></span></label>
+            </div>
+            <div class="toggle-row">
+              <span>Enumerate pH Microspecies (Ligand)</span>
+              <label class="ios-switch"><input type="checkbox" id="prep-enum-states" /><span class="ios-slider"></span></label>
+            </div>
+            <div class="toggle-row">
+              <span>Strip Crystallographic Waters</span>
+              <label class="ios-switch"><input type="checkbox" id="prep-strip-wat" /><span class="ios-slider"></span></label>
+            </div>
+            <div class="toggle-row">
+              <span>Fix Missing Protein Atoms (PDBFixer)</span>
+              <label class="ios-switch"><input type="checkbox" id="prep-fix-res" /><span class="ios-slider"></span></label>
+            </div>
+            <div id="prep-status" style="font-size:11px;color:var(--green);margin-top:4px;"></div>
+          </div>
+        </details>
+
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+          <div class="fg-title"><span>Or Load an Example Complex</span></div>
+          <div class="preset-strip" id="preset-strip"></div>
+        </div>
+      </div>
+
+      <!-- ==================== STEP 2: BINDING SITE ==================== -->
+      <div class="wizard-step" id="wstep-2">
+        <div class="step-heading">2. Define Binding Site</div>
+        <div class="step-caption">Auto-detect pockets, center on protein/ligand/metal, or click residues directly on the 3D structure.</div>
+
+        <div id="grp-covalent" style="display:none;margin-bottom:14px;">
+          <div class="fg-title"><span>Covalent Attachment Site</span></div>
+          <label class="fl">Reactive Residue (CHAIN:RESNAME:RESNUM)</label>
+          <input type="text" id="in-cov-residue" value="A:CYS:145" style="margin-bottom:8px;" />
+          <div id="reactive-chips" class="dz-badges" style="margin-bottom:10px;"></div>
+          <label class="fl">Warhead Reaction Class</label>
+          <select id="in-warhead">
+            <option value="auto">Auto-Detect Warhead</option>
+            <option value="nitrile">Nitrile (Thioimidate)</option>
+            <option value="michael_acceptor">Michael Acceptor / Acrylamide</option>
+            <option value="chloroacetamide">Chloroacetamide (SN2)</option>
+            <option value="epoxide">Epoxide Ring Opening</option>
+            <option value="boronic_acid">Boronic Acid</option>
+            <option value="aldehyde">Aldehyde / α-Ketoamide</option>
+            <option value="sulfonyl_fluoride">Sulfonyl Fluoride (SuFEx)</option>
+            <option value="disulfide">Disulfide Exchange</option>
+          </select>
+        </div>
+
+        <div id="grp-gridbox">
+          <div class="fg-title"><span>Auto-Grid Selection (pandadock-gridbox)</span></div>
+          <div class="row-2" style="margin-bottom:8px;">
+            <button class="mode-chip" onclick="autoGrid('cavities')">Detect Pockets</button>
+            <button class="mode-chip" onclick="autoGrid('protein_center')">Center on Protein</button>
+            <button class="mode-chip" onclick="autoGrid('ligand')">Center on Ligand</button>
+            <button class="mode-chip" onclick="autoGrid('metal')">Center on Metal</button>
+          </div>
+
+          <!-- Detected Pockets & Co-Crystal Ligands -->
+          <div id="detected-pockets" class="preset-strip" style="margin-bottom:10px;"></div>
+
+          <div id="cocrystal-box" style="display:none;padding:10px 11px;border-radius:11px;background:var(--amber-soft);border:1px solid rgba(255,149,0,0.28);margin-bottom:12px;">
+            <div class="fg-title" style="margin-bottom:5px;color:var(--amber);">
+              <span>Co-Crystal Ligand in PDB (Maestro-style)</span>
+            </div>
+            <div style="font-size:11px;color:var(--ink-secondary);line-height:1.4;margin-bottom:7px;">
+              Click a co-crystal ligand to center the box on its pocket and <strong>automatically exclude it</strong> from the receptor grid during docking (metals &amp; protein stay intact):
+            </div>
+            <div id="cocrystal-chips" class="dz-badges"></div>
+          </div>
+
+          <!-- Interactive 3D Residue Picking -->
+          <div style="padding:10px 11px;border-radius:11px;background:var(--bg);border:1px solid var(--border);margin-bottom:12px;">
+            <div class="fg-title" style="margin-bottom:6px;">
+              <span>Click Residues in 3D</span>
+              <button class="mini-badge clickable" id="btn-pick-res-step2" onclick="toggleResiduePicking()">Start Picking</button>
+            </div>
+            <div id="selected-res-chips" class="dz-badges" style="margin-bottom:7px;">
+              <span style="font-size:11px;color:var(--ink-tertiary);">Click "Start Picking", then click any protein residue in 3D.</span>
+            </div>
+            <div class="row-2" style="margin-bottom:6px;">
+              <input type="text" id="in-res-manual" placeholder="A:145, A:163, A:166" />
+              <input type="number" step="0.5" id="in-res-pad" value="5.0" min="2" max="15" title="Padding around selected residues (Å)" />
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button class="mini-badge clickable" style="flex:1;text-align:center;padding:5px;" onclick="fitBoxToResidues()">Fit Box to Residues</button>
+              <button class="mini-badge" style="padding:5px 10px;cursor:pointer;" onclick="clearSelectedResidues()">Clear</button>
+            </div>
+          </div>
+
+          <div class="fg-title"><span>Grid Box Coordinates (Å)</span></div>
+          <label class="fl">Box Center (X, Y, Z)</label>
+          <div class="row-3">
+            <input type="number" step="0.1" id="in-cx" value="126.504" oninput="redrawBoxOnly()" />
+            <input type="number" step="0.1" id="in-cy" value="119.182" oninput="redrawBoxOnly()" />
+            <input type="number" step="0.1" id="in-cz" value="146.110" oninput="redrawBoxOnly()" />
+          </div>
+          <label class="fl">Box Dimensions (X, Y, Z)</label>
+          <div class="row-3">
+            <input type="number" step="0.5" id="in-bx" value="22.0" oninput="redrawBoxOnly()" />
+            <input type="number" step="0.5" id="in-by" value="22.0" oninput="redrawBoxOnly()" />
+            <input type="number" step="0.5" id="in-bz" value="22.0" oninput="redrawBoxOnly()" />
+          </div>
+        </div>
+
+        <div id="grp-nobox-note" style="display:none;padding:14px;border-radius:11px;background:var(--bg);border:1px solid var(--border);font-size:12.5px;color:var(--ink-secondary);line-height:1.5;">
+          This workflow uses the 3D coordinates directly from your input poses SDF — no grid box definition is required. Click <strong>Next</strong> to configure options.
+        </div>
+      </div>
+
+      <!-- ==================== STEP 3: OPTIONS ==================== -->
+      <div class="wizard-step" id="wstep-3">
+        <div class="step-heading">3. Configure Options</div>
+        <div class="step-caption">Sensible defaults are pre-selected. Expand optional panels below only when needed.</div>
+
+        <!-- Essential Controls -->
+        <div id="grp-search" style="margin-bottom:14px;">
+          <div class="row-2">
+            <div>
+              <label class="fl">Scoring Function</label>
+              <select id="in-scoring">
+                <option value="vina">AutoDock Vina</option>
+                <option value="vinardo">Vinardo</option>
+                <option value="physics_based">Physics-Based</option>
+              </select>
+            </div>
+            <div>
+              <label class="fl">Compute Device</label>
+              <select id="in-device">
+                <option value="cpu">CPU</option>
+              </select>
+            </div>
+          </div>
+
+          <label class="fl">Search Thoroughness</label>
+          <div class="mode-grid" style="margin-bottom:10px;">
+            <button class="mode-chip" data-speed="quick" onclick="setSpeedPreset('quick')">Quick (e=2)</button>
+            <button class="mode-chip active" data-speed="balanced" onclick="setSpeedPreset('balanced')">Balanced (e=6)</button>
+            <button class="mode-chip" data-speed="thorough" onclick="setSpeedPreset('thorough')">Thorough (e=16)</button>
+          </div>
+        </div>
+
+        <!-- Collapsible Panel 1: Chemistry, pH & Structural Waters -->
+        <details class="apple-disclosure" id="disc-chemistry">
+          <summary>Chemistry, pH States &amp; Waters</summary>
+          <div class="disc-body">
+            <div class="toggle-row">
+              <span>Enumerate pH Microspecies</span>
+              <label class="ios-switch"><input type="checkbox" id="in-enum-states" /><span class="ios-slider"></span></label>
+            </div>
+            <div class="row-2" style="margin-top:4px;">
+              <div>
+                <label class="fl">Target pH</label>
+                <input type="number" step="0.1" id="in-ph" value="7.4" />
+              </div>
+              <div>
+                <label class="fl">Pocket Waters</label>
+                <select id="in-waters">
+                  <option value="strip">Strip Waters</option>
+                  <option value="keep">Keep Bridging</option>
+                  <option value="displace">Displace / Bridge</option>
+                </select>
+              </div>
+            </div>
+            <div class="toggle-row">
+              <span>Sample Non-Aromatic Rings</span>
+              <label class="ios-switch"><input type="checkbox" id="in-sample-rings" /><span class="ios-slider"></span></label>
+            </div>
+          </div>
+        </details>
+
+        <!-- Collapsible Panel 2: Restraints, MCS Core & Flexible Residues -->
+        <details class="apple-disclosure" id="disc-restraints">
+          <summary>Restraints, MCS Core &amp; Side Chains</summary>
+          <div class="disc-body">
+            <div id="grp-v5-dock">
+              <label class="fl">Differentiable Restraints (1 per line)</label>
+              <textarea id="in-restraints" rows="2" placeholder="A:ZN:301:ZN<2.2:donor" style="margin-bottom:8px;"></textarea>
+              <label class="fl">Calibrated Weights JSON (optional)</label>
+              <input type="text" id="in-weights-file" placeholder="calibrated_weights.json" />
+            </div>
+            <div id="grp-series" style="display:none;margin-top:6px;">
+              <label class="fl">Core SMARTS (blank = auto-MCS)</label>
+              <input type="text" id="in-core-smarts" placeholder="Auto-detected across analogs" style="margin-bottom:8px;" />
+              <label class="fl">Core Flat-Bottom Tolerance (Å)</label>
+              <input type="number" step="0.05" id="in-core-tol" value="0.75" />
+            </div>
+            <div id="grp-flex" style="display:none;margin-top:6px;">
+              <label class="fl">Flexible Residues (optional)</label>
+              <input type="text" id="in-flex-res" placeholder="e.g. A:145,A:166 (blank = auto)" />
+            </div>
+          </div>
+        </details>
+
+        <!-- Collapsible Panel 3: Rescoring, MD Export & Fine Tuning -->
+        <details class="apple-disclosure" id="disc-advanced">
+          <summary>MM-GBSA, MD Export &amp; Fine Tuning</summary>
+          <div class="disc-body">
+            <div class="row-2">
+              <div>
+                <label class="fl">MM-GBSA Rescoring</label>
+                <select id="in-rescoring">
+                  <option value="none">None</option>
+                  <option value="mmgbsa">Pocket MM-GBSA</option>
+                </select>
+              </div>
+              <div>
+                <label class="fl">Auto-Export MD</label>
+                <select id="in-export-md">
+                  <option value="none">None</option>
+                  <option value="both">OpenMM + GROMACS</option>
+                  <option value="openmm">OpenMM Only</option>
+                  <option value="gromacs">GROMACS Only</option>
+                </select>
+              </div>
+            </div>
+            <div class="row-3">
+              <div>
+                <label class="fl">Exhaustiveness</label>
+                <input type="number" id="in-exhaust" value="6" min="1" max="64" />
+              </div>
+              <div>
+                <label class="fl">Max Poses</label>
+                <input type="number" id="in-poses" value="9" min="1" max="50" />
+              </div>
+              <div>
+                <label class="fl">Workers</label>
+                <input type="number" id="in-workers" value="4" min="1" max="32" />
+              </div>
+            </div>
+            <div class="row-2">
+              <div>
+                <label class="fl">Random Seed</label>
+                <input type="number" id="in-seed" value="42" />
+              </div>
+              <div style="display:flex;align-items:flex-end;padding-bottom:6px;">
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+                  <input type="checkbox" id="in-fast" /> Fast Smoke (e=2)
+                </label>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- MD Handoff Dedicated Options -->
+        <div id="grp-md" style="display:none;margin-top:8px;">
+          <div class="row-2">
+            <div>
+              <label class="fl">MD Engine</label>
+              <select id="in-md-engine">
+                <option value="both">OpenMM + GROMACS</option>
+                <option value="openmm">OpenMM (AMBER14/OpenFF)</option>
+                <option value="gromacs">GROMACS (ACPYPE)</option>
+              </select>
+            </div>
+            <div>
+              <label class="fl">Production (ns)</label>
+              <input type="number" id="in-md-ns" value="25" min="1" max="1000" />
+            </div>
+          </div>
+          <label class="fl">Pose Index (0 = top pose)</label>
+          <input type="number" id="in-pose-idx" value="0" min="0" />
+        </div>
+      </div>
+
+      <!-- ==================== STEP 4: REVIEW & RUN ==================== -->
+      <div class="wizard-step" id="wstep-4">
+        <div class="step-heading">4. Review &amp; Launch</div>
+        <div class="step-caption">Confirm your setup below. Reports (PDF, HTML, 300-DPI plots &amp; PandaMap) generate automatically upon completion.</div>
+
+        <label class="fl">Job Name</label>
+        <input type="text" id="in-job-name" placeholder="e.g. 6X3V_lead_docking" style="margin-bottom:12px;" />
+
+        <div class="review-list" id="review-list"></div>
+      </div>
+    </div>
+
+    <div class="inspector-footer">
+      <button class="btn-secondary" id="btn-step-back" style="display:none;" onclick="prevStep()">← Back</button>
+      <button class="cta-run" id="btn-step-next" onclick="nextStep()">
+        <span id="btn-next-label">Next: Binding Site →</span>
+      </button>
+      <button class="cta-run" id="btn-run" style="display:none;" onclick="launchJob()">
+        <span>▶</span> <span id="btn-run-label">Start Docking &amp; Reports</span>
+      </button>
+    </div>
+  </aside>
+</div>
+
+<!-- Apple Quick Look Plot Lightbox -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox(event)">
+  <div class="lightbox-card" onclick="event.stopPropagation()">
+    <div class="lightbox-bar">
+      <strong id="lb-title">Figure</strong>
+      <div style="display:flex;gap:8px;">
+        <a class="icon-btn" id="lb-dl" href="#" download style="text-decoration:none;">↓ Save PNG</a>
+        <button class="icon-btn" onclick="document.getElementById('lightbox').classList.remove('open')">✕ Close</button>
+      </div>
+    </div>
+    <img id="lb-img" src="" alt="Scientific Plot" />
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const state = {
+  mode: "dock",
+  step: 1,
+  activeTab: "viewer",
+  receptorPath: null,
+  ligandPath: null,
+  extraPath: null,
+  receptorInfo: null,
+  ligandInfo: null,
+  runs: [],
+  currentRun: null,
+  currentPoseIdx: 0,
+  activeJobId: null,
+  eventSource: null,
+  viewer: null,
+  ligViewer: null,
+  receptorStyle: "pocket",
+  showReceptor: true,
+  showLigand: true,
+  ligPipOpen: false,
+  ligPipExpanded: false,
+  ligPipMode: "3d",      // "3d" | "2d"
+  pipLastSvg: null,
+  pipLigText: null,
+  pipLigFmt: "sdf",
+  pipLigTitle: "Ligand 3D Preview",
+  pipLigMeta: "",
+  isInputPreview: false,
+  showBox: false,
+  showHydrogens: true,
+  showInteractions: true,
+  showHydrophobicLines: false,
+  plOverlay: null,
+  plAnalysis: null,      // {structure, focusRes, interactions, hCount, pocketResidues}
+  plHiddenTypes: new Set(["hydrophobic", "carbonpi"]),
+  plDrawerOpen: false,
+  spinning: false,
+  pickingResidues: false,
+  selectedResidues: [],  // [{spec: "A:CYS:145", chain: "A", resn: "CYS", resi: 145}]
+  excludedLigands: [],   // ["AZM A:701"] — excluded from receptor grid during docking (Maestro-style)
+  pocketData: null,      // {pocket_pdb_with_h, ligand_sdf_with_h, interactions, pocket_residues, counts}
+  boxShape: null,
+  loadedRecText: null,
+  loadedLigText: null,
+  loadedLigFormat: "sdf",
+};
+
+const MODE_META = {
+  "dock": { title: "Flexible Docking", cta: "Run Docking & Reports", ligLabel: "Ligand (SDF / MOL2 / PDB)" },
+  "series": { title: "Congeneric Series SAR", cta: "Dock Series & Build SAR PDF", ligLabel: "Analog Series (Multi-SDF / SMI)", extraLabel: "Reference Pose SDF (for MCS Tether)" },
+  "covalent": { title: "Covalent Warhead Docking", cta: "Run Covalent Docking & Report", ligLabel: "Covalent Inhibitor (SDF / SMI)" },
+  "metal": { title: "Metal Coordination Docking", cta: "Run Metal Docking", ligLabel: "Chelating Ligand (SDF / MOL2)" },
+  "flex": { title: "Induced-Fit Flexible Docking", cta: "Run Induced-Fit Docking", ligLabel: "Ligand (SDF / MOL2)" },
+  "validate-poses": { title: "PoseBusters Validity Audit", cta: "Run 11-Point PoseBusters Audit", ligLabel: "Docked Poses SDF" },
+  "calibrate": { title: "Few-Shot Weight Calibration", cta: "Calibrate Scoring Weights", ligLabel: "Multi-Ligand Poses SDF", extraLabel: "Experimental Labels CSV (name,dg)" },
+  "to-md": { title: "Dock-to-MD Handoff", cta: "Export OpenMM / GROMACS Package", ligLabel: "Docked Poses SDF" },
+};
+
+function showToast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(() => el.classList.remove("show"), 3200);
+}
+
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute("data-theme") || "light";
+  const nxt = cur === "light" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", nxt);
+  const bg = nxt === "dark" ? 0x101219 : 0xFBFBFD;
+  if (state.viewer) {
+    state.viewer.setBackgroundColor(bg);
+    state.viewer.render();
+  }
+  if (state.ligViewer) {
+    state.ligViewer.setBackgroundColor(bg);
+    state.ligViewer.render();
+  }
+  if (state.ligPipOpen && state.ligPipMode === "2d") {
+    renderLigandPip();
+  }
+}
+
+function toggleInspector() {
+  document.getElementById("app-shell").classList.toggle("inspector-collapsed");
+  setTimeout(() => { if (state.viewer) { state.viewer.resize(); state.viewer.render(); } }, 220);
+}
+
+function switchTab(tab) {
+  state.activeTab = tab;
+  document.querySelectorAll(".seg-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+  document.querySelectorAll(".tab-pane").forEach(p => p.classList.toggle("active", p.id === `pane-${tab}`));
+  if (tab === "viewer" && state.viewer) {
+    setTimeout(() => { state.viewer.resize(); state.viewer.render(); }, 60);
+  }
+}
+
+function startNewWorkflow() {
+  document.getElementById("app-shell").classList.remove("inspector-collapsed");
+  goStep(1);
+  showToast("Ready for a new docking workflow — load structures in Step 1");
+}
+
+function goStep(n) {
+  state.step = Math.max(1, Math.min(4, n));
+  document.querySelectorAll(".step-pill").forEach(p => {
+    const sn = parseInt(p.dataset.step, 10);
+    p.classList.toggle("active", sn === state.step);
+    p.classList.toggle("done", sn < state.step);
+  });
+  document.querySelectorAll(".wizard-step").forEach((el, idx) => {
+    el.classList.toggle("active", idx + 1 === state.step);
+  });
+
+  const backBtn = document.getElementById("btn-step-back");
+  const nextBtn = document.getElementById("btn-step-next");
+  const runBtn = document.getElementById("btn-run");
+  const nextLbl = document.getElementById("btn-next-label");
+
+  backBtn.style.display = state.step > 1 ? "inline-flex" : "none";
+  if (state.step < 4) {
+    nextBtn.style.display = "flex";
+    runBtn.style.display = "none";
+    const labels = { 1: "Next: Binding Site →", 2: "Next: Options →", 3: "Review & Launch →" };
+    nextLbl.textContent = labels[state.step];
+  } else {
+    nextBtn.style.display = "none";
+    runBtn.style.display = "flex";
+    renderReviewSummary();
+  }
+}
+
+function nextStep() { goStep(state.step + 1); }
+function prevStep() { goStep(state.step - 1); }
+
+function setSpeedPreset(preset) {
+  document.querySelectorAll(".mode-chip[data-speed]").forEach(b => b.classList.toggle("active", b.dataset.speed === preset));
+  if (preset === "quick") {
+    document.getElementById("in-exhaust").value = 2;
+    document.getElementById("in-poses").value = 5;
+    document.getElementById("in-fast").checked = true;
+  } else if (preset === "balanced") {
+    document.getElementById("in-exhaust").value = 6;
+    document.getElementById("in-poses").value = 9;
+    document.getElementById("in-fast").checked = false;
+  } else {
+    document.getElementById("in-exhaust").value = 16;
+    document.getElementById("in-poses").value = 15;
+    document.getElementById("in-fast").checked = false;
+  }
+}
+
+function renderReviewSummary() {
+  const meta = MODE_META[state.mode] || MODE_META.dock;
+  const recName = state.receptorPath ? state.receptorPath.split("/").pop() : "Not selected";
+  const ligName = state.ligandPath ? state.ligandPath.split("/").pop() : "Not selected";
+  const flags = [];
+  if (document.getElementById("in-enum-states").checked) flags.push(`pH ${document.getElementById("in-ph").value} States`);
+  const wat = document.getElementById("in-waters").value;
+  if (wat !== "strip") flags.push(`Waters: ${wat}`);
+  const rests = document.getElementById("in-restraints").value.trim().split("\n").filter(Boolean);
+  if (rests.length) flags.push(`${rests.length} Restraint(s)`);
+  if (document.getElementById("in-rescoring").value === "mmgbsa") flags.push("MM-GBSA");
+  if (document.getElementById("in-sample-rings").checked) flags.push("Ring Sampling");
+  if (document.getElementById("in-export-md").value !== "none") flags.push(`MD: ${document.getElementById("in-export-md").value}`);
+  if (state.excludedLigands.length) flags.push(`Exclude: ${state.excludedLigands.join(", ")}`);
+
+  const siteText = state.mode === "covalent"
+    ? `${document.getElementById("in-cov-residue").value} (${document.getElementById("in-warhead").value})`
+    : (["validate-poses", "calibrate", "to-md"].includes(state.mode)
+      ? "Direct from SDF"
+      : `(${Number(document.getElementById("in-cx").value).toFixed(1)}, ${Number(document.getElementById("in-cy").value).toFixed(1)}, ${Number(document.getElementById("in-cz").value).toFixed(1)}) · ${document.getElementById("in-bx").value} Å`);
+
+  document.getElementById("review-list").innerHTML = `
+    <div class="review-row"><span class="rk">Workflow</span><span class="rv">${escapeHtml(meta.title)}</span></div>
+    <div class="review-row"><span class="rk">Protein</span><span class="rv">${escapeHtml(recName)}</span></div>
+    <div class="review-row"><span class="rk">Ligand(s)</span><span class="rv">${escapeHtml(ligName)}</span></div>
+    <div class="review-row"><span class="rk">Binding Site</span><span class="rv">${escapeHtml(siteText)}</span></div>
+    <div class="review-row"><span class="rk">Engine</span><span class="rv">${escapeHtml(document.getElementById("in-scoring").value)} · e=${document.getElementById("in-exhaust").value} · ${document.getElementById("in-device").value.toUpperCase()}</span></div>
+    <div class="review-row"><span class="rk">Active Extras</span><span class="rv">${flags.length ? escapeHtml(flags.join(", ")) : "Standard defaults"}</span></div>
+  `;
+}
+
+function selectMode(mode) {
+  state.mode = mode;
+  const sel = document.getElementById("in-mode-select");
+  if (sel && sel.value !== mode) sel.value = mode;
+  document.querySelectorAll(".mode-chip[data-mode]").forEach(b => b.classList.toggle("active", b.dataset.mode === mode));
+  const meta = MODE_META[mode] || MODE_META.dock;
+  document.getElementById("inspector-mode-title").textContent = meta.title;
+  document.getElementById("btn-run-label").textContent = meta.cta;
+  document.getElementById("lbl-ligand-role").textContent = meta.ligLabel;
+
+  const extraDz = document.getElementById("dz-extra");
+  if (meta.extraLabel) {
+    extraDz.style.display = "block";
+    document.getElementById("lbl-extra-role").textContent = meta.extraLabel;
+  } else {
+    extraDz.style.display = "none";
+  }
+
+  const needsBox = ["dock", "series", "metal", "flex", "covalent"].includes(mode);
+  document.getElementById("grp-gridbox").style.display = needsBox ? "block" : "none";
+  document.getElementById("grp-nobox-note").style.display = needsBox ? "none" : "block";
+  document.getElementById("grp-search").style.display = needsBox ? "block" : "none";
+  document.getElementById("disc-chemistry").style.display = mode === "dock" ? "block" : "none";
+  document.getElementById("disc-restraints").style.display = ["dock", "series", "flex"].includes(mode) ? "block" : "none";
+  document.getElementById("disc-advanced").style.display = needsBox ? "block" : "none";
+  document.getElementById("grp-v5-dock").style.display = mode === "dock" ? "block" : "none";
+  document.getElementById("grp-series").style.display = mode === "series" ? "block" : "none";
+  document.getElementById("grp-covalent").style.display = mode === "covalent" ? "block" : "none";
+  document.getElementById("grp-flex").style.display = mode === "flex" ? "block" : "none";
+  document.getElementById("grp-md").style.display = mode === "to-md" ? "block" : "none";
+  if (state.step === 4) renderReviewSummary();
+}
+
+/* ---------- 3Dmol.js WebGL + PandaLens Interaction Engine ---------- */
+function initViewer() {
+  const el = document.getElementById("mol3d-canvas");
+  if (!window.$3Dmol || !el) return;
+  const bg = document.documentElement.getAttribute("data-theme") === "dark" ? 0x101219 : 0xFBFBFD;
+  state.viewer = $3Dmol.createViewer(el, { backgroundColor: bg, antialias: true });
+  ensurePandaLensOverlay();
+}
+
+function ensurePandaLensOverlay() {
+  if (!state.viewer || !window.PandaLensBridge) return null;
+  if (!state.plOverlay) {
+    const labelEl = document.getElementById("pl-labels");
+    state.plOverlay = new window.PandaLensBridge.PandaLensOverlay(
+      state.viewer,
+      labelEl,
+      () => document.documentElement.getAttribute("data-theme") === "dark",
+    );
+  }
+  return state.plOverlay;
+}
+
+window.addEventListener("pandalens-ready", () => {
+  if (state.viewer && state._models && (state._models.pocket || state._models.lig)) {
+    ensurePandaLensOverlay();
+    runPandaLensAnalysis();
+    redrawShapesAndInteractions();
+  }
+});
+
+function runPandaLensAnalysis() {
+  state.plAnalysis = null;
+  if (!window.PandaLensBridge || !state._models) return null;
+  const { rec, pocket, lig } = state._models;
+  if (!lig && !pocket) return null;
+  try {
+    state.plAnalysis = window.PandaLensBridge.analyzeModels(pocket, lig, rec);
+  } catch (err) {
+    console.warn("PandaLens analysis fallback:", err);
+    state.plAnalysis = null;
+  }
+  return state.plAnalysis;
+}
+
+function render3DScene(recText, ligText, ligFmt = "sdf", isCombinedComplex = false, pocketData = null) {
+  if (!state.viewer) initViewer();
+  if (!state.viewer) return;
+  state.loadedRecText = recText;
+  state.loadedLigText = ligText;
+  state.loadedLigFormat = ligFmt;
+  state.pocketData = pocketData;
+  if (state.plOverlay) state.plOverlay.clear();
+  state.viewer.removeAllModels();
+  state.viewer.removeAllSurfaces();
+  state.viewer.removeAllShapes();
+  state.viewer.removeAllLabels();
+
+  // Model 0: Full receptor structure (for cartoon/surface context)
+  const recModel = recText ? state.viewer.addModel(recText, "pdb") : null;
+  // Model 1: Binding-site pocket residues WITH explicit 3D hydrogens (if inspecting a docked pose)
+  const hasPocketModel = !!(pocketData && pocketData.pocket_pdb_with_h);
+  const pocketModel = hasPocketModel
+    ? state.viewer.addModel(pocketData.pocket_pdb_with_h, "pdb", { keepH: true, assignBonds: true })
+    : null;
+  // Ligand model (prefer explicit-H SDF from pocket endpoint!)
+  const ligSrc = (pocketData && pocketData.ligand_sdf_with_h) ? pocketData.ligand_sdf_with_h : ligText;
+  const ligFormatFinal = (pocketData && pocketData.ligand_sdf_with_h) ? "sdf" : ligFmt;
+  const hasSeparateLigModel = !!ligSrc;
+  const ligModel = hasSeparateLigModel
+    ? state.viewer.addModel(ligSrc, ligFormatFinal, { keepH: true, assignBonds: true })
+    : null;
+
+  state._models = { rec: recModel, pocket: pocketModel, lig: ligModel };
+  state._modelMap = {
+    rec: recModel ? 0 : -1,
+    pocket: pocketModel ? (recModel ? 1 : 0) : -1,
+    lig: ligModel ? ((recModel ? 1 : 0) + (pocketModel ? 1 : 0)) : -1,
+    isCombinedComplex: isCombinedComplex && !hasSeparateLigModel,
+  };
+
+  // Run PandaLens 18-class interaction perception using explicit H coordinates
+  ensurePandaLensOverlay();
+  runPandaLensAnalysis();
+
+  applyViewerStyles(state._modelMap.isCombinedComplex);
+  redrawShapesAndInteractions();
+
+  if (state._modelMap.lig >= 0 && hasPocketModel) {
+    state.viewer.zoomTo({ model: state._modelMap.lig });
+    state.viewer.zoom(0.55);
+  } else if (state._modelMap.isCombinedComplex) {
+    const ligSel = { resn: ["LIG", "COV", "AZM", "UNL"] };
+    if (state.viewer.selectedAtoms(ligSel).length > 0) {
+      state.viewer.zoomTo(ligSel);
+      state.viewer.zoom(0.60);
+    } else {
+      state.viewer.zoomTo();
+    }
+  } else if (recText) {
+    state.viewer.zoomTo({ model: 0 });
+  } else {
+    state.viewer.zoomTo();
+  }
+  state.viewer.render();
+  if (state.ligPipOpen && state.ligPipMode === "2d" && !state.isInputPreview) {
+    renderLigandPip();
+  }
+}
+
+function applyViewerStyles(isCombinedComplex = false) {
+  if (!state.viewer) return;
+  state.viewer.removeAllSurfaces();
+  const mm = state._modelMap || { rec: 0, pocket: -1, lig: isCombinedComplex ? -1 : 1, isCombinedComplex };
+  const st = state.receptorStyle;
+  const showH = state.showHydrogens;
+  const showRec = state.showReceptor;
+  const showLig = state.showLigand;
+
+  // Hide raw LIG/COV inside model 0 if we loaded a separate explicit-H ligand model
+  if (mm.rec >= 0 && mm.lig >= 0) {
+    state.viewer.setStyle({ model: mm.rec, resn: ["LIG", "COV", "UNL"] }, {});
+  }
+
+  // Receptor backbone/context styling (respects one-click Protein hide/show toggle)
+  if (mm.rec >= 0) {
+    const proteinSel = { model: mm.rec, hetflag: false };
+    if (!showRec) {
+      state.viewer.setStyle({ model: mm.rec }, {});
+    } else {
+      if (st === "cartoon") {
+        state.viewer.setStyle(proteinSel, { cartoon: { color: "spectrum", opacity: 0.90 } });
+      } else if (st === "surface") {
+        state.viewer.setStyle(proteinSel, { cartoon: { color: "#94A3B8", opacity: 0.45 } });
+        state.viewer.addSurface($3Dmol.SurfaceType.VDW, { opacity: 0.56, color: "#E2E8F0" }, proteinSel);
+      } else if (st === "pocket") {
+        state.viewer.setStyle(proteinSel, { cartoon: { color: "#94A3B8", opacity: 0.30 } });
+      } else {
+        state.viewer.setStyle(proteinSel, { stick: { radius: 0.12, colorscheme: "Jmol" } });
+      }
+      // Metals & waters on model 0
+      state.viewer.addStyle({ model: mm.rec, elem: ["ZN", "MG", "FE", "MN", "CU", "CA", "CO", "NI"] }, { sphere: { scale: 0.52, color: "#9333EA" } });
+      state.viewer.addStyle({ model: mm.rec, resn: ["HOH", "WAT"] }, { sphere: { scale: 0.22, color: "#38BDF8", opacity: 0.72 } });
+    }
+  }
+
+  // Binding-site pocket sticks WITH explicit hydrogens (Model 1)
+  if (mm.pocket >= 0) {
+    if (!showRec) {
+      state.viewer.setStyle({ model: mm.pocket }, {});
+    } else if (st === "pocket" || st === "surface" || st === "cartoon") {
+      state.viewer.setStyle({ model: mm.pocket, hetflag: false }, {
+        stick: { radius: 0.145, colorscheme: "Jmol" },
+      });
+      if (!showH) {
+        state.viewer.setStyle({ model: mm.pocket, elem: "H" }, {});
+      } else {
+        state.viewer.setStyle({ model: mm.pocket, elem: "H" }, {
+          stick: { radius: 0.08, color: "#E5E7EB" },
+          sphere: { scale: 0.16, color: "#FFFFFF" },
+        });
+      }
+      state.viewer.setStyle({ model: mm.pocket, elem: ["ZN", "MG", "FE", "MN", "CU", "CA", "CO", "NI"] }, {
+        sphere: { scale: 0.58, color: "#9333EA" },
+      });
+      state.viewer.setStyle({ model: mm.pocket, resn: ["HOH", "WAT"] }, {
+        stick: { radius: 0.10, colorscheme: "Jmol" },
+        sphere: { scale: 0.22, color: "#38BDF8" },
+      });
+      if (!showH) {
+        state.viewer.setStyle({ model: mm.pocket, resn: ["HOH", "WAT"], elem: "H" }, {});
+      }
+    } else {
+      state.viewer.setStyle({ model: mm.pocket }, {});
+    }
+  }
+
+  // Docked Ligand ball-and-stick WITH explicit hydrogens (respects one-click Ligand hide/show toggle)
+  const ligTarget = mm.lig >= 0 ? { model: mm.lig } : { resn: ["LIG", "COV"] };
+  if (!showLig) {
+    state.viewer.setStyle(ligTarget, {});
+  } else {
+    state.viewer.setStyle(ligTarget, {
+      stick: { radius: 0.21, colorscheme: "cyanCarbon" },
+      sphere: { scale: 0.24, colorscheme: "cyanCarbon" },
+    });
+    if (!showH) {
+      state.viewer.setStyle({ ...ligTarget, elem: "H" }, {});
+    } else {
+      state.viewer.setStyle({ ...ligTarget, elem: "H" }, {
+        stick: { radius: 0.10, color: "#F1F5F9" },
+        sphere: { scale: 0.17, color: "#FFFFFF" },
+      });
+    }
+  }
+
+  // Highlight any user-picked residues in glowing amber
+  if (state.boxLabels) {
+    state.boxLabels.forEach(l => state.viewer.removeLabel(l));
+  }
+  state.boxLabels = [];
+  (state.selectedResidues || []).forEach(r => {
+    const rsel = { chain: r.chain, resi: r.resi, hetflag: false };
+    state.viewer.addStyle(rsel, { stick: { radius: 0.20, color: "#FF9500" } });
+    state.boxLabels.push(state.viewer.addLabel(`${r.resn} ${r.chain}:${r.resi}`, {
+      fontSize: 11, fontColor: "#FFFFFF", backgroundColor: "rgba(255, 149, 0, 0.88)",
+      backgroundOpacity: 0.9, borderRadius: 4, padding: 2,
+    }, { chain: r.chain, resi: r.resi, atom: "CA" }));
+  });
+
+  bindResidueClickHandler();
+  state.viewer.render();
+  if (state.ligPipOpen && state.ligPipMode === "2d" && !state.isInputPreview) {
+    renderLigandPip();
+  }
+}
+
+function redrawShapesAndInteractions() {
+  if (!state.viewer) return;
+
+  // 1. Redraw Grid Box cleanly without clobbering PandaLens overlay shapes
+  if (state.boxShape) {
+    state.viewer.removeShape(state.boxShape);
+    state.boxShape = null;
+  }
+  if (state.showBox) {
+    const cx = parseFloat(document.getElementById("in-cx").value);
+    const cy = parseFloat(document.getElementById("in-cy").value);
+    const cz = parseFloat(document.getElementById("in-cz").value);
+    const bx = parseFloat(document.getElementById("in-bx").value);
+    const by = parseFloat(document.getElementById("in-by").value);
+    const bz = parseFloat(document.getElementById("in-bz").value);
+    if (![cx, cy, cz, bx, by, bz].some(Number.isNaN)) {
+      state.boxShape = state.viewer.addBox({
+        center: { x: cx, y: cy, z: cz },
+        dimensions: { w: bx, h: by, d: bz },
+        color: "#0071E3",
+        opacity: 0.85,
+        wireframe: true,
+      });
+    }
+  }
+
+  // 2. Draw PandaLens 18-class 3D interactions + draggable residue labels
+  const overlay = ensurePandaLensOverlay();
+  const leg = document.getElementById("int-legend");
+  const drawer = document.getElementById("pl-contacts-card");
+
+  if (state.showInteractions && state.plAnalysis && state.plAnalysis.interactions.length && overlay) {
+    overlay.render(state.plAnalysis.interactions, {
+      hiddenTypes: state.plHiddenTypes,
+      showDistLabels: true,
+      showResLabels: true,
+    });
+    renderPandaLensHUD();
+  } else {
+    if (overlay) overlay.clear();
+    if (leg) leg.style.display = "none";
+    if (drawer) drawer.style.display = "none";
+  }
+
+  state.viewer.render();
+  if (state.ligPipOpen && state.ligPipMode === "2d" && !state.isInputPreview) {
+    renderLigandPip();
+  }
+}
+
+function renderPandaLensHUD() {
+  const leg = document.getElementById("int-legend");
+  const drawer = document.getElementById("pl-contacts-card");
+  const listEl = document.getElementById("pl-contacts-list");
+  const titleEl = document.getElementById("pl-contacts-title");
+  if (!leg || !state.plAnalysis) return;
+
+  const ints = state.plAnalysis.interactions || [];
+  if (!ints.length) {
+    leg.style.display = "none";
+    if (drawer) drawer.style.display = "none";
+    return;
+  }
+
+  // Group counts by PandaLens interaction type
+  const counts = {};
+  const metaByType = {};
+  for (const it of ints) {
+    counts[it.type] = (counts[it.type] || 0) + 1;
+    if (!metaByType[it.type]) metaByType[it.type] = it;
+  }
+
+  // Order key directional classes first
+  const order = [
+    "covalent", "disulfide", "metal", "hbond", "water", "saltbridge",
+    "attractive", "pipi", "tshape", "cationpi", "amidepi", "donorpi",
+    "sulfurpi", "halogen", "clash", "repulsion", "carbonpi", "hydrophobic",
+  ];
+  const presentTypes = order.filter((t) => counts[t] > 0);
+
+  const chips = presentTypes.map((t) => {
+    const m = metaByType[t];
+    const hidden = state.plHiddenTypes.has(t);
+    return `<button class="pl-chip ${hidden ? "muted" : ""}" onclick="togglePLType('${t}')" onmouseenter="highlightPLType('${t}')" onmouseleave="highlightPLInteraction(-1)" title="${escapeHtml(m.rule || m.label)} — click to toggle">
+      <span class="pl-dot" style="background:${m.color}"></span>
+      <span>${escapeHtml(m.short)}</span>
+      <span style="opacity:0.7;">${counts[t]}</span>
+    </button>`;
+  });
+
+  const visibleCount = ints.filter((it) => !state.plHiddenTypes.has(it.type)).length;
+  const hInfo = state.plAnalysis.hCount
+    ? `${state.showHydrogens ? "H visible" : "H hidden"} (${state.plAnalysis.hCount} H)`
+    : (state.showHydrogens ? "H visible" : "H hidden");
+
+  leg.innerHTML = `
+    <span style="font-weight:700;color:var(--ink-secondary);margin-right:2px;">PandaLens</span>
+    ${chips.join("")}
+    <button class="pl-chip" onclick="toggleContactsDrawer()" style="background:var(--accent-soft);color:var(--accent);border-color:transparent;">
+      ${state.plDrawerOpen ? "Hide List" : `List (${visibleCount})`}
+    </button>
+    <span style="color:var(--ink-tertiary);font-size:10.5px;margin-left:2px;">${(state.pocketData?.pocket_residues || state.plAnalysis.pocketResidues || []).length} res · ${hInfo}</span>
+  `;
+  leg.style.display = "flex";
+
+  if (drawer && listEl && titleEl) {
+    titleEl.textContent = `PandaLens Interactions (${visibleCount}/${ints.length})`;
+    const shown = ints.filter((it) => !state.plHiddenTypes.has(it.type));
+    listEl.innerHTML = shown.map((it) => {
+      const geo = it.hAngle
+        ? `D–H···A ${Math.round(it.hAngle)}° · H···A ${it.dHA.toFixed(2)} Å`
+        : it.angle != null
+          ? `${Math.round(it.angle)}°`
+          : (it.note || it.short);
+      return `<div class="pl-contact-row" onmouseenter="highlightPLInteraction(${it.id})" onmouseleave="highlightPLInteraction(-1)" onclick="focusPLInteraction(${it.id})">
+        <span class="pl-dot" style="background:${it.color}"></span>
+        <div>
+          <div style="font-weight:600;color:var(--ink);">${escapeHtml(it.partnerLabel || "Partner")} <span style="font-weight:500;color:var(--ink-secondary);">· ${escapeHtml(it.short)}</span></div>
+          <div class="pl-contact-meta">${escapeHtml(it.from?.label || "")} ↔ ${escapeHtml(it.to?.label || "")} · ${escapeHtml(geo)}</div>
+        </div>
+        <span class="pl-contact-dist">${it.d.toFixed(2)} Å</span>
+      </div>`;
+    }).join("") || `<div style="padding:10px;font-size:11.5px;color:var(--ink-tertiary);">All detected types are currently filtered out. Click a chip below to show them.</div>`;
+    drawer.style.display = state.plDrawerOpen ? "flex" : "none";
+  }
+}
+
+function togglePLType(type) {
+  if (state.plHiddenTypes.has(type)) state.plHiddenTypes.delete(type);
+  else state.plHiddenTypes.add(type);
+  redrawShapesAndInteractions();
+}
+
+function toggleContactsDrawer() {
+  state.plDrawerOpen = !state.plDrawerOpen;
+  renderPandaLensHUD();
+}
+
+function highlightPLInteraction(id) {
+  if (!state.plOverlay || !state.plAnalysis) return;
+  if (id < 0) {
+    state.plOverlay.highlight(null);
+    return;
+  }
+  const it = state.plAnalysis.interactions.find((x) => x.id === id);
+  state.plOverlay.highlight(it || null);
+}
+
+function highlightPLType(type) {
+  if (!state.plOverlay || !state.plAnalysis || state.plHiddenTypes.has(type)) return;
+  const items = state.plAnalysis.interactions.filter((x) => x.type === type);
+  state.plOverlay.highlight(items);
+}
+
+function focusPLInteraction(id) {
+  if (!state.viewer || !state.plAnalysis) return;
+  const it = state.plAnalysis.interactions.find((x) => x.id === id);
+  if (!it) return;
+  highlightPLInteraction(id);
+  const mid = {
+    x: (it.from.x + it.to.x) / 2,
+    y: (it.from.y + it.to.y) / 2,
+    z: (it.from.z + it.to.z) / 2,
+  };
+  state.viewer.center(mid, 250);
+}
+
+function resetPandaLensLabels() {
+  if (state.plOverlay) state.plOverlay.resetLabelPositions();
+}
+
+function redrawBoxOnly() { redrawShapesAndInteractions(); }
+
+function toggleShowHydrogens() {
+  state.showHydrogens = !state.showHydrogens;
+  document.getElementById("btn-show-h").classList.toggle("active", state.showHydrogens);
+  applyViewerStyles(state._modelMap ? state._modelMap.isCombinedComplex : false);
+  redrawShapesAndInteractions();
+  if (state.ligPipOpen && state.pipLigText) renderLigandPip();
+}
+
+function toggleReceptorVisibility() {
+  state.showReceptor = !state.showReceptor;
+  document.getElementById("btn-vis-rec").classList.toggle("active", state.showReceptor);
+  applyViewerStyles(state._modelMap ? state._modelMap.isCombinedComplex : false);
+  redrawShapesAndInteractions();
+}
+
+function toggleLigandVisibility() {
+  if (state.isInputPreview && state.loadedRecText && state.pipLigText) {
+    // In input preview mode, the ligand lives cleanly in its separate 3D window
+    if (state.ligPipOpen) hideLigandPip();
+    else openLigandPip();
+    return;
+  }
+  state.showLigand = !state.showLigand;
+  document.getElementById("btn-vis-lig").classList.toggle("active", state.showLigand);
+  applyViewerStyles(state._modelMap ? state._modelMap.isCombinedComplex : false);
+  redrawShapesAndInteractions();
+}
+
+function openLigandPip(mode = null) {
+  if (mode) state.ligPipMode = mode;
+  const has2DMap = !state.isInputPreview && state.plAnalysis && state.plAnalysis.focusRes;
+  if (!state.pipLigText && !has2DMap) {
+    showToast("Load a ligand or select a docked pose first");
+    return;
+  }
+  state.ligPipOpen = true;
+  document.getElementById("ligand-pip").classList.add("open");
+  _syncPipButtons();
+  if (state.isInputPreview) {
+    state.showLigand = true;
+    document.getElementById("btn-vis-lig").classList.add("active");
+  }
+  renderLigandPip();
+}
+
+function hideLigandPip() {
+  state.ligPipOpen = false;
+  document.getElementById("ligand-pip").classList.remove("open");
+  _syncPipButtons();
+  if (state.isInputPreview && state.loadedRecText) {
+    state.showLigand = false;
+    document.getElementById("btn-vis-lig").classList.remove("active");
+  }
+}
+
+function _syncPipButtons() {
+  const b3d = document.getElementById("btn-lig-pip");
+  const b2d = document.getElementById("btn-lig-2d");
+  const m3d = document.getElementById("btn-pip-mode-3d");
+  const m2d = document.getElementById("btn-pip-mode-2d");
+  if (b3d) b3d.classList.toggle("active", state.ligPipOpen && state.ligPipMode === "3d");
+  if (b2d) b2d.classList.toggle("active", state.ligPipOpen && state.ligPipMode === "2d");
+  if (m3d) m3d.classList.toggle("active", state.ligPipMode === "3d");
+  if (m2d) m2d.classList.toggle("active", state.ligPipMode === "2d");
+  const svgBtn = document.getElementById("btn-pip-svg");
+  const rstBtn = document.getElementById("btn-pip-reset");
+  if (svgBtn) svgBtn.style.display = state.ligPipMode === "2d" ? "inline-flex" : "none";
+  if (rstBtn) rstBtn.style.display = state.ligPipMode === "3d" ? "inline-flex" : "none";
+}
+
+function setLigandPipMode(mode) {
+  state.ligPipMode = mode;
+  // Auto-expand slightly when switching to 2D Interaction Map so residue labels read crisply
+  if (mode === "2d" && !state.isInputPreview && !state.ligPipExpanded) {
+    state.ligPipExpanded = true;
+    document.getElementById("ligand-pip").classList.add("expanded");
+    document.getElementById("btn-pip-size").textContent = "⤡";
+  }
+  _syncPipButtons();
+  if (state.ligPipOpen) renderLigandPip();
+}
+
+function toggleLigandPip(mode = "3d") {
+  if (state.ligPipOpen && state.ligPipMode === mode) {
+    hideLigandPip();
+  } else {
+    if (mode === "2d" && !state.isInputPreview && !state.ligPipExpanded) {
+      state.ligPipExpanded = true;
+      document.getElementById("ligand-pip").classList.add("expanded");
+      document.getElementById("btn-pip-size").textContent = "⤡";
+    }
+    openLigandPip(mode);
+  }
+}
+
+function toggleLigandPipSize() {
+  state.ligPipExpanded = !state.ligPipExpanded;
+  const pip = document.getElementById("ligand-pip");
+  pip.classList.toggle("expanded", state.ligPipExpanded);
+  document.getElementById("btn-pip-size").textContent = state.ligPipExpanded ? "⤡" : "⤢";
+  setTimeout(() => {
+    if (state.ligPipMode === "2d") {
+      renderLigandPip();
+    } else if (state.ligViewer) {
+      state.ligViewer.resize();
+      state.ligViewer.zoomTo();
+      state.ligViewer.render();
+    }
+  }, 220);
+}
+
+function resetLigandPip() {
+  if (state.ligViewer) {
+    state.ligViewer.zoomTo();
+    state.ligViewer.render();
+  }
+}
+
+function downloadPipSvg() {
+  if (!state.pipLastSvg) return;
+  const blob = new Blob([state.pipLastSvg], { type: "image/svg+xml;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = (state.pipLigTitle || "pandadock_2d").replace(/[^A-Za-z0-9_-]+/g, "_") + ".svg";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+}
+
+async function renderLigandPip() {
+  const el3d = document.getElementById("mol3d-ligand-canvas");
+  const el2d = document.getElementById("ligand-pip-2d");
+  const badge = document.getElementById("ligand-pip-badge");
+  if (!el3d || !el2d) return;
+  document.getElementById("ligand-pip-title").textContent = state.pipLigTitle || "Ligand Preview";
+  document.getElementById("ligand-pip-meta").textContent = state.pipLigMeta || "Drag to rotate · scroll to zoom";
+  _syncPipButtons();
+
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+
+  if (state.ligPipMode === "2d") {
+    el3d.style.display = "none";
+    el2d.style.display = "flex";
+    const w = Math.max(240, el2d.clientWidth || (state.ligPipExpanded ? 420 : 270));
+    const h = Math.max(170, el2d.clientHeight || (state.ligPipExpanded ? 280 : 185));
+
+    // 1. If inspecting a docked pose with PandaLens interactions -> live interactive 2D Interaction Map!
+    if (!state.isInputPreview && state.plAnalysis && state.plAnalysis.focusRes && window.PandaLensBridge?.render2DInteractionMap) {
+      const res = window.PandaLensBridge.render2DInteractionMap(state.plAnalysis, state.viewer, {
+        hiddenTypes: state.plHiddenTypes,
+        dark: isDark,
+        title: state.pipLigTitle || "2D Interaction Map",
+        fit: { w, h },
+      });
+      if (res && res.svg) {
+        state.pipLastSvg = res.svg;
+        el2d.innerHTML = res.svg;
+        if (badge) badge.textContent = "PandaLens 2D Map";
+        document.getElementById("ligand-pip-meta").textContent = "Hover contact or atom to highlight in 3D";
+        // Wire live 2D -> 3D hover highlight!
+        el2d.querySelectorAll(".link").forEach((g) => {
+          const idx = parseInt(g.getAttribute("data-i"), 10);
+          const it = res.visible[idx];
+          if (!it) return;
+          g.addEventListener("mouseenter", () => { if (state.plOverlay) state.plOverlay.highlight(it); });
+          g.addEventListener("mouseleave", () => { if (state.plOverlay) state.plOverlay.highlight(null); });
+        });
+        el2d.querySelectorAll(".atom-hit").forEach((c) => {
+          const ai = parseInt(c.getAttribute("data-atom"), 10);
+          const atom = res.model.atoms[ai];
+          if (!atom) return;
+          c.addEventListener("mouseenter", () => { if (state.plOverlay) state.plOverlay.markAtom(atom); });
+          c.addEventListener("mouseleave", () => { if (state.plOverlay) state.plOverlay.markAtom(null); });
+        });
+        return;
+      }
+    }
+
+    // 2. Otherwise (uploaded input ligand or no interactions) -> crisp RDKit 2D chemical depiction SVG!
+    if (badge) badge.textContent = "RDKit 2D Structure";
+    el2d.innerHTML = `<span style="font-size:11px;color:var(--ink-tertiary);">Rendering 2D structure…</span>`;
+    try {
+      const r = await fetch("/api/ligand-2d", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: state.pipLigText || null,
+          path: !state.pipLigText ? state.ligandPath : null,
+          format: state.pipLigFmt || "sdf",
+          dark: isDark,
+          width: w,
+          height: h,
+        }),
+      });
+      if (r.ok) {
+        const data = await r.json();
+        state.pipLastSvg = data.svg;
+        el2d.innerHTML = data.svg;
+      } else {
+        el2d.innerHTML = `<span style="font-size:11px;color:var(--ink-tertiary);">2D preview unavailable for this file</span>`;
+      }
+    } catch (e) {
+      el2d.innerHTML = `<span style="font-size:11px;color:var(--ink-tertiary);">2D preview unavailable</span>`;
+    }
+    return;
+  }
+
+  // 3D Mode
+  el2d.style.display = "none";
+  el3d.style.display = "block";
+  if (badge) badge.textContent = "3D View";
+  if (!window.$3Dmol || !state.pipLigText) return;
+  const bg = isDark ? 0x101219 : 0xFBFBFD;
+  if (!state.ligViewer) {
+    state.ligViewer = $3Dmol.createViewer(el3d, { backgroundColor: bg, antialias: true });
+  } else {
+    state.ligViewer.setBackgroundColor(bg);
+  }
+  state.ligViewer.removeAllModels();
+  state.ligViewer.addModel(state.pipLigText, state.pipLigFmt || "sdf", { keepH: true, assignBonds: true });
+  state.ligViewer.setStyle({}, {
+    stick: { radius: 0.20, colorscheme: "cyanCarbon" },
+    sphere: { scale: 0.25, colorscheme: "cyanCarbon" },
+  });
+  if (!state.showHydrogens) {
+    state.ligViewer.setStyle({ elem: "H" }, {});
+  } else {
+    state.ligViewer.setStyle({ elem: "H" }, {
+      stick: { radius: 0.10, color: "#F1F5F9" },
+      sphere: { scale: 0.18, color: "#FFFFFF" },
+    });
+  }
+  setTimeout(() => {
+    if (!state.ligViewer) return;
+    state.ligViewer.resize();
+    state.ligViewer.zoomTo();
+    state.ligViewer.zoom(0.88);
+    state.ligViewer.render();
+  }, 40);
+}
+
+function toggleShowInteractions() {
+  state.showInteractions = !state.showInteractions;
+  document.getElementById("btn-show-int").classList.toggle("active", state.showInteractions);
+  applyViewerStyles(state._modelMap ? state._modelMap.isCombinedComplex : false);
+  redrawShapesAndInteractions();
+}
+
+function toggleHydrophobicLines() {
+  togglePLType("hydrophobic");
+}
+
+function bindResidueClickHandler() {
+  if (!state.viewer) return;
+  if (state.pickingResidues) {
+    state.viewer.setClickable({ hetflag: false }, true, (atom) => {
+      if (!atom || !atom.resn) return;
+      const chain = (atom.chain || "A").trim() || "A";
+      const resn = atom.resn.trim().toUpperCase();
+      const resi = parseInt(atom.resi, 10);
+      const spec = `${chain}:${resn}:${resi}`;
+      const existsIdx = state.selectedResidues.findIndex(x => x.chain === chain && x.resi === resi);
+      if (existsIdx >= 0) {
+        state.selectedResidues.splice(existsIdx, 1);
+      } else {
+        state.selectedResidues.push({ spec, chain, resn, resi });
+        if (state.mode === "covalent" && ["CYS", "SER", "THR", "LYS", "TYR", "HIS"].includes(resn)) {
+          document.getElementById("in-cov-residue").value = spec;
+        }
+      }
+      renderSelectedResidueChips();
+      const isCombined = !!(state.loadedRecText && !state.loadedLigText);
+      applyViewerStyles(isCombined);
+      if (state.selectedResidues.length > 0) {
+        fitBoxToResidues();
+      }
+    });
+  } else {
+    state.viewer.setClickable({}, false, () => {});
+  }
+}
+
+function toggleResiduePicking() {
+  state.pickingResidues = !state.pickingResidues;
+  const b1 = document.getElementById("btn-pick-res");
+  const b2 = document.getElementById("btn-pick-res-step2");
+  if (b1) b1.classList.toggle("active", state.pickingResidues);
+  if (b2) {
+    b2.textContent = state.pickingResidues ? "Picking Active ✓" : "Start Picking";
+    b2.style.background = state.pickingResidues ? "var(--accent)" : "";
+    b2.style.color = state.pickingResidues ? "#FFFFFF" : "";
+  }
+  bindResidueClickHandler();
+  showToast(state.pickingResidues ? "Click any protein residue in 3D to define the binding site" : "Residue picking paused");
+}
+
+function renderCoCrystalChips(hets) {
+  const ccChips = document.getElementById("cocrystal-chips");
+  ccChips.innerHTML = "";
+  hets.forEach(h => {
+    const excluded = state.excludedLigands.includes(h.label);
+    const sp = document.createElement("span");
+    sp.className = "mini-badge clickable";
+    if (excluded) {
+      sp.style.background = "var(--amber)";
+      sp.style.color = "#FFFFFF";
+      sp.style.borderColor = "var(--amber)";
+      sp.textContent = `${h.label} · Excluded ✓`;
+    } else {
+      sp.textContent = `${h.label} (${h.n_atoms} atoms) · Center & Exclude`;
+    }
+    sp.onclick = () => {
+      const idx = state.excludedLigands.indexOf(h.label);
+      if (idx >= 0) {
+        state.excludedLigands.splice(idx, 1);
+        showToast(`Kept ${h.label} in receptor grid (e.g. cofactor)`);
+      } else {
+        state.excludedLigands.push(h.label);
+        applyBoxToInputs({ center: h.center, dimensions: [20.0, 20.0, 20.0] });
+        showToast(`Box centered on ${h.label} — will be automatically removed during docking!`);
+      }
+      renderCoCrystalChips(hets);
+    };
+    ccChips.appendChild(sp);
+  });
+}
+
+function renderSelectedResidueChips() {
+  const box = document.getElementById("selected-res-chips");
+  const inp = document.getElementById("in-res-manual");
+  if (!state.selectedResidues.length) {
+    box.innerHTML = `<span style="font-size:11px;color:var(--ink-tertiary);">Click "Start Picking", then click any protein residue in 3D.</span>`;
+    if (inp) inp.value = "";
+    return;
+  }
+  box.innerHTML = "";
+  state.selectedResidues.forEach((r, idx) => {
+    const chip = document.createElement("span");
+    chip.className = "mini-badge clickable";
+    chip.style.borderColor = "#FF9500";
+    chip.style.color = "#C96A00";
+    chip.textContent = `${r.spec} ×`;
+    chip.title = "Click to remove residue";
+    chip.onclick = () => {
+      state.selectedResidues.splice(idx, 1);
+      renderSelectedResidueChips();
+      const isCombined = !!(state.loadedRecText && !state.loadedLigText);
+      applyViewerStyles(isCombined);
+      if (state.selectedResidues.length) fitBoxToResidues();
+    };
+    box.appendChild(chip);
+  });
+  if (inp) inp.value = state.selectedResidues.map(r => `${r.chain}:${r.resi}`).join(", ");
+}
+
+function clearSelectedResidues() {
+  state.selectedResidues = [];
+  renderSelectedResidueChips();
+  const isCombined = !!(state.loadedRecText && !state.loadedLigText);
+  applyViewerStyles(isCombined);
+}
+
+function _activeReceptorForGrid() {
+  return state.receptorPath || (state.currentRun && state.currentRun.receptor_path) || null;
+}
+
+async function autoGrid(mode) {
+  const rec = _activeReceptorForGrid();
+  if (!rec) { showToast("Load a protein PDB in Step 1 (or open a run) first"); return; }
+  showToast(`Computing ${mode.replace("_", " ")} grid box…`);
+  const payload = {
+    receptor_path: rec,
+    mode,
+    ligand_path: state.ligandPath || null,
+    padding: parseFloat(document.getElementById("in-res-pad")?.value) || 5.0,
+    box_size: parseFloat(document.getElementById("in-bx").value) || 22.0,
+    max_sites: 5,
+  };
+  const res = await fetch("/api/gridbox", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Grid box calculation failed" }));
+    showToast(err.detail || "Grid box error");
+    return;
+  }
+  const data = await res.json();
+  const boxes = data.boxes || [];
+  const pEl = document.getElementById("detected-pockets");
+  pEl.innerHTML = "";
+  if (boxes.length > 0) {
+    applyBoxToInputs(boxes[0]);
+    if (boxes.length > 1 || mode === "cavities") {
+      boxes.forEach((b, i) => {
+        const btn = document.createElement("button");
+        btn.className = "preset-pill";
+        btn.textContent = `${b.label} (${Math.round(b.volume)} Å³)`;
+        btn.onclick = () => { applyBoxToInputs(b); showToast(`Box snapped to ${b.label}`); };
+        pEl.appendChild(btn);
+      });
+    }
+    showToast(`Grid box set via ${boxes[0].label}`);
+  }
+}
+
+async function fitBoxToResidues() {
+  const rec = _activeReceptorForGrid();
+  if (!rec) { showToast("Load a protein PDB first"); return; }
+  const manual = (document.getElementById("in-res-manual").value || "").split(",").map(s => s.trim()).filter(Boolean);
+  const resList = manual.length ? manual : state.selectedResidues.map(r => r.spec);
+  if (!resList.length) { showToast("Click residues in 3D or enter e.g. A:145, A:166"); return; }
+  const res = await fetch("/api/gridbox", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      receptor_path: rec,
+      mode: "residues",
+      residues: resList,
+      padding: parseFloat(document.getElementById("in-res-pad").value) || 5.0,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Residue box failed" }));
+    showToast(err.detail || "Residue box error");
+    return;
+  }
+  const data = await res.json();
+  if (data.boxes && data.boxes.length) {
+    applyBoxToInputs(data.boxes[0]);
+    showToast(`Box centered on ${resList.length} residue(s)`);
+  }
+}
+
+function applyBoxToInputs(b) {
+  document.getElementById("in-cx").value = Number(b.center[0]).toFixed(3);
+  document.getElementById("in-cy").value = Number(b.center[1]).toFixed(3);
+  document.getElementById("in-cz").value = Number(b.center[2]).toFixed(3);
+  document.getElementById("in-bx").value = Number(b.dimensions[0]).toFixed(1);
+  document.getElementById("in-by").value = Number(b.dimensions[1]).toFixed(1);
+  document.getElementById("in-bz").value = Number(b.dimensions[2]).toFixed(1);
+  state.showBox = true;
+  document.getElementById("btn-gridbox").classList.add("active");
+  redrawBoxOnly();
+  if (state.viewer) {
+    state.viewer.zoomTo({ model: 0 }, 350);
+    setTimeout(() => {
+      state.viewer.center({ x: b.center[0], y: b.center[1], z: b.center[2] }, 300);
+      state.viewer.render();
+    }, 360);
+  }
+}
+
+async function runPreparation() {
+  if (!state.receptorPath && !state.ligandPath) {
+    showToast("Load a protein PDB and/or ligand SDF first");
+    return;
+  }
+  const btn = document.getElementById("btn-prepare");
+  const st = document.getElementById("prep-status");
+  btn.disabled = true;
+  btn.textContent = "Preparing…";
+  st.textContent = "";
+  try {
+    const res = await fetch("/api/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        receptor_path: state.receptorPath,
+        ligand_path: state.ligandPath,
+        ph: parseFloat(document.getElementById("prep-ph").value) || 7.4,
+        add_hydrogens: document.getElementById("prep-add-h").checked,
+        add_charges: true,
+        minimize_ligand: document.getElementById("prep-min-lig").checked,
+        enumerate_states: document.getElementById("prep-enum-states").checked,
+        strip_waters: document.getElementById("prep-strip-wat").checked,
+        fix_missing_residues: document.getElementById("prep-fix-res").checked,
+        exclude_ligands: state.excludedLigands,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Preparation failed" }));
+      showToast(err.detail || "Preparation error");
+      return;
+    }
+    const data = await res.json();
+    const parts = [];
+    if (data.receptor) {
+      state.receptorPath = data.receptor.path;
+      document.getElementById("lbl-receptor").textContent = `${data.receptor.filename} (Prepared ✓)`;
+      parts.push(`Protein: ${data.receptor.original_atoms}→${data.receptor.final_atoms} atoms`);
+    }
+    if (data.ligand) {
+      state.ligandPath = data.ligand.path;
+      document.getElementById("lbl-ligand").textContent = `${data.ligand.filename} (Prepared ✓)`;
+      parts.push(`Ligand: ${data.ligand.n_output_molecules} mol(s), MMFF94`);
+    }
+    document.getElementById("in-ph").value = data.ph;
+    st.textContent = `✓ Prepared at pH ${data.ph} — ${parts.join(" · ")}`;
+    await inspectCurrentInputs(true);
+    showToast("Protein & ligand prepared successfully!");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "⚡ Prepare Now";
+  }
+}
+
+function setReceptorStyle(style) {
+  state.receptorStyle = style;
+  document.querySelectorAll(".vbtn[data-rstyle]").forEach(b => b.classList.toggle("active", b.dataset.rstyle === style));
+  const isCombined = !!(state.loadedRecText && !state.loadedLigText);
+  applyViewerStyles(isCombined);
+  redrawShapesAndInteractions();
+}
+
+function toggleGridBox() {
+  state.showBox = !state.showBox;
+  document.getElementById("btn-gridbox").classList.toggle("active", state.showBox);
+  redrawBoxOnly();
+}
+
+function toggleSpin() {
+  state.spinning = !state.spinning;
+  document.getElementById("btn-spin").classList.toggle("active", state.spinning);
+  if (state.viewer) state.viewer.spin(state.spinning ? "y" : false);
+}
+
+function zoomToLigand() {
+  if (!state.viewer) return;
+  const mm = state._modelMap || {};
+  if (mm.lig >= 0) {
+    state.viewer.zoomTo({ model: mm.lig }, 400);
+    setTimeout(() => state.viewer.zoom(0.55, 260), 420);
+  } else {
+    const sel = { resn: ["LIG", "COV"] };
+    if (state.viewer.selectedAtoms(sel).length > 0) {
+      state.viewer.zoomTo(sel, 400);
+      setTimeout(() => state.viewer.zoom(0.55, 260), 420);
+    } else {
+      state.viewer.zoomTo({}, 400);
+    }
+  }
+}
+
+function resetCamera() {
+  if (state.viewer) state.viewer.zoomTo({}, 450);
+}
+
+function snapshotViewer() {
+  if (!state.viewer) return;
+  const uri = state.viewer.pngURI();
+  const a = document.createElement("a");
+  a.href = uri;
+  a.download = "pandadock_3d_view.png";
+  a.click();
+  showToast("Saved 3D snapshot PNG");
+}
+
+/* ---------- File Upload & Structure Inspection ---------- */
+async function uploadFile(file, role) {
+  if (!file) return;
+  const fd = new FormData();
+  fd.append("file", file);
+  showToast(`Uploading ${file.name}…`);
+  const res = await fetch(`/api/upload?role=${encodeURIComponent(role)}`, { method: "POST", body: fd });
+  if (!res.ok) { showToast("Upload failed"); return; }
+  const data = await res.json();
+  if (role === "receptor") {
+    state.receptorPath = data.path;
+    document.getElementById("lbl-receptor").textContent = data.filename;
+  } else if (role === "ligand") {
+    state.ligandPath = data.path;
+    document.getElementById("lbl-ligand").textContent = data.filename;
+  } else {
+    state.extraPath = data.path;
+    document.getElementById("lbl-extra").textContent = data.filename;
+  }
+  await inspectCurrentInputs(true);
+}
+
+async function inspectCurrentInputs(preview3d = false) {
+  if (!state.receptorPath && !state.ligandPath) return;
+  const res = await fetch("/api/inspect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      receptor_path: state.receptorPath,
+      ligand_path: state.ligandPath,
+      ph: parseFloat(document.getElementById("in-ph").value) || 7.4,
+    }),
+  });
+  if (!res.ok) return;
+  const data = await res.json();
+  state.receptorInfo = data.receptor || null;
+  state.ligandInfo = data.ligand || null;
+
+  // Render receptor badges
+  const rb = document.getElementById("badges-receptor");
+  rb.innerHTML = "";
+  const rchips = document.getElementById("reactive-chips");
+  rchips.innerHTML = "";
+  if (state.receptorInfo) {
+    const r = state.receptorInfo;
+    rb.innerHTML += `<span class="mini-badge">${r.n_residues} res · ${r.n_chains} ch</span>`;
+    if (r.waters_count > 0) rb.innerHTML += `<span class="mini-badge">${r.waters_count} HOH</span>`;
+    // Populate Maestro-style co-crystal ligand chips in Step 2 (and auto-exclude pocket ligand if detected)
+    const ccBox = document.getElementById("cocrystal-box");
+    const ccChips = document.getElementById("cocrystal-chips");
+    if (r.het_ligands && r.het_ligands.length > 0) {
+      rb.innerHTML += `<span class="mini-badge" style="color:var(--amber);border-color:rgba(255,149,0,0.4);">${r.het_ligands.length} co-crystal lig</span>`;
+      ccBox.style.display = "block";
+      renderCoCrystalChips(r.het_ligands);
+    } else {
+      ccBox.style.display = "none";
+      ccChips.innerHTML = "";
+      state.excludedLigands = [];
+    }
+    (r.metals || []).forEach(m => {
+      const sp = document.createElement("span");
+      sp.className = "mini-badge clickable";
+      sp.textContent = `+ ${m.label}`;
+      sp.title = "Click to add metal coordination restraint & center box";
+      sp.onclick = (e) => {
+        e.stopPropagation();
+        document.getElementById("in-cx").value = m.coord[0];
+        document.getElementById("in-cy").value = m.coord[1];
+        document.getElementById("in-cz").value = m.coord[2];
+        const ta = document.getElementById("in-restraints");
+        if (!ta.value.includes(m.restraint_spec)) {
+          ta.value = (ta.value ? ta.value + "\n" : "") + m.restraint_spec;
+        }
+        redrawBoxOnly();
+        showToast(`Centered on ${m.label} & added restraint`);
+      };
+      rb.appendChild(sp);
+    });
+    (r.reactive_residues || []).filter(x => x.spec.includes(":CYS:")).slice(0, 6).forEach(rr => {
+      const c = document.createElement("span");
+      c.className = "mini-badge clickable";
+      c.textContent = rr.spec;
+      c.onclick = () => {
+        document.getElementById("in-cov-residue").value = rr.spec;
+        document.getElementById("in-cx").value = rr.coord[0];
+        document.getElementById("in-cy").value = rr.coord[1];
+        document.getElementById("in-cz").value = rr.coord[2];
+        redrawBoxOnly();
+      };
+      rchips.appendChild(c);
+    });
+  }
+
+  // Render ligand badges
+  const lb = document.getElementById("badges-ligand");
+  lb.innerHTML = "";
+  if (state.ligandInfo && state.ligandInfo.n_molecules > 0) {
+    const l = state.ligandInfo;
+    lb.innerHTML += `<span class="mini-badge">${l.n_molecules > 1 ? l.n_molecules + " mols" : l.formula}</span>`;
+    lb.innerHTML += `<span class="mini-badge">MW ${l.mw}</span>`;
+    lb.innerHTML += `<span class="mini-badge">RotB ${l.rot_bonds}</span>`;
+    if (l.n_molecules > 1 && state.mode === "dock") {
+      const sw = document.createElement("span");
+      sw.className = "mini-badge clickable";
+      sw.textContent = "→ Switch to Series SAR";
+      sw.onclick = (e) => { e.stopPropagation(); selectMode("series"); showToast("Switched to Congeneric Series SAR mode"); };
+      lb.appendChild(sw);
+    }
+    if (l.detected_warhead) {
+      const wh = document.createElement("span");
+      wh.className = "mini-badge clickable";
+      wh.style.color = "var(--indigo)";
+      wh.style.borderColor = "var(--indigo)";
+      wh.textContent = `Warhead: ${l.detected_warhead.name}`;
+      wh.title = "Click to switch to Covalent Docking";
+      wh.onclick = (e) => { e.stopPropagation(); selectMode("covalent"); showToast(`Switched to Covalent (${l.detected_warhead.name})`); };
+      lb.appendChild(wh);
+    }
+    if (l.ph_states_preview && l.ph_states_preview.length > 1) {
+      lb.innerHTML += `<span class="mini-badge">${l.ph_states_preview.length} pH states</span>`;
+    }
+  }
+
+  if (preview3d) {
+    await previewInputStructures();
+  }
+}
+
+async function previewInputStructures() {
+  let recText = null, ligText = null, ligFmt = "sdf";
+  if (state.receptorPath) {
+    const r = await fetch(`/api/structure-text?path=${encodeURIComponent(state.receptorPath)}`);
+    if (r.ok) recText = await r.text();
+  }
+  if (state.ligandPath) {
+    const r = await fetch(`/api/structure-text?path=${encodeURIComponent(state.ligandPath)}`);
+    if (r.ok) {
+      ligText = await r.text();
+      if (state.ligandPath.toLowerCase().endsWith(".pdb")) ligFmt = "pdb";
+      else if (state.ligandPath.toLowerCase().endsWith(".mol2")) ligFmt = "mol2";
+    }
+  }
+  state.isInputPreview = true;
+  state.showReceptor = true;
+  state.showLigand = true;
+  document.getElementById("btn-vis-rec").classList.add("active");
+  document.getElementById("btn-vis-lig").classList.add("active");
+  document.getElementById("pose-drawer").style.display = "none";
+  document.getElementById("viewer-title").textContent = recText ? "Input Receptor (Main) & Ligand (Separate 3D)" : "Input Ligand Preview";
+  document.getElementById("viewer-subtitle").textContent =
+    `${state.receptorInfo ? state.receptorInfo.filename : "No receptor"}  ·  ${state.ligandInfo ? state.ligandInfo.filename : "No ligand"}`;
+
+  // Store ligand for the dedicated separate 3D window
+  state.pipLigText = ligText;
+  state.pipLigFmt = ligFmt;
+  state.pipLigTitle = state.ligandInfo ? `Ligand · ${state.ligandInfo.filename}` : "Input Ligand 3D";
+  const rotB = state.ligandInfo ? (state.ligandInfo.rotatable_bonds ?? state.ligandInfo.rot_bonds ?? "?") : "?";
+  state.pipLigMeta = state.ligandInfo && state.ligandInfo.mw
+    ? `MW ${state.ligandInfo.mw} · ${rotB} rot · ${state.ligandInfo.num_molecules || 1} mol`
+    : "Drag to rotate · scroll to zoom";
+
+  if (recText && ligText) {
+    // Keep the main 3D canvas strictly for the Receptor + Grid Box + Residue Picking,
+    // and open the uploaded Ligand cleanly in its own separate 3D window!
+    render3DScene(recText, null, ligFmt, false);
+    openLigandPip();
+  } else {
+    hideLigandPip();
+    render3DScene(recText, ligText, ligFmt, false);
+  }
+}
+
+function autoCenterBox() {
+  let pt = null;
+  if (state.ligandInfo && state.ligandInfo.center) pt = state.ligandInfo.center;
+  else if (state.receptorInfo && state.receptorInfo.het_ligands && state.receptorInfo.het_ligands.length) pt = state.receptorInfo.het_ligands[0].center;
+  else if (state.receptorInfo && state.receptorInfo.metals && state.receptorInfo.metals.length) pt = state.receptorInfo.metals[0].coord;
+  else if (state.receptorInfo && state.receptorInfo.centroid) pt = state.receptorInfo.centroid;
+  if (!pt) { showToast("Load a receptor or 3D ligand first"); return; }
+  document.getElementById("in-cx").value = pt[0];
+  document.getElementById("in-cy").value = pt[1];
+  document.getElementById("in-cz").value = pt[2];
+  redrawBoxOnly();
+  showToast(`Box centered at (${pt[0].toFixed(1)}, ${pt[1].toFixed(1)}, ${pt[2].toFixed(1)}) Å`);
+}
+
+/* ---------- Presets ---------- */
+async function loadPresets() {
+  const res = await fetch("/api/presets");
+  if (!res.ok) return;
+  const { presets } = await res.json();
+  const strip = document.getElementById("preset-strip");
+  strip.innerHTML = "";
+  presets.forEach(pr => {
+    const btn = document.createElement("button");
+    btn.className = "preset-pill";
+    btn.textContent = pr.badge;
+    btn.title = pr.title;
+    btn.onclick = () => applyPreset(pr);
+    strip.appendChild(btn);
+  });
+}
+
+async function applyPreset(pr) {
+  selectMode(pr.mode || "dock");
+  state.receptorPath = pr.receptor_path;
+  state.ligandPath = pr.ligand_path;
+  document.getElementById("lbl-receptor").textContent = pr.receptor_path.split("/").pop();
+  document.getElementById("lbl-ligand").textContent = pr.ligand_path.split("/").pop();
+  document.getElementById("in-job-name").value = pr.id;
+  if (pr.center) {
+    document.getElementById("in-cx").value = pr.center[0];
+    document.getElementById("in-cy").value = pr.center[1];
+    document.getElementById("in-cz").value = pr.center[2];
+  }
+  if (pr.box) {
+    document.getElementById("in-bx").value = pr.box[0];
+    document.getElementById("in-by").value = pr.box[1];
+    document.getElementById("in-bz").value = pr.box[2];
+  }
+  document.getElementById("in-restraints").value = (pr.restraints || []).join("\n");
+  document.getElementById("in-waters").value = pr.waters || "strip";
+  document.getElementById("in-enum-states").checked = !!pr.enumerate_states;
+  if (pr.reactive_residue) document.getElementById("in-cov-residue").value = pr.reactive_residue;
+  if (pr.warhead) document.getElementById("in-warhead").value = pr.warhead;
+  await inspectCurrentInputs(true);
+  switchTab("viewer");
+  showToast(`Loaded preset: ${pr.title}`);
+}
+
+/* ---------- Run Discovery & Selection ---------- */
+async function refreshRuns(autoSelectFirst = false) {
+  const res = await fetch("/api/runs");
+  if (!res.ok) return;
+  const { runs } = await res.json();
+  state.runs = runs;
+  document.getElementById("runs-count").textContent = runs.length;
+  const list = document.getElementById("runs-list");
+  list.innerHTML = "";
+  runs.forEach(r => {
+    const btn = document.createElement("button");
+    btn.className = "run-card" + (state.currentRun && state.currentRun.run_id === r.run_id ? " active" : "");
+    const scoreTxt = r.best_score !== null && r.best_score !== undefined ? `${Number(r.best_score).toFixed(2)}` : r.mode;
+    btn.innerHTML = `
+      <div class="run-card-top">
+        <div style="display:flex;align-items:center;gap:6px;min-width:0;">
+          <span class="status-dot ${r.status}"></span>
+          <span class="run-card-title">${escapeHtml(r.title)}</span>
+        </div>
+        <span class="score-chip">${escapeHtml(scoreTxt)}</span>
+      </div>
+      <div class="run-card-meta">
+        <span>${r.mode}</span>
+        ${r.has_pdf ? "<span>· PDF</span>" : ""}
+        ${r.n_plots ? `<span>· ${r.n_plots} plots</span>` : ""}
+      </div>
+    `;
+    btn.onclick = () => openRun(r.run_id);
+    list.appendChild(btn);
+  });
+
+  if (autoSelectFirst && runs.length > 0 && !state.currentRun) {
+    // Prefer a rich docking or covalent run that has 3D + PDF + HTML + plots
+    const preferred = runs.find(r => r.has_pdf && r.has_3d && r.n_plots >= 3) || runs[0];
+    openRun(preferred.run_id);
+  }
+}
+
+async function openRun(runId) {
+  const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/summary`);
+  if (!res.ok) return;
+  const run = await res.json();
+  state.currentRun = run;
+  state.currentPoseIdx = 0;
+
+  // Highlight active run in sidebar
+  document.querySelectorAll(".run-card").forEach((el, idx) => {
+    if (state.runs[idx]) el.classList.toggle("active", state.runs[idx].run_id === runId);
+  });
+
+  // Sync grid box if available
+  if (run.grid_center && run.grid_center.length === 3) {
+    document.getElementById("in-cx").value = Number(run.grid_center[0]).toFixed(3);
+    document.getElementById("in-cy").value = Number(run.grid_center[1]).toFixed(3);
+    document.getElementById("in-cz").value = Number(run.grid_center[2]).toFixed(3);
+  }
+  if (run.grid_dimensions && run.grid_dimensions.length === 3) {
+    document.getElementById("in-bx").value = Number(run.grid_dimensions[0]).toFixed(1);
+    document.getElementById("in-by").value = Number(run.grid_dimensions[1]).toFixed(1);
+    document.getElementById("in-bz").value = Number(run.grid_dimensions[2]).toFixed(1);
+  }
+
+  document.getElementById("badge-plots").textContent = run.plots.length;
+
+  renderAnalyticsTab(run);
+  renderReportTabs(run);
+  renderArtifactsGrid(run);
+  await loadRun3DPose(run, 0);
+}
+
+async function loadRun3DPose(run, poseIdx) {
+  state.isInputPreview = false;
+  state.showReceptor = true;
+  state.showLigand = true;
+  document.getElementById("btn-vis-rec").classList.add("active");
+  document.getElementById("btn-vis-lig").classList.add("active");
+  if (state.ligPipOpen && !state._userPinnedPip) {
+    hideLigandPip();
+  }
+  state.currentPoseIdx = poseIdx;
+  const drawer = document.getElementById("pose-drawer");
+  const plist = document.getElementById("pose-list");
+  document.getElementById("viewer-title").textContent = run.title;
+
+  const subParts = [`Mode: ${run.mode}`];
+  if (run.kpis.best_score !== null) subParts.push(`Top: ${run.kpis.best_score} kcal/mol`);
+  if (run.covalent) subParts.push(`${run.covalent.warhead} → ${run.covalent.reactive_residue} (${run.covalent.measured_bond_length_A} Å)`);
+  if (run.water_analysis) subParts.push(`Waters: ${run.water_analysis.selected_state} (${run.water_analysis.bridging_count || 0} bridging)`);
+  document.getElementById("viewer-subtitle").textContent = subParts.join("  ·  ");
+
+  // Populate Pose Switcher drawer
+  if (run.poses && run.poses.length > 0) {
+    drawer.style.display = "block";
+    document.getElementById("pose-count-lbl").textContent = `${run.poses.length} modes`;
+    plist.innerHTML = "";
+    run.poses.forEach((p, idx) => {
+      const btn = document.createElement("button");
+      btn.className = "pose-pill" + (idx === poseIdx ? " active" : "");
+      const pbHtml = p.pb_valid === true ? `<span class="pb-dot pass">PB ✓</span>` : (p.pb_valid === false ? `<span class="pb-dot warn">${p.pb_passed || "PB !"}</span>` : "");
+      btn.innerHTML = `
+        <span>#${p.rank} ${p.name ? escapeHtml(p.name.slice(0, 11)) : "Pose"}</span>
+        <span style="display:flex;align-items:center;gap:6px;font-family:var(--font-mono);">
+          ${Number(p.energy).toFixed(2)} ${pbHtml}
+        </span>
+      `;
+      btn.onclick = () => loadRun3DPose(run, idx);
+      plist.appendChild(btn);
+    });
+  } else {
+    drawer.style.display = "none";
+  }
+
+  // Fetch binding-site pocket with explicit H atoms & 3D interaction vectors in parallel
+  const pocketPromise = fetch(`/api/runs/${encodeURIComponent(run.run_id)}/pose/${poseIdx}/pocket?cutoff=5.0`)
+    .then(r => (r.ok ? r.json() : null))
+    .catch(() => null);
+
+  // Helper to keep the separate Ligand 3D window in sync with the active docked pose
+  const _syncDockedLigPip = (ligSdf) => {
+    if (!ligSdf) return;
+    state.pipLigText = ligSdf;
+    state.pipLigFmt = "sdf";
+    const poseObj = (run.poses && run.poses[poseIdx]) || {};
+    state.pipLigTitle = `Docked Pose #${poseIdx + 1} · ${run.title}`;
+    state.pipLigMeta = poseObj.energy != null
+      ? `Score ${Number(poseObj.energy).toFixed(2)} kcal/mol · explicit H synced`
+      : "Docked conformer · drag to rotate";
+    if (state.ligPipOpen) renderLigandPip();
+  };
+
+  // Load 3D structure (prefer complex PDB for exact pose, otherwise receptor + poses.sdf)
+  const complexUrl = run.complex_pdbs && run.complex_pdbs[poseIdx] ? run.complex_pdbs[poseIdx] : (run.complex_pdbs && run.complex_pdbs[0]);
+  if (complexUrl) {
+    const [r, pocketData] = await Promise.all([fetch(complexUrl), pocketPromise]);
+    if (r.ok) {
+      const pdbTxt = await r.text();
+      if (pocketData && pocketData.ligand_sdf_with_h) _syncDockedLigPip(pocketData.ligand_sdf_with_h);
+      render3DScene(pdbTxt, null, "pdb", true, pocketData);
+      return;
+    }
+  }
+  if (run.receptor_path && run.poses_sdf_url) {
+    const [recR, sdfR, pocketData] = await Promise.all([
+      fetch(`/api/structure-text?path=${encodeURIComponent(run.receptor_path)}`),
+      fetch(run.poses_sdf_url),
+      pocketPromise,
+    ]);
+    if (recR.ok && sdfR.ok) {
+      const recTxt = await recR.text();
+      const sdfFull = await sdfR.text();
+      const sdfBlocks = sdfFull.split("$$$$").map(s => s.trim()).filter(Boolean);
+      const chosen = sdfBlocks[poseIdx] || sdfBlocks[0] || sdfFull;
+      _syncDockedLigPip((pocketData && pocketData.ligand_sdf_with_h) || (chosen + "\n$$$$\n"));
+      render3DScene(recTxt, chosen + "\n$$$$\n", "sdf", false, pocketData);
+    }
+  }
+}
+
+function renderAnalyticsTab(run) {
+  const k = run.kpis;
+  const pbLabel = k.pb_total > 0 ? `${k.pb_pass}/${k.pb_total}` : "—";
+  let html = `
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Top Docking Score</div>
+        <div class="kpi-val" style="color:var(--accent);">${k.best_score !== null ? Number(k.best_score).toFixed(2) : "—"}</div>
+        <div class="kpi-sub">kcal/mol (${escapeHtml(k.scoring || run.mode)})</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Boltzmann Ensemble</div>
+        <div class="kpi-val">${k.ensemble_dg !== null ? Number(k.ensemble_dg).toFixed(2) : "—"}</div>
+        <div class="kpi-sub">${k.n_poses} binding modes / analogs</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">PoseBusters Audit</div>
+        <div class="kpi-val" style="color:${k.pb_total > 0 && k.pb_pass === k.pb_total ? "var(--green)" : "var(--ink)"};">${pbLabel}</div>
+        <div class="kpi-sub">11-point chemistry &amp; clash audit</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Runtime</div>
+        <div class="kpi-val">${k.runtime_s ? k.runtime_s + "s" : "—"}</div>
+        <div class="kpi-sub">${escapeHtml(run.updated_at)}</div>
+      </div>
+    </div>
+  `;
+
+  // Series SAR Table
+  if (run.series && run.series.records && run.series.records.length) {
+    html += `<div class="sheet-card"><div class="sheet-title"><span>Congeneric Series Consensus SAR</span><span style="font-size:11.5px;color:var(--ink-secondary);">Lead: ${escapeHtml(run.series.lead_analog || "")}</span></div>
+      <table class="data-table"><thead><tr><th>Rank</th><th>Analog</th><th>Vina</th><th>Vinardo</th><th>MM-GBSA</th><th>LE</th><th>MW</th><th>cLogP</th><th>PoseBusters</th></tr></thead><tbody>`;
+    run.series.records.forEach(r => {
+      const badge = r.pb_valid ? `<span class="pb-dot pass">PASS ${r.pb_passed}</span>` : `<span class="pb-dot warn">WARN ${r.pb_passed}</span>`;
+      html += `<tr><td><strong>#${r.consensus_rank}</strong></td><td><strong>${escapeHtml(r.name)}</strong></td><td>${r.vina_kcal.toFixed(2)}</td><td>${r.vinardo_kcal.toFixed(2)}</td><td>${r.mmgbsa_kcal.toFixed(1)}</td><td>${r.ligand_efficiency.toFixed(2)}</td><td>${r.mw.toFixed(0)}</td><td>${r.clogp.toFixed(2)}</td><td>${badge}</td></tr>`;
+    });
+    html += `</tbody></table></div>`;
+  } else if (run.poses && run.poses.length) {
+    html += `<div class="sheet-card"><div class="sheet-title"><span>Ranked Binding Modes</span><span style="font-size:11.5px;color:var(--ink-secondary);">Click a row to inspect in 3D</span></div>
+      <table class="data-table"><thead><tr><th>Rank</th><th>Score (kcal/mol)</th><th>ΔE</th><th>Confidence</th><th>Strain</th><th>PoseBusters</th></tr></thead><tbody>`;
+    run.poses.forEach((p, idx) => {
+      const badge = p.pb_valid === true ? `<span class="pb-dot pass">PASS ${p.pb_passed}</span>` : (p.pb_valid === false ? `<span class="pb-dot warn">WARN ${p.pb_passed}</span>` : "—");
+      html += `<tr style="cursor:pointer;" onclick="loadRun3DPose(state.currentRun, ${idx}); switchTab('viewer');"><td><strong>#${p.rank}</strong></td><td><strong>${p.energy.toFixed(3)}</strong></td><td>+${p.delta_e.toFixed(2)}</td><td>${p.confidence.toFixed(3)}</td><td>${p.internal_strain.toFixed(2)}</td><td>${badge}</td></tr>`;
+    });
+    html += `</tbody></table></div>`;
+  }
+
+  // Special v5.0 highlights (Waters, Covalent, States, Calibration)
+  if (run.water_analysis && run.water_analysis.waters) {
+    const wa = run.water_analysis;
+    html += `<div class="sheet-card"><div class="sheet-title"><span>Structural Water Analysis (${escapeHtml(wa.selected_state)})</span><span class="score-chip">ΔG_water = ${Number(wa.delta_g_water).toFixed(2)} kcal/mol</span></div>
+      <table class="data-table"><thead><tr><th>Water</th><th>Protein Polar Contacts</th><th>Status</th><th>Min Ligand Dist (Å)</th><th>ΔG (kcal/mol)</th></tr></thead><tbody>`;
+    wa.waters.forEach(w => {
+      html += `<tr><td><strong>${escapeHtml(w.label)}</strong></td><td>${w.receptor_polar_contacts}</td><td><span class="mini-badge">${escapeHtml(w.status)}</span></td><td>${w.min_ligand_heavy_dist_A}</td><td>${w.delta_g_water_kcal}</td></tr>`;
+    });
+    html += `</tbody></table></div>`;
+  }
+
+  if (run.states && run.states.states) {
+    html += `<div class="sheet-card"><div class="sheet-title"><span>pH ${run.states.ph} Microspecies Enumeration</span><span class="score-chip">Selected: ${escapeHtml(run.states.selected_state)}</span></div>
+      <table class="data-table"><thead><tr><th>State</th><th>Charge</th><th>Description</th><th>State Penalty</th><th>Raw Score</th><th>Effective Score</th></tr></thead><tbody>`;
+    run.states.states.forEach(s => {
+      html += `<tr><td><strong>${escapeHtml(s.state_id)}</strong></td><td>${s.formal_charge >= 0 ? "+" : ""}${s.formal_charge}</td><td>${escapeHtml(s.description)}</td><td>+${s.state_penalty_kcal}</td><td>${s.raw_docking_score_kcal}</td><td><strong>${s.effective_score_kcal}</strong></td></tr>`;
+    });
+    html += `</tbody></table></div>`;
+  }
+
+  // Scientific Plots Gallery
+  if (run.plots && run.plots.length) {
+    html += `<div class="sheet-card"><div class="sheet-title"><span>Publication Figures &amp; 2D Maps</span><span style="font-size:11.5px;color:var(--ink-secondary);">Click any figure for Quick Look zoom</span></div>
+      <div class="plots-grid">`;
+    run.plots.forEach(pl => {
+      html += `<div class="plot-card" onclick="openLightbox('${escapeAttr(pl.url)}', '${escapeAttr(pl.title)}')">
+        <img src="${pl.url}" alt="${escapeAttr(pl.title)}" loading="lazy" />
+        <div class="plot-card-cap"><strong>${escapeHtml(pl.title)}</strong><span>${escapeHtml(pl.category)}</span></div>
+      </div>`;
+    });
+    html += `</div></div>`;
+  }
+
+  document.getElementById("analytics-body").innerHTML = html;
+}
+
+async function renderPdfPages(pdfUrl) {
+  const stack = document.getElementById("pdf-stack");
+  const countEl = document.getElementById("pdf-page-count");
+  stack.innerHTML = `<div style="padding:28px;color:var(--ink-secondary);font-size:13px;">Rendering A4 vector PDF pages…</div>`;
+  countEl.textContent = "";
+
+  if (!window.pdfjsLib) {
+    stack.innerHTML = `<div class="empty-state"><h3>Preview ready via Native PDF</h3><p>Click <strong>Open Native PDF</strong> or <strong>Download PDF</strong> above to view the full A4 report.</p></div>`;
+    return;
+  }
+  try {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    const pdf = await pdfjsLib.getDocument(pdfUrl).promise;
+    countEl.textContent = `${pdf.numPages} page${pdf.numPages === 1 ? "" : "s"}`;
+    stack.innerHTML = "";
+    const dpr = Math.min(window.devicePixelRatio || 1.5, 2.0);
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const viewport = page.getViewport({ scale: 1.35 * dpr });
+      const sheet = document.createElement("div");
+      sheet.className = "pdf-page-sheet";
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvas.style.width = `${Math.round(viewport.width / dpr)}px`;
+      canvas.style.height = `${Math.round(viewport.height / dpr)}px`;
+      sheet.appendChild(canvas);
+      stack.appendChild(sheet);
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+    }
+  } catch (err) {
+    stack.innerHTML = `<div class="empty-state"><h3>Unable to render inline preview</h3><p>${escapeHtml(err.message || err)}. Use <strong>Open Native PDF</strong> or <strong>Download PDF</strong> above.</p></div>`;
+  }
+}
+
+function renderReportTabs(run) {
+  const pdfStack = document.getElementById("pdf-stack");
+  const pdfEmpty = document.getElementById("pdf-empty");
+  if (run.pdf_url) {
+    pdfStack.style.display = "flex";
+    pdfEmpty.style.display = "none";
+    document.getElementById("pdf-sub").textContent = run.title;
+    document.getElementById("pdf-open-link").href = run.pdf_url;
+    document.getElementById("pdf-dl-link").href = run.pdf_url;
+    renderPdfPages(run.pdf_url);
+  } else {
+    pdfStack.style.display = "none";
+    pdfStack.innerHTML = "";
+    document.getElementById("pdf-page-count").textContent = "";
+    pdfEmpty.style.display = "flex";
+  }
+
+  const htmlFrame = document.getElementById("html-frame");
+  const htmlEmpty = document.getElementById("html-empty");
+  if (run.html_url) {
+    htmlFrame.src = run.html_url;
+    htmlFrame.style.display = "block";
+    htmlEmpty.style.display = "none";
+    document.getElementById("html-sub").textContent = run.title;
+    document.getElementById("html-open-link").href = run.html_url;
+  } else {
+    htmlFrame.style.display = "none";
+    htmlFrame.src = "about:blank";
+    htmlEmpty.style.display = "flex";
+  }
+}
+
+function renderArtifactsGrid(run) {
+  const grid = document.getElementById("files-grid");
+  document.getElementById("artifacts-count").textContent = `${(run.artifacts || []).length} files`;
+  grid.innerHTML = (run.artifacts || []).map(a => `
+    <a class="file-chip" href="${a.url}" target="_blank" download>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(a.name)}</span>
+      <span class="sz">${a.size_kb} KB</span>
+    </a>
+  `).join("");
+}
+
+/* ---------- Job Execution & Live SSE Streaming ---------- */
+async function launchJob() {
+  const restraints = document.getElementById("in-restraints").value.split("\n").map(s => s.trim()).filter(Boolean);
+  const payload = {
+    mode: state.mode,
+    job_name: document.getElementById("in-job-name").value.trim() || `${state.mode}_run`,
+    receptor_path: state.receptorPath,
+    ligand_path: state.ligandPath,
+    poses_path: ["validate-poses", "calibrate", "to-md"].includes(state.mode) ? state.ligandPath : null,
+    labels_path: state.mode === "calibrate" ? state.extraPath : null,
+    reference_pose_path: state.mode === "series" ? state.extraPath : null,
+    weights_file: document.getElementById("in-weights-file").value.trim() || null,
+    center: [
+      parseFloat(document.getElementById("in-cx").value),
+      parseFloat(document.getElementById("in-cy").value),
+      parseFloat(document.getElementById("in-cz").value),
+    ],
+    box: [
+      parseFloat(document.getElementById("in-bx").value),
+      parseFloat(document.getElementById("in-by").value),
+      parseFloat(document.getElementById("in-bz").value),
+    ],
+    box_size: parseFloat(document.getElementById("in-bx").value) || 22.0,
+    scoring: document.getElementById("in-scoring").value,
+    device: document.getElementById("in-device").value,
+    exhaustiveness: parseInt(document.getElementById("in-exhaust").value, 10) || 6,
+    num_poses: parseInt(document.getElementById("in-poses").value, 10) || 9,
+    workers: parseInt(document.getElementById("in-workers").value, 10) || 4,
+    rescoring: document.getElementById("in-rescoring").value,
+    seed: parseInt(document.getElementById("in-seed").value, 10) || 42,
+    sample_rings: document.getElementById("in-sample-rings").checked,
+    fast: document.getElementById("in-fast").checked,
+    restraints,
+    exclude_ligands: state.excludedLigands,
+    waters: document.getElementById("in-waters").value,
+    enumerate_states: document.getElementById("in-enum-states").checked,
+    ph: parseFloat(document.getElementById("in-ph").value) || 7.4,
+    export_md: document.getElementById("in-export-md").value,
+    core_smarts: document.getElementById("in-core-smarts").value.trim() || null,
+    core_tolerance: parseFloat(document.getElementById("in-core-tol").value) || 0.75,
+    reactive_residue: document.getElementById("in-cov-residue").value.trim() || "A:CYS:145",
+    warhead: document.getElementById("in-warhead").value,
+    flexible_residues: document.getElementById("in-flex-res").value.trim() || null,
+    md_engine: document.getElementById("in-md-engine").value,
+    duration_ns: parseFloat(document.getElementById("in-md-ns").value) || 25.0,
+    pose_index: parseInt(document.getElementById("in-pose-idx").value, 10) || 0,
+  };
+
+  const btn = document.getElementById("btn-run");
+  btn.disabled = true;
+  const res = await fetch("/api/jobs/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to launch job" }));
+    showToast(err.detail || "Job launch error");
+    btn.disabled = false;
+    return;
+  }
+
+  const job = await res.json();
+  state.activeJobId = job.job_id;
+  document.getElementById("term-body").textContent = "";
+  document.getElementById("term-title").textContent = `Running: ${job.name}`;
+  document.getElementById("term-status").textContent = "Running…";
+  document.getElementById("btn-cancel-job").style.display = "inline-flex";
+  switchTab("console");
+  showToast(`Started ${job.name}`);
+
+  if (state.eventSource) state.eventSource.close();
+  const es = new EventSource(`/api/jobs/${encodeURIComponent(job.job_id)}/stream`);
+  state.eventSource = es;
+  const term = document.getElementById("term-body");
+
+  es.onmessage = async (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "log") {
+      term.textContent += msg.line + "\n";
+      term.scrollTop = term.scrollHeight;
+    } else if (msg.type === "status") {
+      es.close();
+      btn.disabled = false;
+      document.getElementById("btn-cancel-job").style.display = "none";
+      document.getElementById("term-status").textContent = `${msg.status} (exit ${msg.exit_code})`;
+      await refreshRuns(false);
+      if (msg.status === "completed") {
+        showToast("Job completed — loading 3D poses, plots & reports!");
+        await openRun(msg.run_id);
+        switchTab("viewer");
+      } else {
+        showToast(`Job ${msg.status}`);
+      }
+    }
+  };
+}
+
+async function cancelActiveJob() {
+  if (!state.activeJobId) return;
+  await fetch(`/api/jobs/${encodeURIComponent(state.activeJobId)}/cancel`, { method: "POST" });
+  showToast("Cancellation requested");
+}
+
+function openLightbox(url, title) {
+  document.getElementById("lb-img").src = url;
+  document.getElementById("lb-title").textContent = title;
+  document.getElementById("lb-dl").href = url;
+  document.getElementById("lightbox").classList.add("open");
+}
+function closeLightbox(ev) {
+  if (ev.target.id === "lightbox") document.getElementById("lightbox").classList.remove("open");
+}
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function escapeAttr(s) { return escapeHtml(s); }
+
+/* Drag & Drop Wiring */
+["dz-receptor", "dz-ligand", "dz-extra"].forEach(id => {
+  const el = document.getElementById(id);
+  const role = id.replace("dz-", "");
+  el.addEventListener("dragover", e => { e.preventDefault(); el.classList.add("dragover"); });
+  el.addEventListener("dragleave", () => el.classList.remove("dragover"));
+  el.addEventListener("drop", e => {
+    e.preventDefault();
+    el.classList.remove("dragover");
+    if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0], role);
+  });
+});
+
+/* Boot */
+async function boot() {
+  initViewer();
+  try {
+    const h = await (await fetch("/api/health")).json();
+    document.getElementById("ver-pill").textContent = `v${h.version}`;
+    const devSel = document.getElementById("in-device");
+    devSel.innerHTML = "";
+    (h.devices || ["cpu"]).forEach(d => {
+      const opt = document.createElement("option");
+      opt.value = d;
+      opt.textContent = d === "cpu" ? `CPU (${h.cpu_count} threads)` : d.toUpperCase() + " (GPU Batched)";
+      devSel.appendChild(opt);
+    });
+    document.getElementById("device-pill").textContent = (h.devices || ["cpu"]).join(" / ").toUpperCase();
+  } catch (e) {}
+  selectMode("dock");
+  goStep(1);
+  await loadPresets();
+  await refreshRuns(true);
+}
+boot();
+</script>
+</body>
+</html>

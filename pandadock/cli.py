@@ -23,7 +23,9 @@ from .utils.io import create_intermediate_folder, write_preprocessing_log
               help='Minimize ligand structure')
 @click.option('--fix-missing-residues', is_flag=True, default=False,
               help='Add missing residues and atoms to receptor (can be aggressive)')
-def main(receptor, ligand, output_dir, ph, add_hydrogens, add_charges, minimize_ligand, fix_missing_residues):
+@click.option('--enumerate-states', is_flag=True, default=False,
+              help='Enumerate pH-aware protonation, tautomer, and unassigned stereo states')
+def main(receptor, ligand, output_dir, ph, add_hydrogens, add_charges, minimize_ligand, fix_missing_residues, enumerate_states):
     """
     PandaDock: GPU-accelerated molecular docking software
 
@@ -60,6 +62,38 @@ def main(receptor, ligand, output_dir, ph, add_hydrogens, add_charges, minimize_
         add_hydrogens=add_hydrogens,
         minimize=minimize_ligand
     )
+
+    if enumerate_states:
+        import json
+        from rdkit import Chem
+        from .preprocessing.states import enumerate_ligand_states
+
+        click.echo(f"Enumerating protonation/tautomer/stereo microspecies at pH {ph:.1f}...")
+        lig_ext = Path(ligand).suffix.lower()
+        raw_mol = None
+        if lig_ext == ".sdf":
+            mols = [m for m in Chem.SDMolSupplier(ligand, removeHs=False) if m is not None]
+            raw_mol = mols[0] if mols else None
+        elif lig_ext == ".mol2":
+            raw_mol = Chem.MolFromMol2File(ligand, removeHs=False)
+        elif lig_ext == ".pdb":
+            raw_mol = Chem.MolFromPDBFile(ligand, removeHs=False)
+        if raw_mol is not None:
+            states = enumerate_ligand_states(raw_mol, ph=ph)
+            states_sdf = intermediate_path / "ligand_states.sdf"
+            w = Chem.SDWriter(str(states_sdf))
+            for st in states:
+                m_out = Chem.Mol(st.mol)
+                m_out.SetProp("_Name", st.state_id)
+                m_out.SetProp("state_penalty_kcal", f"{st.state_penalty:.3f}")
+                m_out.SetProp("formal_charge", str(st.formal_charge))
+                m_out.SetProp("state_notes", st.description)
+                w.write(m_out)
+            w.close()
+            (intermediate_path / "ligand_states.json").write_text(
+                json.dumps([st.to_dict() for st in states], indent=2), encoding="utf-8"
+            )
+            click.echo(f"  Generated {len(states)} microspecies -> {states_sdf}")
 
     # Generate preprocessing log
     log_path = output_path / "preprocessing.out"

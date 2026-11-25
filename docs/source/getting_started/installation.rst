@@ -1,27 +1,38 @@
 Installation
 ============
 
-This guide provides detailed instructions for installing PandaDock.
+This guide walks through installing **PandaDock v5.0** on macOS, Linux, or Windows (WSL2).
 
 System Requirements
 -------------------
 
-**Minimum Requirements (CPU Only)**
+**Minimum Requirements (CPU)**
 
-* Operating System: Linux, macOS, or Windows (WSL2)
-* Python: 3.8 or higher
-* RAM: 8 GB minimum, 16 GB recommended
-* Disk Space: 5 GB for installation
+* **Operating System:** macOS (Apple Silicon or Intel), Linux, or Windows (WSL2)
+* **Python:** 3.9 or higher (Python 3.10 recommended)
+* **RDKit:** Required (most reliably installed via ``conda-forge``)
+* **RAM:** 8 GB minimum, 16 GB recommended
 
-**Recommended Requirements (GPU Acceleration)**
+**Optional GPU Acceleration**
 
-* GPU: NVIDIA GPU with CUDA Compute Capability 6.0+
-* CUDA: Version 11.0 or higher
-* GPU Memory: 4 GB minimum, 8+ GB recommended
-* NVIDIA Driver: Latest stable version
+* **NVIDIA CUDA:** PyTorch with CUDA 11.8+ / 12.x (up to 35× faster on flexible ligands and batched virtual screening)
+* **Apple Silicon (MPS):** macOS 13+ on M1 / M2 / M3 / M4 via PyTorch MPS (``--device mps``)
 
-Quick Install (CPU Only)
--------------------------
+Recommended Installation (Conda + pip)
+--------------------------------------
+
+.. code-block:: bash
+
+   # 1. Create a dedicated environment with RDKit
+   conda create -n pandadock python=3.10 -y
+   conda activate pandadock
+   conda install -c conda-forge rdkit -y
+
+   # 2. Install PandaDock v5.0
+   pip install pandadock
+
+Install from Source (Development)
+---------------------------------
 
 .. code-block:: bash
 
@@ -29,19 +40,22 @@ Quick Install (CPU Only)
    cd PandaDock
    pip install -e .
 
-GPU-Accelerated Installation
------------------------------
+Optional Feature Extras
+-----------------------
 
 .. code-block:: bash
 
-   git clone https://github.com/pritampanda15/PandaDock.git
-   cd PandaDock
-   pip install -e .
+   # PandaDock Studio Apple-designed web GUI (FastAPI + Uvicorn)
+   pip install "pandadock[gui]"
 
-   # Install CUDA support
-   pip install cupy-cuda11x  # For CUDA 11
-   # OR
-   pip install cupy-cuda12x  # For CUDA 12
+   # GPU-accelerated search (CUDA/MPS) and PandaDock-GNN scoring (PyTorch + PyG)
+   pip install "pandadock[gnn]"
+
+   # 2D Discovery Studio-style protein-ligand interaction diagrams
+   pip install pandamap
+
+   # Or from a local source checkout:
+   pip install -e ".[gui,gnn]"
 
 Verify Installation
 -------------------
@@ -50,5 +64,6 @@ Verify Installation
 
    pandadock --version
    pandadock list-algorithms
+   pandadock-gui --help
 
-You should see the version information and list of available algorithms.
+You should see ``PandaDock 5.0.0`` and the full list of docking engines and scoring functions.

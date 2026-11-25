@@ -18,7 +18,7 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -32,11 +32,13 @@ jobs:
         pip install -e .  # Install the package in development mode
 
     - name: Set up conda
-      uses: conda-incubator/setup-miniconda@v2
+      uses: conda-incubator/setup-miniconda@v3
       with:
+        miniforge-version: latest
         python-version: ${{ matrix.python-version }}
         activate-environment: test-env
-        channels: conda-forge,defaults
+        channels: conda-forge
+        auto-update-conda: false
 
     - name: Install conda dependencies
       shell: bash -el {0}
@@ -50,8 +52,8 @@ jobs:
           numpy scipy matplotlib scikit-learn pandas pyyaml click tqdm \
           rdkit biopython
         # Install additional deps that might not be in conda-forge
-        python -m pip install psutil requests pytest pytest-cov flake8
-        python -m pip install -e .
+        python -m pip install psutil requests httpx pytest pytest-cov flake8
+        python -m pip install -e ".[gui]"
 
     - name: Lint with flake8
       shell: bash -el {0}

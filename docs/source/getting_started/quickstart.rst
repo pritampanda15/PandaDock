@@ -1,123 +1,90 @@
 Quick Start
 ===========
 
-This tutorial will get you up and running with PandaDock in minutes.
+Run your first end-to-end molecular docking workflow in **PandaDock v5.0** in five minutes — either from the command line or visually in **PandaDock Studio**.
 
-Installation
-------------
+Option A — Visual Workflow in PandaDock Studio (Recommended for Beginners)
+--------------------------------------------------------------------------
 
-.. code-block:: bash
-
-   git clone https://github.com/pritampanda15/PandaDock.git
-   cd PandaDock
-   pip install -e ".[gnn]"
-
-This installs PandaDock with GNN support (PyTorch, PyTorch Geometric).
-
-Basic Docking Example
----------------------
-
-The simplest way to perform molecular docking:
+Launch the local web workspace in your project folder:
 
 .. code-block:: bash
 
-   pandadock dock -r protein.pdb -l ligand.sdf \
-                  --center 10 20 30 --box 20 20 20 \
-                  -o results/
+   pandadock-gui --port 8765 --workspace .
 
-Where:
+1. **Step 1 (Inputs & Preparation):** Drop your receptor PDB and ligand SDF/MOL2/SMILES. Expand **Prepare Protein & Ligand** to add hydrogens, assign pH 7.4 protonation, minimize the ligand in 3D, or strip crystal waters.
+2. **Step 2 (Binding Site):** If you uploaded a protein–ligand complex, click the detected **Co-Crystal Ligand** chip to center the box on that pocket and **automatically exclude** the old X-ray ligand from the docking grid (keeping protein, catalytic metals, and waters intact). You can also run **Auto-Detect Pockets**, center on a **Metal Ion**, or toggle **Pick** to click residues directly on the 3D protein.
+3. **Step 3–4 (Options & Launch):** Keep clean defaults (or configure waters, restraints, MM-GBSA, and MD handoff) and click **Run Docking & Reports**.
+4. **Inspect Results:** Explore explicit-H 3D binding pockets and 18 **PandaLens** interaction classes, open the interactive **2D View** (2D interaction map or RDKit 2D structure), browse 300-DPI plots, and read the embedded A4 vector ``report.pdf`` and ``report.html``.
 
-* ``-r protein.pdb``: Your receptor (protein) structure
-* ``-l ligand.sdf``: Your ligand structure
-* ``--center X Y Z``: Center coordinates of the binding site (Å)
-* ``--box X Y Z``: Size of the docking grid box (Å)
-* ``-o results/``: Output directory
+Option B — Command-Line Workflow
+--------------------------------
 
-Hybrid Docking with GNN (Recommended)
--------------------------------------
+1. Prepare Your Protein and Ligand
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-For best accuracy, use the hybrid workflow that combines traditional docking
-with GNN rescoring:
+Add missing hydrogens, assign pH 7.4 protonation states, and minimize the ligand in 3D:
 
 .. code-block:: bash
 
-   pandadock hybrid -r protein.pdb -l ligand.sdf \
-                    --center 10 20 30 --box 20 20 20 \
-                    --model models/best_model.pt \
-                    -o hybrid_results/
+   pandadock-prepare -r raw_protein.pdb -l raw_ligand.sdf --ph 7.4 -o prepared/
 
-This workflow:
+2. Define the Binding Site Grid Box
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-1. Generates diverse poses using hierarchical docking
-2. Rescores all poses using the SE(3)-equivariant GNN
-3. Ranks poses by GNN-predicted binding affinity (pEC50)
-
-GNN-Only Prediction
--------------------
-
-To predict binding affinity for an existing complex:
+Center the box on a known X-ray ligand, automatic cavity search, or active-site residues:
 
 .. code-block:: bash
 
-   pandadock gnn predict -m models/best_model.pt \
-                         -p protein.mol2 -l ligand.mol2
+   # From a reference X-ray ligand (5 Å padding)
+   pandadock-gridbox -r prepared/receptor.pdb -m similarity \
+                     --reference-ligand xray_ligand.sdf --padding 5.0 -o box.json
 
-Training Your Own GNN Model
----------------------------
+   # Or blind automatic cavity detection
+   pandadock-gridbox -r prepared/receptor.pdb -m cavities --max-sites 3 -o box.json
 
-Train on the ULVSH dataset:
-
-.. code-block:: bash
-
-   pandadock gnn train --dataset ULVSH/ --output models/ --epochs 100
-
-Compare against baselines:
+3. Dock, Audit & Generate Reports
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: bash
 
-   pandadock gnn compare --model models/best_model.pt \
-                         --dataset ULVSH/ --output results/
+   pandadock dock -r prepared/receptor.pdb -l prepared/ligand.sdf -g box.json \
+                  --scoring vina --waters displace --workers 4 --seed 42 -o results/
 
-Viewing Results
----------------
+Every run automatically produces:
 
-After docking completes, check the output directory:
+* ``poses.sdf`` — Ranked 3D poses with exact bond orders
+* ``complex1.pdb`` … — Receptor + docked ligand complexes
+* ``posebusters_audit.json`` — 11-point PoseBusters chemistry & geometry audit
+* ``report.pdf`` & ``report.html`` — Multi-page A4 vector brochure & editorial HTML report
+* 300-DPI diagnostic plots & PandaMap 2D/3D interaction diagrams
 
-* ``complex1.pdb``: Top-ranked protein-ligand complex
-* ``pose1.pdb``: Top-ranked ligand pose
-* ``hybrid_results.csv``: Complete results with GNN pEC50 values
-* ``interaction_analysis.json``: Detailed interactions
+v5.0 Medicinal-Chemistry Shortcuts
+----------------------------------
 
-Available Commands
-------------------
+.. code-block:: bash
 
-Main docking commands:
+   # Congeneric analog series tethered to a crystal scaffold + SAR Brochure PDF
+   pandadock series -r receptor.pdb -l analogs.smi --reference-pose parent.sdf \
+                    --center 10 20 30 --box 22 22 22 -o series_out/
 
-* ``pandadock dock``: Traditional docking with Vina-style scoring
-* ``pandadock hybrid``: Hybrid docking with GNN rescoring (recommended)
-* ``pandadock list-algorithms``: Show available algorithms
+   # Covalent warhead docking (8 built-in warheads, e.g. SARS-CoV-2 Mpro Cys145)
+   pandadock covalent -r 6lu7.pdb -l nirmatrelvir.smi --residue A:CYS:145 \
+                      --warhead auto -o covalent_out/
 
-GNN commands:
+   # Estimate binding affinity of a physics-docked pose with PandaDock-GNN
+   pandadock gnn download-model -o models/
+   pandadock gnn predict -m models/pandadock_gnn.pt -p receptor.pdb -l results/pose1.pdb
 
-* ``pandadock gnn download-model``: Download pre-trained model
-* ``pandadock gnn train``: Train GNN model
-* ``pandadock gnn predict``: Predict binding affinity
-* ``pandadock gnn rescore``: Rescore poses from any docking tool
-* ``pandadock gnn benchmark``: Benchmark model performance
-* ``pandadock gnn compare``: Compare against baselines
+   # One-command Dock-to-MD handoff (OpenMM + GROMACS + PandaInsight)
+   pandadock to-md -r receptor.pdb -p results/poses.sdf --engine both --duration-ns 50 -o md_pkg/
 
-Other tools:
-
-* ``pandadock-prepare``: Prepare ligands for docking
-* ``pandadock-gridbox``: Generate grid box configurations
-* ``pandadock-flex``: Flexible/induced-fit docking
-* ``pandadock-metal``: Metal coordination docking
-* ``pandadock-tethered``: Tethered docking for validation
-* ``pandadock-report``: Generate publication figures
+.. important::
+   **Separation of Concerns:** Use empirical physics scoring (``pandadock dock``) to select 3D poses, and use **PandaDock-GNN** (``pandadock gnn predict`` / ``rescore``) to estimate affinity and rank different ligands against the same target.
 
 Next Steps
 ----------
 
-* :doc:`../gnn/overview`: Learn about the GNN architecture
-* :doc:`../tutorials/gnn_training`: Train your own model
-* :doc:`../tutorials/hybrid_workflow`: Master the hybrid workflow
+* :doc:`../guide/studio_gui` — Full walkthrough of PandaDock Studio and PandaLens 3D/2D views
+* :doc:`../guide/medchem_v5` — Waters, restraints, pH states, covalent warheads, series SAR, PoseBusters & MD handoff
+* :doc:`../cli/pandadock` — Complete command-line reference

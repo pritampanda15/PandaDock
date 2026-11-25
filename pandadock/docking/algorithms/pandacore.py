@@ -121,6 +121,15 @@ class PandaCoreDocker(BaseDockingAlgorithm):
 
         scoring = self._scoring_function if isinstance(self._scoring_function, VinaScoring) else None
         grid_scoring = scoring or VinaScoring()
+        weights_override = kwargs.get("weights_override")
+        if isinstance(weights_override, dict):
+            w_params = {}
+            for k in ("gauss1", "gauss2", "repulsion", "hydrophobic", "hydrogen"):
+                if k in weights_override:
+                    w_params[f"{k}_weight"] = float(weights_override[k])
+            if "n_rot_weight" in weights_override:
+                w_params["n_rot_weight"] = float(weights_override["n_rot_weight"])
+            grid_scoring = VinaScoring(preset=grid_scoring.preset, **w_params)
         if self._scoring_function is not None and scoring is None:
             self.logger.info(
                 "Search is driven by the grid-accelerated Vina function; "
@@ -156,6 +165,7 @@ class PandaCoreDocker(BaseDockingAlgorithm):
         box_min = grid_center - grid_dimensions / 2.0
         box_max = grid_center + grid_dimensions / 2.0
 
+        restraints = kwargs.get("restraints")
         device = kwargs.get("device")
         all_minima = []
         total_evals = 0
@@ -167,6 +177,7 @@ class PandaCoreDocker(BaseDockingAlgorithm):
                 tether_center=kwargs.get("tether_center"),
                 tether_radius=float(kwargs.get("tether_radius", 0.0)),
                 tether_force=float(kwargs.get("tether_force", 10.0)),
+                restraints=restraints,
             )
             if primary_objective is None:
                 primary_objective = objective
@@ -222,6 +233,18 @@ class PandaCoreDocker(BaseDockingAlgorithm):
             clustered, tree, objective, mol, receptor_structure, grid_scoring
         )
 
+        restraint_summary = None
+        if restraints and poses:
+            for pose in poses:
+                r_e, _ = restraints.energy_and_gradient(pose.coordinates, need_gradient=False)
+                pose.energy_components["restraint_penalty"] = float(r_e)
+            poses.sort(key=lambda p: p.energy + p.energy_components.get("restraint_penalty", 0.0))
+            best_eff = poses[0].energy + poses[0].energy_components.get("restraint_penalty", 0.0)
+            for pose in poses:
+                eff = pose.energy + pose.energy_components.get("restraint_penalty", 0.0)
+                pose.confidence = float(np.exp(-(eff - best_eff) / 1.2))
+            restraint_summary = restraints.evaluate_summary(poses[0].coordinates)
+
         result = DockingResult(
             ligand_name=mol.GetProp("_Name") if mol.HasProp("_Name") else "unknown",
             receptor_file=receptor_file,
@@ -244,6 +267,8 @@ class PandaCoreDocker(BaseDockingAlgorithm):
                 "sample_rings": sample_rings,
                 "ring_conformers": len(trees_to_search),
                 "energy_evaluations": total_evals,
+                "restraints": restraint_summary,
+                "calibrated_weights": bool(weights_override),
             },
         )
 

@@ -51,6 +51,7 @@ class ModelConfig:
     # Multi-task
     predict_activity: bool = True
     predict_confidence: bool = False
+    predict_pose_rmsd: bool = False  # v5.0 dual-head: predicted pose RMSD (Å) to native
 
     # Inference / training preprocessing contract (optional for backward compat)
     strip_hydrogens: Optional[bool] = None
@@ -115,6 +116,53 @@ class ActivityHead(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x).squeeze(-1)
+
+
+class PoseRMSDHead(nn.Module):
+    """v5.0 pose-accuracy head predicting non-negative heavy-atom RMSD (Å) to native."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int = 128,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.SiLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, 1),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.softplus(self.net(x).squeeze(-1))
+
+
+def within_target_ranking_loss(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    group_ids: Optional[torch.Tensor] = None,
+    margin: float = 0.25,
+) -> torch.Tensor:
+    """Pairwise margin ranking loss over congeneric analogs within the same protein target.
+
+    Encourages the affinity head to preserve experimental ordering within each target
+    pocket rather than memorizing ligand molecular weight across targets.
+    """
+    n = pred.shape[0]
+    if n < 2:
+        return pred.new_tensor(0.0)
+    diff_t = target.unsqueeze(1) - target.unsqueeze(0)
+    diff_p = pred.unsqueeze(1) - pred.unsqueeze(0)
+    mask = diff_t > 0.1
+    if group_ids is not None:
+        mask = mask & (group_ids.unsqueeze(1) == group_ids.unsqueeze(0))
+    if not mask.any():
+        return pred.new_tensor(0.0)
+    losses = F.relu(margin - diff_p[mask])
+    return losses.mean()
 
 
 class PandaDockGNN(nn.Module):
@@ -211,6 +259,13 @@ class PandaDockGNN(nn.Module):
                 self.config.dropout
             )
 
+        if self.config.predict_pose_rmsd:
+            self.rmsd_head = PoseRMSDHead(
+                pool_output_dim,
+                self.config.affinity_hidden // 2,
+                self.config.dropout,
+            )
+
         # Store attention weights for interpretability
         self._last_attention: Optional[Dict[str, Any]] = None
 
@@ -304,6 +359,9 @@ class PandaDockGNN(nn.Module):
 
         if self.config.predict_confidence:
             predictions['confidence'] = self.confidence_head(g)
+
+        if self.config.predict_pose_rmsd:
+            predictions['pose_rmsd'] = self.rmsd_head(g)
 
         return predictions
 
